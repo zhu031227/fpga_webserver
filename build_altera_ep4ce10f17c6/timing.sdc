@@ -1,0 +1,9 @@
+#===================================================================
+# timing.sdc — EP4CE10F17C6 timing constraints (Quartus SDC format)
+#===================================================================
+
+# --- Input clock 50 MHz (period 20 ns) ---
+create_clock -period 20.000 -name clk_50m_in [get_ports clk_50m_in]
+
+# --- GMII RX clock 125 MHz (period 8 ns) ---
+create_clock -period 8.000 -name Eth0_RXC [get_ports Eth0_RXC]
