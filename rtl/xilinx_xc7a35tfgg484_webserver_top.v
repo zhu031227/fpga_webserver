@@ -1,25 +1,25 @@
-// xilinx_xc7a35tfgg484_webserver_top — Xilinx Artix-7 FPGA WebServer top module
+// xilinx_xc7a35tfgg484_webserver_top — xilinx artix-7 fpga webserver top module
 //
-// Target: XC7A35T-FGG484-2
-// PHY interface: RGMII (converted to internal GMII via rgmii2gmii)
-// Clock: 50 MHz input → MMCM PLL → 50 / 125 / 200 MHz
+// target: xc7a35t-fgg484-2
+// phy interface: rgmii (converted to internal gmii via rgmii2gmii)
+// clock: 50 mhz input → mmcm pll → 50 / 125 / 200 mhz
 //
-// Platform-specific:
-//   - Xilinx MMCM PLL (pll_50m)
-//   - rgmii2gmii for RGMII-to-GMII conversion
-//   - IDELAY/ODDR primitives for RGMII DDR I/O
+// platform-specific:
+//   - xilinx mmcm pll (pll_50m)
+//   - rgmii2gmii for rgmii-to-gmii conversion
+//   - idelay/oddr primitives for rgmii ddr i/o
 
 module xilinx_xc7a35tfgg484_webserver_top #(
-    parameter sim_mod = 0,
-    parameter Xilinx_IDELAY_VALUE = 16
+    parameter int sim_mod = 0,
+    parameter int xilinx_idelay_value = 16
 ) (
-    input  clk_50m_in,
-    input  reset_l,
+    input clk_50m_in,
+    input reset_l,
 
     input  uart_rx,
     output uart_tx,
 
-    // RGMII interface
+    // rgmii interface
     output       rgmii_reset_l,
     input        rgmii_rxc,
     input        rgmii_rx_ctl,
@@ -28,41 +28,48 @@ module xilinx_xc7a35tfgg484_webserver_top #(
     output       rgmii_tx_ctl,
     output [3:0] rgmii_txd,
 
-    // MDIO
-    output Eth0_MDC,
-    inout  Eth0_MDIO,
+    // mdio
+    output eth0_mdc,
+    inout  eth0_mdio,
 
     output [3:0] led_o
 );
 
-  localparam device_vendor = (sim_mod == 0) ? "AMD" : "";
+  localparam string device_vendor = (sim_mod == 0) ? "AMD" : "";
 
-  // --- Reset synchronizer (analysis_report fix: async assert, sync deassert) ---
-  reg [1:0] reset_sync;
-  wire reset_l_synced;
+  // --- reset synchronizer (async assert, sync deassert) ---
+  wire       reset_l_synced;
 
-  always @(negedge reset_l or posedge clk_50m_in)
-    if (reset_l == 1'b0) begin
-      reset_sync <= 2'b00;
-    end else begin
-      reset_sync <= {reset_sync[0], 1'b1};
-    end
+  // --- pll clocks ---
+  wire       clk_50m;
+  wire       clk_125m;
+  wire       clk_200m;
+  wire       pll_locked;
 
-  assign reset_l_synced = reset_sync[1];
+  // --- rgmii to gmii conversion ---
+  wire       gmii_rx_clk;
+  wire       gmii_rx_dv;
+  wire [7:0] gmii_rxd;
+  wire       gmii_tx_en;
+  wire [7:0] gmii_txd;
 
-  // --- PLL clocks ---
-  wire clk_50m;
-  wire clk_125m;
-  wire clk_200m;
-  wire pll_locked;
+  // PLL lock-gated reset controller
+  clk_rst_ctrl #(
+      .NUM_LOCK_INPUTS(1)
+  ) u_clk_rst_ctrl (
+      .clk        (clk_50m_in),
+      .async_rst_l(reset_l),
+      .pll_locked (pll_locked),
+      .rst_l      (reset_l_synced)
+  );
 
   generate
-    if (sim_mod == 1 || device_vendor == "") begin : clk_bypass
-      assign clk_50m  = clk_50m_in;
+    if (sim_mod == 1 || device_vendor == "") begin : g_clk_bypass
+      assign clk_50m = clk_50m_in;
       assign clk_125m = clk_50m_in;
       assign clk_200m = clk_50m_in;
       assign pll_locked = 1'b1;
-    end else begin : clk_pll
+    end else begin : g_clk_pll
       pll_50m u_pll (
           .inclk0(clk_50m_in),
           .c0    (clk_50m),
@@ -73,19 +80,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
     end
   endgenerate
 
-  // --- RGMII to GMII conversion ---
-  wire        gmii_rx_clk;
-  wire        gmii_rx_dv;
-  wire [7:0]  gmii_rxd;
-  wire        gmii_tx_en;
-  wire [7:0]  gmii_txd;
-  wire        gmii_tx_err;
-
   rgmii2gmii #(
-      .Xilinx_IDELAY_VALUE(Xilinx_IDELAY_VALUE),
+      .xilinx_idelay_value(xilinx_idelay_value),
       .vendor(device_vendor)
   ) u_rgmii2gmii (
-      .reset_l(reset_l_synced),
+      .reset_l (reset_l_synced),
       .clk_200m(clk_200m),
 
       .gmii_rx_clk(gmii_rx_clk),
@@ -96,46 +95,43 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .gmii_tx_en (gmii_tx_en),
       .gmii_txd   (gmii_txd),
 
-      .rgmii_rxc    (rgmii_rxc),
-      .rgmii_rx_ctl (rgmii_rx_ctl),
-      .rgmii_rxd    (rgmii_rxd),
-      .rgmii_txc    (rgmii_txc),
-      .rgmii_tx_ctl (rgmii_tx_ctl),
-      .rgmii_txd    (rgmii_txd)
+      .rgmii_rxc   (rgmii_rxc),
+      .rgmii_rx_ctl(rgmii_rx_ctl),
+      .rgmii_rxd   (rgmii_rxd),
+      .rgmii_txc   (rgmii_txc),
+      .rgmii_tx_ctl(rgmii_tx_ctl),
+      .rgmii_txd   (rgmii_txd)
   );
 
   assign rgmii_reset_l = reset_l_synced;
 
-  // --- WebServer core wrapper ---
+  // --- webserver core wrapper ---
   webserver_wrapper #(
-      .debug_en(0),
       .lcpu_inst_en(1),
-      .pll_bypass(sim_mod == 1)
+      .pll_bypass  (sim_mod == 1)
   ) u_webserver (
-      .clk           (clk_50m_in),
-      .reset_l       (reset_l_synced),
-      .clk_50Mhz_in  (clk_50m),
-      .clk_125Mhz_in (clk_125m),
-      .clk_200Mhz_in (clk_200m),
+      .clk          (clk_50m_in),
+      .reset_l      (reset_l_synced),
+      .clk_50mhz_in (clk_50m),
+      .clk_125mhz_in(clk_125m),
+      .clk_200mhz_in(clk_200m),
 
-      .uart_rx  (uart_rx),
-      .uart_tx  (uart_tx),
+      .uart_rx(uart_rx),
+      .uart_tx(uart_tx),
 
-      .Eth0_MDC  (Eth0_MDC),
-      .Eth0_MDIO (Eth0_MDIO),
+      .eth0_mdc (eth0_mdc),
+      .eth0_mdio(eth0_mdio),
 
-      // Internal GMII (from rgmii2gmii)
-      .gmii_rx_clk (gmii_rx_clk),
-      .gmii_rx_dv  (gmii_rx_dv),
-      .gmii_rx_err (1'b0),
-      .gmii_rxd    (gmii_rxd),
+      // internal gmii (from rgmii2gmii)
+      .gmii_rx_clk(gmii_rx_clk),
+      .gmii_rx_dv (gmii_rx_dv),
+      .gmii_rx_err(1'b0),
+      .gmii_rxd   (gmii_rxd),
 
-      .gmii_tx_clk (clk_125m),
-      .gmii_txd    (gmii_txd),
-      .gmii_tx_en  (gmii_tx_en),
-      .gmii_tx_err (gmii_tx_err),
+      .gmii_txd   (gmii_txd),
+      .gmii_tx_en (gmii_tx_en),
+      .gmii_tx_err(),
 
-      .Led(led_o)
+      .led(led_o)
   );
-
 endmodule

@@ -1,16 +1,16 @@
-// cpu_channel — CPU-MAC data channel with packet FIFOs
-// Bridges the 125MHz Ethernet MAC domain to the 50MHz CPU domain.
-// RX path: MAC → ram2pktfifo_int → package_fifo (async) → CPU read port
-// TX path: CPU write port → package_fifo (async) → pktfifo2ram_int → sop_eop_gen → MAC
+// cpu_channel — cpu-mac data channel with packet fifos
+// bridges the 125mhz ethernet mac domain to the 50mhz cpu domain.
+// rx path: mac → ram2pktfifo_int → package_fifo (async) → cpu read port
+// tx path: cpu write port → package_fifo (async) → pktfifo2ram_int → sop_eop_gen → mac
 
 module cpu_channel #(
-    parameter cpu_buf_addr_width       = 11,
-    parameter cpu_buf_block_mode       = "false",
-    parameter cpu_buf_block_addr_width = 3,
-    parameter cpu_buf_data_width       = 8,
-    parameter cpu_buf_para_width       = 3,
-    parameter cpu_buf_data_ram_type    = "M9K",
-    parameter cpu_buf_para_ram_type    = "registers"
+    parameter int    cpu_buf_addr_width       = 11,
+    parameter string cpu_buf_block_mode       = "false",
+    parameter int    cpu_buf_block_addr_width = 3,
+    parameter int    cpu_buf_data_width       = 8,
+    parameter int    cpu_buf_para_width       = 3,
+    parameter string cpu_buf_data_ram_type    = "M9K",
+    parameter string cpu_buf_para_ram_type    = "registers"
 ) (
     input clk,
     input reset_l,
@@ -32,7 +32,7 @@ module cpu_channel #(
     input      [15:0] filter_offset,
     output reg [ 7:0] recv_pkt_drop_cnt,
 
-    // CPU read/get data port
+    // cpu read/get data port
     output   cpu_rd_empty,
     input    cpu_rd_rpkt_pop,
     output[cpu_buf_addr_width:0]cpu_rd_rpkt_len,
@@ -42,7 +42,7 @@ module cpu_channel #(
     output[cpu_buf_data_width-1:0]cpu_rd_rdata,
     output   cpu_rd_reop_pre,
 
-    // CPU write/send data port
+    // cpu write/send data port
     output   cpu_wr_full,
     input    cpu_wr_wen,
     input [cpu_buf_addr_width-1:0]cpu_wr_waddr,
@@ -75,7 +75,7 @@ module cpu_channel #(
 
   reg                           pass_enable;
 
-  // RX byte counter (resets on SOP, increments on data enable)
+  // rx byte counter (resets on sop, increments on data enable)
   always @(negedge reset_l or posedge clk)
     if (reset_l == 1'b0) begin
       mac_rx_addr <= {cpu_buf_addr_width{1'b0}};
@@ -86,7 +86,7 @@ module cpu_channel #(
       end
     end
 
-  // Convert continuous RX byte stream into ram2pktfifo_int interface
+  // convert continuous rx byte stream into ram2pktfifo_int interface
   ram2pktfifo_int #(
       .addr_width(cpu_buf_addr_width),
       .data_width(cpu_buf_data_width),
@@ -111,7 +111,7 @@ module cpu_channel #(
       .wpkt_para(mac_in_wpkt_para)
   );
 
-  // Packet filter: enable/disable forwarding based on data match at offset
+  // packet filter: enable/disable forwarding based on data match at offset
   always @(negedge reset_l or posedge clk)
     if (reset_l == 1'b0) begin
       pass_enable <= 1'b0;
@@ -134,7 +134,7 @@ module cpu_channel #(
       end
     end
 
-  // RX async FIFO: 125MHz (MAC) → 50MHz (CPU read port)
+  // rx async fifo: 125mhz (mac) → 50mhz (cpu read port)
   package_fifo_v2 #(
       .dual_clock(1),
       .addr_width(cpu_buf_addr_width),
@@ -170,7 +170,7 @@ module cpu_channel #(
       .reop_pre (cpu_rd_reop_pre)
   );
 
-  // TX async FIFO: 50MHz (CPU write port) → 125MHz (MAC)
+  // tx async fifo: 50mhz (cpu write port) → 125mhz (mac)
   package_fifo_v2 #(
       .dual_clock(1),
       .addr_width(cpu_buf_addr_width),
@@ -206,7 +206,7 @@ module cpu_channel #(
       .reop_pre (mac_in_reop_pre)
   );
 
-  // TX packet FIFO → continuous byte stream (with IPG insertion)
+  // tx packet fifo → continuous byte stream (with ipg insertion)
   pktfifo2ram_int_v2 #(
       .addr_width(cpu_buf_addr_width),
       .data_width(cpu_buf_data_width),
@@ -235,7 +235,7 @@ module cpu_channel #(
       .ram_wpara()
   );
 
-  // Generate SOP/EOP sideband signals from continuous byte stream
+  // generate sop/eop sideband signals from continuous byte stream
   sop_eop_gen #(
       .data_width(8)
   ) u_sop_eop_gen (
@@ -253,5 +253,4 @@ module cpu_channel #(
       .o_eop (mac_tx_eop),
       .o_err (mac_tx_err)
   );
-
 endmodule

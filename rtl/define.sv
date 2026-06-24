@@ -4,3 +4,11 @@
 //
 // The platform-specific top modules handle the PHY interface conversion.
 // The internal webserver_wrapper always uses GMII signaling.
+
+`ifndef DEFINE_SV
+`define DEFINE_SV
+
+// Global definitions for FPGA WebServer project
+// Add shared `define macros here
+
+`endif

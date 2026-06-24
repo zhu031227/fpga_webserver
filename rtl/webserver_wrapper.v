@@ -1,444 +1,370 @@
-// webserver_wrapper — Platform-independent FPGA WebServer core
+// webserver_wrapper — platform-independent fpga webserver core
 //
-// Combines:
-//   - RISC-V CPU subsystem (LCPU + RISC-V + bus merge)
-//   - Register file (reg_webserver)
-//   - Ethernet GMII MAC (gmii2mac)
-//   - MDIO controller (lcpu_mdio)
-//   - CPU-MAC data channel (cpu_channel)
-//   - Timer / local-time counter / debug RAM
+// combines:
+//   - risc-v cpu subsystem (lcpu + risc-v + bus merge)
+//   - register file (reg_webserver)
+//   - ethernet gmii mac (gmii2mac)
+//   - mdio controller (lcpu_mdio)
+//   - cpu-mac data channel (cpu_channel)
+//   - timer / local-time counter / debug ram
 //
-// Internal interface: GMII (8-bit SDR)
-// Xilinx top adds rgmii2gmii for RGMII PHY
-// Altera top connects GMII directly
+// internal interface: gmii (8-bit sdr)
+// xilinx top adds rgmii2gmii for rgmii phy
+// altera top connects gmii directly
 
 module webserver_wrapper #(
-    parameter debug_en = 0,
-    parameter lcpu_inst_en = 1,
-    parameter second_event_period = 50000000,  // 1s at 50MHz
-    parameter pll_bypass = 0,
-    parameter Xilinx_IDELAY_VALUE = 16
+    parameter int lcpu_inst_en = 1,
+    parameter int second_event_period = 50000000,  // 1s at 50mhz
+    parameter int pll_bypass = 0,
+    parameter int xilinx_idelay_value = 16
 ) (
     input clk,
     input reset_l,
-    input clk_50Mhz_in,    // PLL bypass: 50MHz clock in
-    input clk_125Mhz_in,   // PLL bypass: 125MHz clock in
-    input clk_200Mhz_in,   // PLL bypass: 200MHz clock in
+    input clk_50mhz_in,   // pll bypass: 50mhz clock in
+    input clk_125mhz_in,  // pll bypass: 125mhz clock in
+    input clk_200mhz_in,  // pll bypass: 200mhz clock in
 
     input  uart_rx,
     output uart_tx,
 
-    // MDIO (shared across platforms)
-    output Eth0_MDC,
-    inout  Eth0_MDIO,
+    // mdio (shared across platforms)
+    output eth0_mdc,
+    inout  eth0_mdio,
 
-    // Internal GMII: RX (from PHY or rgmii2gmii)
-    input        gmii_rx_clk,
-    input        gmii_rx_dv,
-    input        gmii_rx_err,
-    input  [7:0] gmii_rxd,
+    // internal gmii: rx (from phy or rgmii2gmii)
+    input       gmii_rx_clk,
+    input       gmii_rx_dv,
+    input       gmii_rx_err,
+    input [7:0] gmii_rxd,
 
-    // Internal GMII: TX (to PHY or rgmii2gmii)
-    input        gmii_tx_clk,
+    // internal gmii: tx (to phy or rgmii2gmii)
     output [7:0] gmii_txd,
     output       gmii_tx_en,
     output       gmii_tx_err,
 
-    output [3:0] Led
+    output [3:0] led
 );
 
-  localparam VersionID = 32'h80000008;
-  localparam FPGA_Time = 32'h06152038;
+  localparam int uart_baud_rate = 115200;
+  localparam string cpu_vendor = "AMD";  // "Intel", "AMD", "UART"
+  localparam string device_vendor = "AMD";  // "Intel", "AMD"
 
-  localparam uart_baud_rate = 115200;
-  localparam cpu_vendor = "AMD";     // "Intel", "AMD", "UART"
-  localparam device_vendor = "AMD";  // "Intel", "AMD"
+  localparam int riscv_inst_en = 1;
 
-  localparam riscv_inst_en = 1;
+  // instruction ram
+  localparam string instr_ram_type = "block";
+  localparam int instr_addr_depth = 1024 * 12;  // 12288 x 32-bit words
+  localparam int instr_addr_width = $clog2(instr_addr_depth);
+  localparam int init_blockram_size = 32;
+  localparam int lcpu_init_instru = 1;
+  localparam int amd_coe_init_instru = 0;
+  localparam int intel_hex_init_instru = 0;
 
-  // Instruction RAM
-  localparam instr_ram_type = "block";
-  localparam instr_addr_depth = 1024*12;  // 12288 x 32-bit words
-  localparam instr_addr_width = $clog2(instr_addr_depth);
-  localparam init_BlockRAM_Size = 32;
-  localparam lcpu_init_instru = 1;
-  localparam amd_coe_init_instru = 0;
-  localparam intel_hex_init_instru = 0;
+  // cpu packet buffer
+  localparam int cpu_buf_addr_width = 12;
+  localparam string cpu_buf_block_mode = "false";
+  localparam int cpu_buf_block_addr_width = 2;
+  localparam int cpu_buf_data_width = 8;
+  localparam int cpu_buf_para_width = 1;
+  localparam string cpu_buf_data_ram_type = "M9K";
+  localparam string cpu_buf_para_ram_type = "registers";
 
-  // CPU packet buffer
-  localparam cpu_buf_addr_width = 12;
-  localparam cpu_buf_block_mode = "false";
-  localparam cpu_buf_block_addr_width = 2;
-  localparam cpu_buf_data_width = 8;
-  localparam cpu_buf_para_width = 1;
-  localparam cpu_buf_data_ram_type = "M9K";
-  localparam cpu_buf_para_ram_type = "registers";
+  // clocks
+  wire                        clk_50mhz;
+  wire                        clk_125mhz;
+  wire                        clk_200mhz;
 
-  // Clocks
-  wire clk_50Mhz;
-  wire clk_125Mhz;
-  wire clk_200Mhz;
+  // build time
+  wire [                31:0] fpga_build_date;
+  wire [                31:0] fpga_build_time;
 
-  // LED (active low on ACX750)
-  wire [3:0] Led_L;
-  assign Led = ~Led_L;
+  // --- 64-bit local time counter (tod) ---
+  wire [                63:0] local_time_counter;
+  wire [                31:0] local_time_l = local_time_counter[31:0];
+  wire [                31:0] local_time_h = local_time_counter[63:32];
 
-  // --- PLL or bypass ---
+  // --- second event timer ---
+  wire                        second_event;
+
+  // --- cpu subsystem: lcpu + risc-v + bus merge ---
+  // reuses fpga_cpu/rtl/lcpu_riscv_wrapper.v
+
+  wire                        cpu_req;
+  wire                        cpu_rhwl;
+  wire [                31:0] cpu_wdata;
+  wire [                31:0] cpu_address;
+  wire [                31:0] cpu_rdata;
+  wire                        cpu_ack;
+
+  // instruction ram interface
+  wire                        pram_wr;
+  wire [instr_addr_width-1:0] pram_addr;
+  wire [                31:0] pram_wdata;
+  wire [                31:0] pram_rdata;
+
+  // --- register signals ---
+  wire                        get_local_time;
+  wire [                31:0] debug_rw_0;  // 50MHz, debug reg
+  wire [                15:0] filter_data_src;  // 50MHz, from reg_webserver
+  wire [                15:0] filter_data_synced;  // 125MHz, REQACK → cpu_channel
+  wire [                15:0] filter_offset_src;
+  wire [                15:0] filter_offset_synced;
+  wire [                31:0] debug_rw_1;
+  wire [                31:0] debug_ro_0;  // 50MHz, assembled → reg_webserver
+  wire [                 7:0] recv_pkt_drop_cnt_src;  // 125MHz, from cpu_channel
+  wire [                 7:0] recv_pkt_drop_cnt;  // 50MHz, GRAY synced → debug_ro_0
+  wire [                31:0] debug_ro_1;
+  wire [                 3:0] eth_greset;
+
+  // ethernet mdio sub-bus
+  wire eth0_op_req, eth0_wrl_rdh;
+  wire [31:0] eth0_wrdata, eth0_address;
+  wire                          eth0_op_ack;
+  wire [                  31:0] eth0_rddata;
+
+  // eth0 statistics (125MHz domain, from gmii2mac)
+  wire [                  31:0] eth0_rx_correct_pkt_cnt_src;
+  wire [                  31:0] eth0_rx_crc_err_pkt_cnt_src;
+  wire [                  31:0] eth0_tx_correct_pkt_cnt_src;
+  wire [                  31:0] eth0_tx_error_pkt_cnt_src;
+  wire [                  31:0] eth0_rx_afifo_full_cnt_src;
+  wire [                  31:0] eth0_rx_afifo_empty_cnt_src;
+  wire [                  31:0] eth0_rx_data_err_line_src;
+
+  // eth0 statistics（50MHz domain, Gray同步后送 reg_webserver）
+  wire [                  31:0] eth0_rx_correct_pkt_cnt;
+  wire [                  31:0] eth0_rx_crc_err_pkt_cnt;
+  wire [                  31:0] eth0_tx_correct_pkt_cnt;
+  wire [                  31:0] eth0_tx_error_pkt_cnt;
+  wire [                  31:0] eth0_rx_afifo_full_cnt;
+  wire [                  31:0] eth0_rx_afifo_empty_cnt;
+  wire [                  31:0] eth0_rx_data_err_line;
+
+  // cpu packet channel
+  wire                          cpu_rd_empty;
+  wire                          cpu_rd_rpkt_pop_ind;
+  wire [  cpu_buf_addr_width:0] cpu_rd_rpkt_len;
+  wire [cpu_buf_para_width-1:0] cpu_rd_rpkt_para;
+  wire                          cpu_rd_ren;
+  wire [cpu_buf_addr_width-1:0] cpu_rd_raddr;
+  wire [cpu_buf_data_width-1:0] cpu_rd_rdata;
+  wire                          cpu_rd_reop_pre;
+
+  wire                          cpu_wr_full;
+  wire                          cpu_wr_wen_ind;
+  wire [cpu_buf_addr_width-1:0] cpu_wr_waddr;
+  wire [cpu_buf_data_width-1:0] cpu_wr_wdata;
+  wire [  cpu_buf_addr_width:0] cpu_wr_wpkt_len;
+  wire [cpu_buf_para_width-1:0] cpu_wr_wpkt_para;
+  wire                          cpu_wr_wpkt_push_ind;
+
+  // --- gmii to mac packet interface (from ip_common) ---
+  wire eth0_mac_rx_sop, eth0_mac_rx_en, eth0_mac_rx_eop, eth0_mac_rx_err;
+  wire [7:0] eth0_mac_rx_data;
+  wire eth0_mac_tx_sop, eth0_mac_tx_en, eth0_mac_tx_eop, eth0_mac_tx_err;
+  wire [ 7:0] eth0_mac_tx_data;
+
+  // --- filter config change detectors + REQACK CDC (50MHz → 125MHz) ---
+  reg  [15:0] filter_data_prev;
+  wire        filter_data_valid;
+  wire        filter_data_reqack_ready;
+  reg  [15:0] filter_offset_prev;
+  wire        filter_offset_valid;
+  wire        filter_offset_reqack_ready;
+
+  // led (active low on acx750)
+
+  // --- pll or bypass ---
   generate
-    if (pll_bypass == 1) begin : pll_bypass_gen
-      assign clk_50Mhz  = clk_50Mhz_in;
-      assign clk_125Mhz = clk_125Mhz_in;
-      assign clk_200Mhz = clk_200Mhz_in;
-    end else begin : pll_inst_gen
-      PLL_50M U_PLL (
-          .inclk0 (clk),
-          .c0     (clk_50Mhz),
-          .c1     (clk_125Mhz),
-          .c2     (clk_200Mhz),
-          .locked ()
+    if (pll_bypass == 1) begin : g_pll_bypass_gen
+      assign clk_50mhz  = clk_50mhz_in;
+      assign clk_125mhz = clk_125mhz_in;
+      assign clk_200mhz = clk_200mhz_in;
+    end else begin : g_pll_inst_gen
+      pll_50m u_pll (
+          .inclk0(clk),
+          .c0    (clk_50mhz),
+          .c1    (clk_125mhz),
+          .c2    (clk_200mhz),
+          .locked()
       );
     end
   endgenerate
 
-  // --- 64-bit free-running local time counter ---
-  reg  [63:0] local_time_counter;
-  wire [31:0] local_time_l;
-  wire [31:0] local_time_h;
-  assign local_time_l = local_time_counter[31:0];
-  assign local_time_h = local_time_counter[63:32];
-
-  always @(negedge reset_l or posedge clk_50Mhz)
-    if (reset_l == 1'b0) begin
-      local_time_counter <= 64'b0;
-    end else begin
-      local_time_counter <= local_time_counter + 1;
-    end
-
-  // --- Second event timer ---
-  reg  [25:0] second_event_cnt;
-  reg         second_event;
-
-  always @(negedge reset_l or posedge clk_50Mhz)
-    if (reset_l == 1'b0) begin
-      second_event <= 1'b0;
-      second_event_cnt <= 26'b0;
-    end else begin
-      if (second_event_cnt > second_event_period - 1) begin
-        second_event_cnt <= 26'b0;
-        second_event <= !second_event;
-      end else begin
-        second_event_cnt <= second_event_cnt + 1;
-      end
-    end
-
-  // --- CPU subsystem: LCPU + RISC-V + bus merge ---
-  // Follows fpga_cpu's lcpu_riscv_wrapper pattern
-
-  wire        jtag_req;
-  wire        jtag_rhwl;
-  wire [31:0] jtag_wdata;
-  wire [31:0] jtag_address;
-  wire [31:0] jtag_rdata;
-  wire        jtag_ack;
-
-  wire        riscv_req;
-  wire        riscv_rhwl;
-  wire [31:0] riscv_wdata;
-  wire [31:0] riscv_address;
-  wire [31:0] riscv_rdata;
-  wire        riscv_ack;
-
-  wire        cpu_req;
-  wire        cpu_rhwl;
-  wire [31:0] cpu_wdata;
-  wire [31:0] cpu_address;
-  wire [31:0] cpu_rdata;
-  wire        cpu_ack;
-
-  // Instruction RAM interface
-  wire                        pram_wr;
-  wire [instr_addr_width-1:0] pram_addr;
-  wire [               31:0] pram_wdata;
-  wire [               31:0] pram_rdata;
-
-  // LCPU JTAG/UART master (from ip_lcpu)
-  lcpu_top #(
-      .lcpu_vendor(cpu_vendor),
-      .device_vendor(device_vendor),
-      .uart_baud_rate(uart_baud_rate)
-  ) u_lcpu (
-      .clk    (clk_50Mhz),
-      .reset_l(reset_l),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx),
-
-      .jtag_rhwl    (jtag_rhwl),
-      .jtag_req     (jtag_req),
-      .jtag_ack     (jtag_ack),
-      .jtag_address (jtag_address),
-      .jtag_wdata   (jtag_wdata),
-      .jtag_rdata   (jtag_rdata)
+  tod #(
+      .counter_mode(1),  // 1=standard
+      .step        (20)  // 每个时钟+20
+  ) u_tod (
+      .clk         (clk_50mhz),
+      .reset_l     (reset_l),
+      .snapshot    (get_local_time),
+      .counter_live(),
+      .time_out    (local_time_counter)  // snapshot
+  );
+  interval_timer #(
+      .counter_width(26),
+      .period_count (second_event_period),
+      .output_mode  (0)                     // 0=toggle
+  ) u_second_timer (
+      .clk      (clk_50mhz),
+      .reset_l  (reset_l),
+      .event_out(second_event)
   );
 
-  // RISC-V CPU core (from ip_riscv)
-  riscv32_top #(
+  // --- fpga build time stamp ---
+  fpga_build_time u_fpga_build_time (
+      .build_date(fpga_build_date),
+      .build_time(fpga_build_time)
+  );
+
+  lcpu_riscv_wrapper #(
+      .sim_mod           (0),
+      .lcpu_type         (cpu_vendor),
+      .uart_baud_rate    (uart_baud_rate),
+      .riscv_inst_en     (riscv_inst_en),
       .instr_databits    (32),
-      .instr_ram_type    (instr_ram_type),
       .init_addr_width   (instr_addr_width),
       .init_addr_depth   (instr_addr_depth),
-      .init_blockram_size(init_BlockRAM_Size),
-      .vendor            (device_vendor),
+      .device_vendor     (device_vendor),
+      .instr_ram_type    (instr_ram_type),
+      .init_blockram_size(init_blockram_size),
       .enable_irq        (0),
       .enable_irq_qregs  (1),
       .progaddr_irq      (16)
-  ) u_riscv_cpu (
-      .clk          (clk_50Mhz),
+  ) u_cpu_subsystem (
+      .clk          (clk_50mhz),
       .reset_l      (reset_l),
-      .req          (riscv_req),
-      .rhwl         (riscv_rhwl),
-      .wr_byte_en   (),
-      .wdata        (riscv_wdata),
-      .address      (riscv_address),
-      .rdata        (riscv_rdata),
-      .ack          (riscv_ack),
-      .program_wr   (pram_wr),
-      .program_waddr(pram_addr[instr_addr_width-1:0]),
-      .program_wdata(pram_wdata),
-      .program_rdata(pram_rdata),
-      .irq          (32'b0)
-  );
+      .uart_rx      (uart_rx),
+      .uart_tx      (uart_tx),
+      .riscv_reset_l(reset_l),
 
-  // Dual-master bus arbiter (from ip_common)
-  lcpu_merge #(
-      .addr_width(32),
-      .data_width(32)
-  ) u_lcpu_merge (
-      .reset_l(reset_l),
-      .clk    (clk_50Mhz),
+      .pram_wr   (pram_wr),
+      .pram_addr (pram_addr),
+      .pram_wdata(pram_wdata),
+      .pram_rdata(pram_rdata),
 
-      .op_req_1  (jtag_req),
-      .wrl_rdh_1 (jtag_rhwl),
-      .wrdata_1  (jtag_wdata),
-      .address_1 (jtag_address),
-      .op_ack_1  (jtag_ack),
-      .rddata_1  (jtag_rdata),
-
-      .op_req_2  (riscv_req),
-      .wrl_rdh_2 (riscv_rhwl),
-      .wrdata_2  (riscv_wdata),
-      .address_2 (riscv_address),
-      .op_ack_2  (riscv_ack),
-      .rddata_2  (riscv_rdata),
-
-      .op_req  (cpu_req),
-      .wrl_rdh (cpu_rhwl),
-      .wrdata  (cpu_wdata),
-      .address (cpu_address),
-      .op_ack  (cpu_ack),
-      .rddata  (cpu_rdata)
-  );
-
-  // --- Register signals ---
-  wire        get_local_time;
-  wire        get_local_time_ind;
-  wire [31:0] debug_RW_0;
-  wire [31:0] debug_RW_1;
-  wire [31:0] debug_RO_0;
-  wire [31:0] debug_RO_1;
-  wire [ 3:0] Eth_GRESET;
-
-  // Ethernet MDIO sub-bus
-  wire        eth0_op_req, eth0_wrl_rdh;
-  wire [31:0] eth0_wrdata, eth0_address;
-  wire        eth0_op_ack;
-  wire [31:0] eth0_rddata;
-
-  // Eth0 statistics
-  wire [31:0] eth0_rx_correct_pkt_cnt;
-  wire [31:0] eth0_rx_crc_err_pkt_cnt;
-  wire [31:0] eth0_tx_correct_pkt_cnt;
-  wire [31:0] eth0_tx_error_pkt_cnt;
-  wire [31:0] eth0_rx_afifo_full_cnt;
-  wire [31:0] eth0_rx_afifo_empty_cnt;
-  wire [31:0] eth0_rx_data_err_line;
-
-  // Eth1 statistics (reserved, tied to 0)
-  wire [31:0] eth1_zero = 32'b0;
-
-  // CPU packet channel
-  wire cpu_rd_empty;
-  wire cpu_rd_rpkt_pop_ind;
-  wire [cpu_buf_addr_width:0] cpu_rd_rpkt_len;
-  wire [cpu_buf_para_width-1:0] cpu_rd_rpkt_para;
-  wire cpu_rd_ren;
-  wire [cpu_buf_addr_width-1:0] cpu_rd_raddr;
-  wire [cpu_buf_data_width-1:0] cpu_rd_rdata;
-  wire cpu_rd_reop_pre;
-  wire [31:0] cpu_rd_reg_rw_0, cpu_rd_reg_rw_1, cpu_rd_reg_rw_2, cpu_rd_reg_rw_3;
-  wire [31:0] cpu_rd_reg_ro_0, cpu_rd_reg_ro_1;
-  wire [31:0] cpu_rd_reg_wc_0;
-  wire cpu_rd_reg_wc_0_ind;
-  wire [31:0] cpu_rd_reg_rc_0;
-  wire cpu_rd_reg_rc_0_ind;
-
-  wire cpu_wr_full;
-  wire cpu_wr_wen_ind;
-  wire [cpu_buf_addr_width-1:0] cpu_wr_waddr;
-  wire [cpu_buf_data_width-1:0] cpu_wr_wdata;
-  wire [cpu_buf_addr_width:0] cpu_wr_wpkt_len;
-  wire [cpu_buf_para_width-1:0] cpu_wr_wpkt_para;
-  wire cpu_wr_wpkt_push_ind;
-  wire [0:0] cpu_wr_reg_rw_0;
-  wire [31:0] cpu_wr_reg_rw_1, cpu_wr_reg_rw_2, cpu_wr_reg_rw_3;
-  wire [31:0] cpu_wr_reg_ro_0, cpu_wr_reg_ro_1;
-  wire [31:0] cpu_wr_reg_wc_0;
-  wire cpu_wr_reg_wc_0_ind;
-  wire [31:0] cpu_wr_reg_rc_0, cpu_wr_reg_rc_1;
-  wire cpu_wr_reg_rc_0_ind, cpu_wr_reg_rc_1_ind;
-
-  // Debug RAM
-  wire        RAMIF_dbg_ram_0_Ram_RlWh;
-  wire [11:0] RAMIF_dbg_ram_0_Ram_Addr;
-  wire [31:0] RAMIF_dbg_ram_0_Ram_WrData;
-  wire [31:0] RAMIF_dbg_ram_0_Ram_RdData;
-
-  // --- Register file ---
-  reg_webserver u_reg (
-      .version_time           (FPGA_Time),
-      .Eth_GRESET             (Eth_GRESET),
-      .second_event           (second_event),
-      .get_local_time         (get_local_time),
-      .get_local_time_ind     (get_local_time_ind),
-      .local_time_l           (local_time_l),
-      .local_time_h           (local_time_h),
-      .debug_RW_0             (debug_RW_0),
-      .debug_RW_1             (debug_RW_1),
-      .debug_RO_0             (debug_RO_0),
-      .debug_RO_1             (debug_RO_1),
-
-      .eth0_rx_correct_pkt_cnt(eth0_rx_correct_pkt_cnt),
-      .eth0_rx_crc_err_pkt_cnt(eth0_rx_crc_err_pkt_cnt),
-      .eth0_tx_correct_pkt_cnt(eth0_tx_correct_pkt_cnt),
-      .eth0_tx_error_pkt_cnt  (eth0_tx_error_pkt_cnt),
-      .eth0_rx_afifo_full_cnt (eth0_rx_afifo_full_cnt),
-      .eth0_rx_afifo_empty_cnt(eth0_rx_afifo_empty_cnt),
-      .eth0_rx_data_err_line  (eth0_rx_data_err_line),
-
-      .eth1_rx_correct_pkt_cnt(eth1_zero),
-      .eth1_rx_crc_err_pkt_cnt(eth1_zero),
-      .eth1_tx_correct_pkt_cnt(eth1_zero),
-      .eth1_tx_error_pkt_cnt  (eth1_zero),
-      .eth1_rx_afifo_full_cnt (eth1_zero),
-      .eth1_rx_afifo_empty_cnt(eth1_zero),
-      .eth1_rx_data_err_line  (eth1_zero),
-
-      .SUBBUS_Eth0_Req    (eth0_op_req),
-      .SUBBUS_Eth0_RhWl   (eth0_wrl_rdh),
-      .SUBBUS_Eth0_ReqAddr(eth0_address[11:0]),
-      .SUBBUS_Eth0_DataWr (eth0_wrdata),
-      .SUBBUS_Eth0_DataRd (eth0_rddata),
-      .SUBBUS_Eth0_Ack    (eth0_op_ack),
-
-      .SUBBUS_Eth1_Req    (),
-      .SUBBUS_Eth1_RhWl   (),
-      .SUBBUS_Eth1_ReqAddr(),
-      .SUBBUS_Eth1_DataWr (),
-      .SUBBUS_Eth1_DataRd (32'b0),
-      .SUBBUS_Eth1_Ack    (1'b0),
-
-      .RAMIF_dbg_ram_0_Ram_RlWh  (RAMIF_dbg_ram_0_Ram_RlWh),
-      .RAMIF_dbg_ram_0_Ram_Addr  (RAMIF_dbg_ram_0_Ram_Addr),
-      .RAMIF_dbg_ram_0_Ram_WrData(RAMIF_dbg_ram_0_Ram_WrData),
-      .RAMIF_dbg_ram_0_Ram_RdData(RAMIF_dbg_ram_0_Ram_RdData),
-
-      .cpu_rd_empty        (cpu_rd_empty),
-      .cpu_rd_rpkt_pop     (),
-      .cpu_rd_rpkt_pop_ind (cpu_rd_rpkt_pop_ind),
-      .cpu_rd_rpkt_len     (cpu_rd_rpkt_len),
-      .cpu_rd_rpkt_para    (cpu_rd_rpkt_para),
-      .cpu_rd_ren          (cpu_rd_ren),
-      .cpu_rd_raddr        (cpu_rd_raddr),
-      .cpu_rd_rdata        (cpu_rd_rdata),
-      .cpu_rd_reop_pre     (cpu_rd_reop_pre),
-      .cpu_rd_reg_rw_0     (cpu_rd_reg_rw_0),
-      .cpu_rd_reg_rw_1     (cpu_rd_reg_rw_1),
-      .cpu_rd_reg_rw_2     (cpu_rd_reg_rw_2),
-      .cpu_rd_reg_rw_3     (cpu_rd_reg_rw_3),
-      .cpu_rd_reg_ro_0     (cpu_rd_reg_ro_0),
-      .cpu_rd_reg_ro_1     (cpu_rd_reg_ro_1),
-      .cpu_rd_reg_wc_0     (cpu_rd_reg_wc_0),
-      .cpu_rd_reg_wc_0_ind (cpu_rd_reg_wc_0_ind),
-      .cpu_rd_reg_rc_0     (cpu_rd_reg_rc_0),
-      .cpu_rd_reg_rc_0_ind (cpu_rd_reg_rc_0_ind),
-
-      .cpu_wr_full         (cpu_wr_full),
-      .cpu_wr_wen          (),
-      .cpu_wr_wen_ind      (cpu_wr_wen_ind),
-      .cpu_wr_waddr        (cpu_wr_waddr),
-      .cpu_wr_wdata        (cpu_wr_wdata),
-      .cpu_wr_wpkt_len     (cpu_wr_wpkt_len),
-      .cpu_wr_wpkt_para    (cpu_wr_wpkt_para),
-      .cpu_wr_wpkt_push    (),
-      .cpu_wr_wpkt_push_ind(cpu_wr_wpkt_push_ind),
-      .cpu_wr_reg_rw_0     (cpu_wr_reg_rw_0),
-      .cpu_wr_reg_rw_1     (cpu_wr_reg_rw_1),
-      .cpu_wr_reg_rw_2     (cpu_wr_reg_rw_2),
-      .cpu_wr_reg_rw_3     (cpu_wr_reg_rw_3),
-      .cpu_wr_reg_ro_0     (cpu_wr_reg_ro_0),
-      .cpu_wr_reg_ro_1     (cpu_wr_reg_ro_1),
-      .cpu_wr_reg_wc_0     (cpu_wr_reg_wc_0),
-      .cpu_wr_reg_wc_0_ind (cpu_wr_reg_wc_0_ind),
-      .cpu_wr_reg_rc_0     (cpu_wr_reg_rc_0),
-      .cpu_wr_reg_rc_0_ind (cpu_wr_reg_rc_0_ind),
-      .cpu_wr_reg_rc_1     (cpu_wr_reg_rc_1),
-      .cpu_wr_reg_rc_1_ind (cpu_wr_reg_rc_1_ind),
-
-      .Led(Led_L),
-
-      .clk    (clk_50Mhz),
-      .rst_n  (reset_l),
       .req    (cpu_req),
       .rhwl   (cpu_rhwl),
       .wdata  (cpu_wdata),
-      .address(cpu_address[15:0]),
-      .rdata  (cpu_rdata),
-      .ack    (cpu_ack)
+      .address(cpu_address),
+      .ack    (cpu_ack),
+      .rdata  (cpu_rdata)
   );
 
-  // --- MDIO controller (from ip_common) ---
+  // --- register file ---
+  reg_webserver u_reg (
+      .fpga_build_date        (fpga_build_date),
+      .fpga_build_time        (fpga_build_time),
+      .sw_build_date          (),
+      .sw_build_time          (),
+      .eth_greset             (eth_greset),
+      .second_event           (second_event),
+      .get_local_time         (),
+      .get_local_time_ind     (get_local_time),
+      .local_time_l           (local_time_l),
+      .local_time_h           (local_time_h),
+      .debug_rw_0             (debug_rw_0),
+      .debug_rw_1             (debug_rw_1),
+      .debug_rw_2             (),
+      .debug_rw_3             (),
+      .filter_data            (filter_data_src),
+      .filter_offset          (filter_offset_src),
+      .debug_ro_0             (debug_ro_0),
+      .debug_ro_1             (debug_ro_1),
+      .debug_ro_2             (32'd0),
+      .debug_ro_3             (32'd0),
+      .eth_rx_correct_pkt_cnt (eth0_rx_correct_pkt_cnt),
+      .eth_rx_crc_err_pkt_cnt (eth0_rx_crc_err_pkt_cnt),
+      .eth_tx_correct_pkt_cnt (eth0_tx_correct_pkt_cnt),
+      .eth_tx_error_pkt_cnt   (eth0_tx_error_pkt_cnt),
+      .eth_rx_afifo_full_cnt  (eth0_rx_afifo_full_cnt),
+      .eth_rx_afifo_empty_cnt (eth0_rx_afifo_empty_cnt),
+      .eth_rx_data_err_line   (eth0_rx_data_err_line),
+      .SUBBUS_eth_mdio_Req    (eth0_op_req),
+      .SUBBUS_eth_mdio_RhWl   (eth0_wrl_rdh),
+      .SUBBUS_eth_mdio_ReqAddr(eth0_address[11:0]),
+      .SUBBUS_eth_mdio_DataWr (eth0_wrdata),
+      .SUBBUS_eth_mdio_DataRd (eth0_rddata),
+      .SUBBUS_eth_mdio_Ack    (eth0_op_ack),
+      .led                    (led),
+      .cpu_rd_empty           (cpu_rd_empty),
+      .cpu_rd_rpkt_pop        (),
+      .cpu_rd_rpkt_pop_ind    (cpu_rd_rpkt_pop_ind),
+      .cpu_rd_rpkt_len        (cpu_rd_rpkt_len),
+      .cpu_rd_rpkt_para       (cpu_rd_rpkt_para),
+      .cpu_rd_ren             (cpu_rd_ren),
+      .cpu_rd_raddr           (cpu_rd_raddr),
+      .cpu_rd_rdata           (cpu_rd_rdata),
+      .cpu_rd_reop_pre        (cpu_rd_reop_pre),
+      .cpu_rd_reg_rw_0        (),
+      .cpu_rd_reg_rw_1        (),
+      .cpu_rd_reg_rw_2        (),
+      .cpu_rd_reg_rw_3        (),
+      .cpu_rd_reg_ro_0        (32'd0),
+      .cpu_rd_reg_ro_1        (32'd0),
+      .cpu_rd_reg_wc_0        (),
+      .cpu_rd_reg_wc_0_ind    (),
+      .cpu_rd_reg_rc_0        (32'd0),
+      .cpu_rd_reg_rc_0_ind    (),
+      .cpu_wr_full            (cpu_wr_full),
+      .cpu_wr_wen             (),
+      .cpu_wr_wen_ind         (cpu_wr_wen_ind),
+      .cpu_wr_waddr           (cpu_wr_waddr),
+      .cpu_wr_wdata           (cpu_wr_wdata),
+      .cpu_wr_wpkt_len        (cpu_wr_wpkt_len),
+      .cpu_wr_wpkt_para       (cpu_wr_wpkt_para),
+      .cpu_wr_wpkt_push       (),
+      .cpu_wr_wpkt_push_ind   (cpu_wr_wpkt_push_ind),
+      .cpu_wr_reg_rw_0        (),
+      .cpu_wr_reg_rw_1        (),
+      .cpu_wr_reg_rw_2        (),
+      .cpu_wr_reg_rw_3        (),
+      .cpu_wr_reg_ro_0        (),
+      .cpu_wr_reg_ro_1        (),
+      .cpu_wr_reg_wc_0        (),
+      .cpu_wr_reg_wc_0_ind    (),
+      .cpu_wr_reg_rc_0        (),
+      .cpu_wr_reg_rc_0_ind    (),
+      .cpu_wr_reg_rc_1        (),
+      .cpu_wr_reg_rc_1_ind    (),
+      .clk                    (clk_50mhz),
+      .rst_n                  (reset_l),
+      .req                    (cpu_req),
+      .rhwl                   (cpu_rhwl),
+      .wdata                  (cpu_wdata),
+      .address                (cpu_address[15:0]),
+      .rdata                  (cpu_rdata),
+      .ack                    (cpu_ack)
+  );
+
+  // --- mdio controller (from ip_common) ---
   lcpu_mdio u_lcpu_mdio_eth0 (
       .reset_l(reset_l),
-      .clk    (clk_50Mhz),
+      .clk    (clk_50mhz),
 
-      .op_req  (eth0_op_req),
-      .wrl_rdh (eth0_wrl_rdh),
-      .wrdata  (eth0_wrdata),
-      .address (eth0_address),
-      .op_ack  (eth0_op_ack),
-      .rddata  (eth0_rddata),
+      .op_req (eth0_op_req),
+      .wrl_rdh(eth0_wrl_rdh),
+      .wrdata (eth0_wrdata),
+      .address(eth0_address),
+      .op_ack (eth0_op_ack),
+      .rddata (eth0_rddata),
 
-      .mdc  (Eth0_MDC),
-      .mdio (Eth0_MDIO)
+      .mdc (eth0_mdc),
+      .mdio(eth0_mdio)
   );
 
-  // --- GMII to MAC packet interface (from ip_common) ---
-  wire eth0_mac_rx_sop, eth0_mac_rx_en, eth0_mac_rx_eop, eth0_mac_rx_err;
-  wire [7:0] eth0_mac_rx_data;
-  wire eth0_mac_tx_sop, eth0_mac_tx_en, eth0_mac_tx_eop, eth0_mac_tx_err;
-  wire [7:0] eth0_mac_tx_data;
-
   gmii2mac i_eth0 (
-      .clk    (clk_125Mhz),
+      .clk    (clk_125mhz),
       .reset_l(reset_l),
 
-      .Eth_TXD (gmii_txd),
-      .Eth_TXEN(gmii_tx_en),
-      .Eth_TXER(gmii_tx_err),
+      .eth_txd (gmii_txd),
+      .eth_txen(gmii_tx_en),
+      .eth_txer(gmii_tx_err),
 
-      .Eth_RXC (gmii_rx_clk),
-      .Eth_RXDV(gmii_rx_dv),
-      .Eth_RXER(gmii_rx_err),
-      .Eth_RXD (gmii_rxd),
+      .eth_rxc (gmii_rx_clk),
+      .eth_rxdv(gmii_rx_dv),
+      .eth_rxer(gmii_rx_err),
+      .eth_rxd (gmii_rxd),
 
       .mac_rx_sop (eth0_mac_rx_sop),
       .mac_rx_en  (eth0_mac_rx_en),
@@ -451,16 +377,117 @@ module webserver_wrapper #(
       .mac_tx_eop (eth0_mac_tx_eop),
       .mac_tx_err (eth0_mac_tx_err),
 
-      .rx_afifo_full_cnt (eth0_rx_afifo_full_cnt),
-      .rx_afifo_empty_cnt(eth0_rx_afifo_empty_cnt),
-      .rx_data_err_line  (eth0_rx_data_err_line),
-      .rx_correct_pkt_cnt(eth0_rx_correct_pkt_cnt),
-      .rx_crc_err_pkt_cnt(eth0_rx_crc_err_pkt_cnt),
-      .tx_correct_pkt_cnt(eth0_tx_correct_pkt_cnt),
-      .tx_error_pkt_cnt  (eth0_tx_error_pkt_cnt)
+      .rx_afifo_full_cnt (eth0_rx_afifo_full_cnt_src),
+      .rx_afifo_empty_cnt(eth0_rx_afifo_empty_cnt_src),
+      .rx_data_err_line  (eth0_rx_data_err_line_src),
+      .rx_correct_pkt_cnt(eth0_rx_correct_pkt_cnt_src),
+      .rx_crc_err_pkt_cnt(eth0_rx_crc_err_pkt_cnt_src),
+      .tx_correct_pkt_cnt(eth0_tx_correct_pkt_cnt_src),
+      .tx_error_pkt_cnt  (eth0_tx_error_pkt_cnt_src)
   );
 
-  // --- CPU-MAC data channel ---
+  // --- eth0 statistics CDC sync (125MHz → 50MHz) ---
+  cdc_bus_sync_vec #(
+      .DATA_WIDTH(32),
+      .CHANNELS  (7),
+      .MODE      (0)
+  ) u_sync_eth0_stats (
+      .src_clk(clk_125mhz),
+      .src_rst_l(reset_l),
+      .src_data({
+        eth0_rx_data_err_line_src,
+        eth0_rx_afifo_empty_cnt_src,
+        eth0_rx_afifo_full_cnt_src,
+        eth0_tx_error_pkt_cnt_src,
+        eth0_tx_correct_pkt_cnt_src,
+        eth0_rx_crc_err_pkt_cnt_src,
+        eth0_rx_correct_pkt_cnt_src
+      }),
+      .src_valid(7'b0),
+      .dst_clk(clk_50mhz),
+      .dst_rst_l(reset_l),
+      .dst_data({
+        eth0_rx_data_err_line,
+        eth0_rx_afifo_empty_cnt,
+        eth0_rx_afifo_full_cnt,
+        eth0_tx_error_pkt_cnt,
+        eth0_tx_correct_pkt_cnt,
+        eth0_rx_crc_err_pkt_cnt,
+        eth0_rx_correct_pkt_cnt
+      }),
+      .dst_valid(),
+      .src_ready()
+  );
+
+  // filter_data change detector (50MHz)
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      filter_data_prev <= 16'b0;
+    end else begin
+      filter_data_prev <= filter_data_src;
+    end
+  end
+  assign filter_data_valid = (filter_data_src != filter_data_prev);
+
+  cdc_bus_sync #(
+      .DATA_WIDTH(16),
+      .MODE      (1)
+  ) u_sync_filter_data (
+      .src_clk  (clk_50mhz),
+      .src_rst_l(reset_l),
+      .src_data (filter_data_src),
+      .src_valid(filter_data_valid),
+      .dst_clk  (clk_125mhz),
+      .dst_rst_l(reset_l),
+      .dst_data (filter_data_synced),
+      .dst_valid(),
+      .src_ready(filter_data_reqack_ready)
+  );
+
+  // filter_offset change detector (50MHz)
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      filter_offset_prev <= 16'b0;
+    end else begin
+      filter_offset_prev <= filter_offset_src;
+    end
+  end
+  assign filter_offset_valid = (filter_offset_src != filter_offset_prev);
+
+  cdc_bus_sync #(
+      .DATA_WIDTH(16),
+      .MODE      (1)
+  ) u_sync_filter_offset (
+      .src_clk  (clk_50mhz),
+      .src_rst_l(reset_l),
+      .src_data (filter_offset_src),
+      .src_valid(filter_offset_valid),
+      .dst_clk  (clk_125mhz),
+      .dst_rst_l(reset_l),
+      .dst_data (filter_offset_synced),
+      .dst_valid(),
+      .src_ready(filter_offset_reqack_ready)
+  );
+
+  // --- recv_pkt_drop_cnt GRAY CDC (125MHz → 50MHz) ---
+  cdc_bus_sync #(
+      .DATA_WIDTH(8),
+      .MODE      (0)
+  ) u_sync_recv_pkt_drop_cnt (
+      .src_clk  (clk_125mhz),
+      .src_rst_l(reset_l),
+      .src_data (recv_pkt_drop_cnt_src),
+      .src_valid(1'b0),
+      .dst_clk  (clk_50mhz),
+      .dst_rst_l(reset_l),
+      .dst_data (recv_pkt_drop_cnt),
+      .dst_valid(),
+      .src_ready()
+  );
+
+  assign debug_ro_0 = {24'b0, recv_pkt_drop_cnt};
+
+  // --- cpu-mac data channel ---
   cpu_channel #(
       .cpu_buf_addr_width      (cpu_buf_addr_width),
       .cpu_buf_block_mode      (cpu_buf_block_mode),
@@ -470,8 +497,8 @@ module webserver_wrapper #(
       .cpu_buf_data_ram_type   (cpu_buf_data_ram_type),
       .cpu_buf_para_ram_type   (cpu_buf_para_ram_type)
   ) u_cpu_channel (
-      .clk    (clk_125Mhz),
-      .cpu_clk(clk_50Mhz),
+      .clk    (clk_125mhz),
+      .cpu_clk(clk_50mhz),
       .reset_l(reset_l),
 
       .mac_rx_sop (eth0_mac_rx_sop),
@@ -486,9 +513,9 @@ module webserver_wrapper #(
       .mac_tx_eop (eth0_mac_tx_eop),
       .mac_tx_err (eth0_mac_tx_err),
 
-      .filter_data      (debug_RW_0[31:16]),
-      .filter_offset    (debug_RW_0[15:0]),
-      .recv_pkt_drop_cnt(debug_RO_0[7:0]),
+      .filter_data      (filter_data_synced),
+      .filter_offset    (filter_offset_synced),
+      .recv_pkt_drop_cnt(recv_pkt_drop_cnt_src),
 
       .cpu_rd_empty    (cpu_rd_empty),
       .cpu_rd_rpkt_pop (cpu_rd_rpkt_pop_ind),
@@ -507,53 +534,4 @@ module webserver_wrapper #(
       .cpu_wr_wpkt_len (cpu_wr_wpkt_len),
       .cpu_wr_wpkt_para(cpu_wr_wpkt_para)
   );
-
-  // --- CPU operation latency counter ---
-  reg cpu_oping;
-  reg [31:0] cpu_op_dly_cnt_s;
-  reg [31:0] cpu_op_dly_cnt;
-  assign debug_RO_1 = cpu_op_dly_cnt;
-
-  always @(negedge reset_l or posedge clk_125Mhz)
-    if (reset_l == 1'b0) begin
-      cpu_oping <= 1'b0;
-      cpu_op_dly_cnt_s <= 32'b0;
-      cpu_op_dly_cnt <= 32'b0;
-    end else begin
-      if (eth0_mac_rx_sop == 1'b1) begin
-        cpu_oping <= 1'b1;
-      end
-      if (cpu_oping == 1'b1) begin
-        cpu_op_dly_cnt_s <= cpu_op_dly_cnt_s + 1;
-      end else begin
-        cpu_op_dly_cnt_s <= 32'b0;
-      end
-      if (eth0_mac_tx_sop == 1'b1) begin
-        cpu_oping <= 1'b0;
-        cpu_op_dly_cnt <= cpu_op_dly_cnt_s;
-      end
-    end
-
-  // --- Debug RAM (simple_dual_port_ram — user will map to available IP) ---
-  generate
-    if (debug_en > 0) begin : dbg_ram_gen
-      simple_dual_port_ram #(
-          .addr_width(10),
-          .data_width(32),
-          .ram_type  ("M9K")
-      ) u_dbg_ram (
-          .aclk    (clk_50Mhz),
-          .aclk_en (1'b1),
-          .awr_en  (RAMIF_dbg_ram_0_Ram_RlWh),
-          .awr_addr(RAMIF_dbg_ram_0_Ram_Addr[9:0]),
-          .awr_data(RAMIF_dbg_ram_0_Ram_WrData),
-
-          .bclk    (clk_50Mhz),
-          .bclk_en (1'b1),
-          .brd_addr(RAMIF_dbg_ram_0_Ram_Addr[9:0]),
-          .brd_data(RAMIF_dbg_ram_0_Ram_RdData)
-      );
-    end
-  endgenerate
-
 endmodule
