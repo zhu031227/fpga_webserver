@@ -6,6 +6,7 @@
 
 // ── Device vendor ─────────────────────────────────────
 `define DEVICE_VENDOR "intel"
+`define IS_INTEL
 
 // ── RAM type ──────────────────────────────────────────
 `define LARGER_RAM  "M9K"        // ≥128bit storage: block RAM (M9K)

@@ -10,6 +10,7 @@
 
 // ── Device vendor ─────────────────────────────────────
 `define DEVICE_VENDOR "xilinx"
+`define IS_XILINX
 
 // ── RAM type (per platform) ───────────────────────────
 `define LARGER_RAM  "block"        // ≥128bit storage: block RAM
