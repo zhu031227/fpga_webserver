@@ -140,9 +140,22 @@ clone_repo_rtl() {
     fi
     rm -f /tmp/gh_clone_err
     cd "${dst}"
-    local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
+    local patterns=()
+    for f in "${files[@]}"; do
+        # Source repos use .v; convert .sv refs for checkout, rename after
+        if [[ "$f" == *.sv ]]; then
+            patterns+=("rtl/${f%.sv}.v")
+        else
+            patterns+=("rtl/${f}")
+        fi
+    done
     git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
     git checkout > /dev/null 2>&1
+    for f in "${files[@]}"; do
+        if [[ "$f" == *.sv ]]; then
+            mv "rtl/${f%.sv}.v" "rtl/${f}" 2>/dev/null || true
+        fi
+    done
     cd - > /dev/null
     echo "done"
 }
@@ -275,6 +288,12 @@ if {[llength \$xci_list] > 0} { upgrade_ip [get_ips]; generate_target all [get_i
 set bt_f "\$proj_dir/fpga_build_time.v"
 if {[file exists \$bt_f]} { add_files -norecurse \$bt_f }
 
+# Parse all .v files as SystemVerilog (many RTL files use SV constructs like 'int')
+set sv_files [get_files -of_objects [current_fileset] -filter {FILE_TYPE == Verilog}]
+if {[llength \$sv_files] > 0} {
+    set_property file_type SystemVerilog \$sv_files
+    puts "Set [llength \$sv_files] .v file(s) to SystemVerilog"
+}
 set_property top \$top_module [current_fileset]
 update_compile_order -fileset sources_1
 add_files -fileset constrs_1 -norecurse "\$proj_dir/pins.xdc"

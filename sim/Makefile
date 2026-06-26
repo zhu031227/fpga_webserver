@@ -35,9 +35,9 @@ FPGA_CPU_RTL = $(SIM)/lcpu_riscv_wrapper.v
 # ---- IP common RTL (exclude real rgmii* — use behavioral stubs instead) ----
 IP_COMMON_RTL = \
 	$(IP_COMMON)/rtl/async_signal_sync.v \
-	$(IP_COMMON)/rtl/cdc_bus_sync.v \
-	$(IP_COMMON)/rtl/cdc_bus_sync_vec.v \
-	$(IP_COMMON)/rtl/clk_rst_ctrl.v \
+	$(IP_COMMON)/rtl/cdc_bus_sync.sv \
+	$(IP_COMMON)/rtl/cdc_bus_sync_vec.sv \
+	$(IP_COMMON)/rtl/clk_rst_ctrl.sv \
 	$(IP_COMMON)/rtl/clock_frequency_divider.v \
 	$(IP_COMMON)/rtl/crc.v \
 	$(IP_COMMON)/rtl/dual_clock_fifo.v \

@@ -140,9 +140,22 @@ clone_repo_rtl() {
     fi
     rm -f /tmp/gh_clone_err
     cd "${dst}"
-    local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
+    local patterns=()
+    for f in "${files[@]}"; do
+        # Source repos use .v; convert .sv refs for checkout, rename after
+        if [[ "$f" == *.sv ]]; then
+            patterns+=("rtl/${f%.sv}.v")
+        else
+            patterns+=("rtl/${f}")
+        fi
+    done
     git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
     git checkout > /dev/null 2>&1
+    for f in "${files[@]}"; do
+        if [[ "$f" == *.sv ]]; then
+            mv "rtl/${f%.sv}.v" "rtl/${f}" 2>/dev/null || true
+        fi
+    done
     cd - > /dev/null
     echo "done"
 }
@@ -240,7 +253,7 @@ qsf_source_assignment() {
         *.vhd|*.vhdl) echo "set_global_assignment -name VHDL_FILE $1" ;;
         *.qip)       echo "set_global_assignment -name QIP_FILE $1" ;;
         *.sdc)       echo "set_global_assignment -name SDC_FILE $1" ;;
-        *)           echo "set_global_assignment -name VERILOG_FILE $1" ;;
+        *)           echo "set_global_assignment -name SYSTEMVERILOG_FILE $1" ;;
     esac
 }
 
