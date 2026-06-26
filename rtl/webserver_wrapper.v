@@ -329,14 +329,14 @@ module webserver_wrapper #(
       .clk    (clk_125mhz),
       .reset_l(reset_l),
 
-      .eth_txd (gmii_txd),
-      .eth_txen(gmii_tx_en),
-      .eth_txer(gmii_tx_err),
+      .Eth_TXD (gmii_txd),
+      .Eth_TXEN(gmii_tx_en),
+      .Eth_TXER(gmii_tx_err),
 
-      .eth_rxc (gmii_rx_clk),
-      .eth_rxdv(gmii_rx_dv),
-      .eth_rxer(gmii_rx_err),
-      .eth_rxd (gmii_rxd),
+      .Eth_RXC (gmii_rx_clk),
+      .Eth_RXDV(gmii_rx_dv),
+      .Eth_RXER(gmii_rx_err),
+      .Eth_RXD (gmii_rxd),
 
       .mac_rx_sop (eth0_mac_rx_sop),
       .mac_rx_en  (eth0_mac_rx_en),
