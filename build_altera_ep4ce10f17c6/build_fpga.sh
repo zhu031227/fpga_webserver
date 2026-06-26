@@ -3,15 +3,20 @@
 # build_fpga.sh — Altera EP4CE10F17C6 FPGA WebServer build script
 #=============================================================================
 # Usage:
-#   ./build_fpga.sh <version>
+#   cd fpga_webserver
+#   ./build_altera_ep4ce10f17c6/build_fpga.sh <version>
 #
-# Creates a versioned Quartus II project, clones IP repos, runs full
-# compilation (Analysis → Fitter → Assembler → STA).
+# Creates a self-contained versioned project directory at the same level
+# as rtl/ sim/ c/ etc.  All external IP are cloned directly into the
+# project so the entire directory can be archived and rebuilt on any
+# machine with zero external dependencies.
 #=============================================================================
 
 set -euo pipefail
 
+#--------------------------------------------------------------------
 # 1. Version check
+#--------------------------------------------------------------------
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <version>"
     echo "  version : 1~4 hex digits (e.g. 001, a, ff, ffff)"
@@ -23,78 +28,190 @@ if [[ ! "${VERSION_RAW}" =~ ^[0-9a-fA-F]{1,4}$ ]]; then
     echo "ERROR: Version must be 1~4 hex digits"
     exit 1
 fi
-
 VERSION=$(printf '%04s' "$(echo "${VERSION_RAW}" | tr '[:upper:]' '[:lower:]')" | tr ' ' '0')
 
+#--------------------------------------------------------------------
 # 2. Paths
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FPGA_WS_DIR="$(dirname "$SCRIPT_DIR")"
-WORK_DIR="$(dirname "$FPGA_WS_DIR")"
+#--------------------------------------------------------------------
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"       # .../build_altera_ep4ce10f17c6
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"              # .../fpga_webserver
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="altera_ep4ce10f17c6_v${VERSION}_${TIMESTAMP}"
-PROJ_DIR="${FPGA_WS_DIR}/${PROJ_NAME}"
+PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
+
+GH_BASE="https://github.com/HuanghmBuck"
 
 echo "============================================"
-echo " FPGA WebServer Build (Altera)"
-echo " Target : EP4CE10F17C6"
-echo " Version: ${VERSION}"
-echo " Project: ${PROJ_NAME}"
+echo " FPGA WebServer Build (Altera EP4CE10)"
+echo " Repo    : ${REPO_ROOT}"
+echo " Project : ${PROJ_NAME}"
+echo "          ${PROJ_DIR}"
+echo " Version : ${VERSION}"
 echo "============================================"
 
+#--------------------------------------------------------------------
 # 3. Quartus toolchain
-QUARTUS_ROOT="/home/huamingh/tools/altera/13.1/quartus"
+#--------------------------------------------------------------------
+QUARTUS_ROOT="${QUARTUS_ROOT:-/home/huamingh/tools/altera/13.1/quartus}"
 QUARTUS_BIN="${QUARTUS_ROOT}/bin"
 export QUARTUS_ROOTDIR="${QUARTUS_ROOT}"
 
 if [ ! -x "${QUARTUS_BIN}/quartus_sh" ]; then
-    echo "ERROR: Quartus II 13.1 not found at ${QUARTUS_ROOT}"
+    echo "ERROR: Quartus II not found at ${QUARTUS_ROOT}"
+    echo "  Set QUARTUS_ROOT environment variable or install Quartus."
     exit 1
 fi
 echo "Quartus II : ${QUARTUS_ROOT}"
 
-# 4. Create project dir
+#--------------------------------------------------------------------
+# 4. Create project directory
+#--------------------------------------------------------------------
 mkdir -p "${PROJ_DIR}"
 echo "[STEP 1/8] Project directory created."
 
-# 5. Clone IP repos
-echo "[STEP 2/8] Cloning IP repositories..."
+#--------------------------------------------------------------------
+# 5. Parse filelist.cfg
+#--------------------------------------------------------------------
+echo "[STEP 2/8] Analyzing filelist.cfg..."
 
-clone_repo() {
-    local local_src="$1"; local remote_url="$2"; local dst="$3"; local label="$4"
-    echo -n "  Cloning ${label} (rtl only)... "
-    if [ -d "${local_src}" ]; then
-        echo "from local cache"
-        git clone --no-checkout "${local_src}" "${dst}" > /dev/null 2>&1
-    else
-        echo "from GitHub"
-        git clone --no-checkout "${remote_url}" "${dst}" > /dev/null 2>&1
-    fi
-    (cd "${dst}"; git sparse-checkout set --no-cone 'rtl/*' > /dev/null 2>&1; git checkout > /dev/null 2>&1)
-    echo "    -> ${dst}/rtl/"
-}
+FILELIST_SRC="${SCRIPT_DIR}/filelist.cfg"
 
-clone_repo "${WORK_DIR}/ip_lcpu"   "git@github.com:HuanghmBuck/ip_lcpu.git"   "${PROJ_DIR}/ip_lcpu"   "ip_lcpu"
-clone_repo "${WORK_DIR}/ip_riscv"  "git@github.com:HuanghmBuck/ip_riscv.git"  "${PROJ_DIR}/ip_riscv"  "ip_riscv"
-clone_repo "${WORK_DIR}/ip_common" "git@github.com:HuanghmBuck/ip_common.git" "${PROJ_DIR}/ip_common" "ip_common"
+declare -a FILES_OWN_RTL=()
+declare -a FILES_OWN_IPVENDOR=()
+declare -a FILES_FPGA_CPU=()
+declare -a FILES_IP_LCPU=()
+declare -a FILES_IP_RISCV=()
+declare -a FILES_IP_COMMON=()
 
+while IFS= read -r line; do
+    line="${line%%#*}"
+    line="$(echo "$line" | xargs)"
+    [ -z "$line" ] && continue
+
+    case "$line" in
+        ../rtl/*)
+            FILES_OWN_RTL+=("${line#../rtl/}")
+            ;;
+        ../ip_vendor/*)
+            FILES_OWN_IPVENDOR+=("${line#../ip_vendor/}")
+            ;;
+        ../../fpga_cpu/rtl/*)
+            FILES_FPGA_CPU+=("${line#../../fpga_cpu/rtl/}")
+            ;;
+        ../../ip_lcpu/rtl/*)
+            FILES_IP_LCPU+=("${line#../../ip_lcpu/rtl/}")
+            ;;
+        ../../ip_riscv/rtl/*)
+            FILES_IP_RISCV+=("${line#../../ip_riscv/rtl/}")
+            ;;
+        ../../ip_common/rtl/*)
+            FILES_IP_COMMON+=("${line#../../ip_common/rtl/}")
+            ;;
+        fpga_build_time.v)
+            ;;
+        *)
+            echo "  WARN: unrecognized: $line"
+            ;;
+    esac
+done < "${FILELIST_SRC}"
+
+echo "  Own rtl       : ${#FILES_OWN_RTL[@]} files"
+echo "  Own ip_vendor : ${#FILES_OWN_IPVENDOR[@]} files"
+echo "  fpga_cpu/rtl  : ${#FILES_FPGA_CPU[@]} files"
+echo "  ip_lcpu/rtl   : ${#FILES_IP_LCPU[@]} files"
+echo "  ip_riscv/rtl  : ${#FILES_IP_RISCV[@]} files"
+echo "  ip_common/rtl : ${#FILES_IP_COMMON[@]} files"
 echo "[STEP 2/8] Done."
 
-# 6. Generate corrected filelist.cfg
-echo "[STEP 3/8] Generating filelist.cfg..."
-sed -e 's|^rtl/|../rtl/|' \
-    -e 's|^ip_vendor/|../ip_vendor/|' \
-    -e 's|^\.\./ip_lcpu/|ip_lcpu/|' \
-    -e 's|^\.\./ip_riscv/|ip_riscv/|' \
-    -e 's|^\.\./ip_common/|ip_common/|' \
-    "${SCRIPT_DIR}/filelist.cfg" > "${PROJ_DIR}/filelist.cfg"
+#--------------------------------------------------------------------
+# 6. Clone external IP repos into project directory
+#--------------------------------------------------------------------
+echo "[STEP 3/8] Cloning external IP from GitHub..."
+
+clone_repo_rtl() {
+    local repo_name="$1"; local dst="${PROJ_DIR}/${repo_name}"; shift; local files=("$@")
+    if [ ${#files[@]} -eq 0 ]; then return; fi
+    local url="${GH_BASE}/${repo_name}.git"
+    echo -n "  Cloning ${repo_name} (${#files[@]} files)... "
+    git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" > /dev/null 2>&1 || {
+        echo "FAILED"; echo "  ERROR: Could not clone ${url}"; exit 1
+    }
+    cd "${dst}"
+    local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
+    git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
+    git checkout > /dev/null 2>&1
+    cd - > /dev/null
+    echo "done"
+}
+
+clone_repo_rtl "fpga_cpu"  "${FILES_FPGA_CPU[@]}"
+clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
+clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
+clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
 echo "[STEP 3/8] Done."
 
-# 7. Generate fpga_build_time.v
-echo "[STEP 4/8] Generating fpga_build_time.v..."
+#--------------------------------------------------------------------
+# 7. Copy project files
+#--------------------------------------------------------------------
+echo "[STEP 4/8] Copying project source files..."
+
+if [ ${#FILES_OWN_RTL[@]} -gt 0 ]; then
+    mkdir -p "${PROJ_DIR}/rtl"
+    for f in "${FILES_OWN_RTL[@]}"; do
+        cp "${REPO_ROOT}/rtl/${f}" "${PROJ_DIR}/rtl/${f}"
+    done
+    echo "  rtl/          -> ${PROJ_DIR}/rtl/"
+fi
+
+if [ ${#FILES_OWN_IPVENDOR[@]} -gt 0 ]; then
+    declare -A ip_dirs
+    for f in "${FILES_OWN_IPVENDOR[@]}"; do ip_dirs["$(dirname "$f")"]=1; done
+    for d in "${!ip_dirs[@]}"; do
+        mkdir -p "${PROJ_DIR}/ip_vendor/${d}"
+        cp -r "${REPO_ROOT}/ip_vendor/${d}/"* "${PROJ_DIR}/ip_vendor/${d}/"
+    done
+    echo "  ip_vendor/    -> ${PROJ_DIR}/ip_vendor/"
+fi
+
+cp "${SCRIPT_DIR}/pins.qsf"   "${PROJ_DIR}/pins.qsf"
+cp "${SCRIPT_DIR}/timing.sdc" "${PROJ_DIR}/timing.sdc"
+echo "[STEP 4/8] Done."
+
+#--------------------------------------------------------------------
+# 8. Generate project filelist.cfg
+#--------------------------------------------------------------------
+echo "[STEP 5/8] Generating project filelist.cfg..."
+
+CFG="${PROJ_DIR}/filelist.cfg"
+cat > "${CFG}" << EOF
+#===================================================================
+# filelist.cfg — auto-generated for ${PROJ_NAME}
+# All paths relative to this project directory.
+#===================================================================
+
+# -- FPGA Webserver RTL --
+EOF
+for f in "${FILES_OWN_RTL[@]}"; do echo "rtl/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "# -- Vendor IP --" >> "${CFG}"
+for f in "${FILES_OWN_IPVENDOR[@]}"; do echo "ip_vendor/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "# -- FPGA CPU RTL --" >> "${CFG}"
+for f in "${FILES_FPGA_CPU[@]}"; do echo "fpga_cpu/rtl/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "# -- IP: lcpu --" >> "${CFG}"
+for f in "${FILES_IP_LCPU[@]}"; do echo "ip_lcpu/rtl/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "# -- IP: riscv --" >> "${CFG}"
+for f in "${FILES_IP_RISCV[@]}"; do echo "ip_riscv/rtl/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "# -- IP: common --" >> "${CFG}"
+for f in "${FILES_IP_COMMON[@]}"; do echo "ip_common/rtl/${f}" >> "${CFG}"; done
+echo "" >> "${CFG}"; echo "fpga_build_time.v" >> "${CFG}"
+echo "[STEP 5/8] Done."
+
+#--------------------------------------------------------------------
+# 9. Generate fpga_build_time.v
+#--------------------------------------------------------------------
+echo "[STEP 6/8] Generating fpga_build_time.v..."
 BUILD_DATE=$(printf "32'h%04d%02d%02d" "$((10#$(date +%Y)))" "$((10#$(date +%m)))" "$((10#$(date +%d)))")
 BUILD_TIME=$(printf "32'h%02d%02d%04s" "$((10#$(date +%H)))" "$((10#$(date +%M)))" "${VERSION}" | tr ' ' '0')
-
 cat > "${PROJ_DIR}/fpga_build_time.v" << EOF
 module fpga_build_time (
     output wire [31:0] build_date,
@@ -104,16 +221,12 @@ module fpga_build_time (
     assign build_time = ${BUILD_TIME};
 endmodule
 EOF
-echo "[STEP 4/8] Done."
+echo "[STEP 6/8] Done."
 
-# 8. Copy constraints
-echo "[STEP 5/8] Copying constraints..."
-cp "${SCRIPT_DIR}/pins.qsf"   "${PROJ_DIR}/pins.qsf"
-cp "${SCRIPT_DIR}/timing.sdc" "${PROJ_DIR}/timing.sdc"
-echo "[STEP 5/8] Done."
-
-# 9. Generate Quartus II project files
-echo "[STEP 6/8] Generating Quartus II project files..."
+#--------------------------------------------------------------------
+# 10. Generate Quartus II project files
+#--------------------------------------------------------------------
+echo "[STEP 7/8] Generating Quartus II project files..."
 
 TOP_MODULE="altera_ep4ce10f17c6_webserver_top"
 
@@ -126,24 +239,21 @@ QPF_EOF
 
 # .qsf
 qsf_source_assignment() {
-    local f="$1"
-    case "$f" in
-        *.sv|*.svh) echo "set_global_assignment -name SYSTEMVERILOG_FILE $f" ;;
-        *.vhd|*.vhdl) echo "set_global_assignment -name VHDL_FILE $f" ;;
-        *.qip) echo "set_global_assignment -name QIP_FILE $f" ;;
-        *.sdc) echo "set_global_assignment -name SDC_FILE $f" ;;
-        *) echo "set_global_assignment -name VERILOG_FILE $f" ;;
+    case "$1" in
+        *.sv|*.svh) echo "set_global_assignment -name SYSTEMVERILOG_FILE $1" ;;
+        *.vhd|*.vhdl) echo "set_global_assignment -name VHDL_FILE $1" ;;
+        *.qip)       echo "set_global_assignment -name QIP_FILE $1" ;;
+        *.sdc)       echo "set_global_assignment -name SDC_FILE $1" ;;
+        *)           echo "set_global_assignment -name VERILOG_FILE $1" ;;
     esac
 }
 
 SOURCE_ASSIGNMENTS=""
 while IFS= read -r line; do
-    line=$(echo "$line" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
-    [[ -z "$line" || "$line" == \#* ]] && continue
-    line="${line%%#*}"; line=$(echo "$line" | sed -e 's/[[:space:]]*$//')
-    [[ -z "$line" ]] && continue
+    line="${line%%#*}"; line="$(echo "$line" | xargs)"
+    [ -z "$line" ] && continue
     SOURCE_ASSIGNMENTS+=$(qsf_source_assignment "$line")$'\n'
-done < "${PROJ_DIR}/filelist.cfg"
+done < "${CFG}"
 
 cat > "${PROJ_DIR}/${PROJ_NAME}.qsf" << QSF_EOF
 set_global_assignment -name FAMILY "Cyclone IV E"
@@ -166,23 +276,25 @@ $(cat "${PROJ_DIR}/pins.qsf")
 set_global_assignment -name SDC_FILE timing.sdc
 QSF_EOF
 
-echo "[STEP 6/8] Done."
+echo "[STEP 7/8] Done."
 
-# 10. Run Quartus II compilation
-echo "[STEP 7/8] Launching Quartus II compilation..."
+#--------------------------------------------------------------------
+# 11. Run Quartus II compilation
+#--------------------------------------------------------------------
+echo "[STEP 8/8] Launching Quartus II compilation..."
 export PATH="${QUARTUS_BIN}:$PATH"
 cd "${PROJ_DIR}"
 ${QUARTUS_BIN}/quartus_sh --flow compile "${PROJ_NAME}"
 
-# 11. Copy reports
-echo "[STEP 8/8] Generating reports..."
-[ -f "${PROJ_DIR}/output_files/${PROJ_NAME}.sta.rpt" ] && cp "${PROJ_DIR}/output_files/${PROJ_NAME}.sta.rpt" "${PROJ_DIR}/timing_summary.rpt"
-[ -f "${PROJ_DIR}/output_files/${PROJ_NAME}.fit.rpt" ] && cp "${PROJ_DIR}/output_files/${PROJ_NAME}.fit.rpt" "${PROJ_DIR}/utilization.rpt"
-[ -f "${PROJ_DIR}/output_files/${PROJ_NAME}.map.rpt" ] && cp "${PROJ_DIR}/output_files/${PROJ_NAME}.map.rpt" "${PROJ_DIR}/synthesis.rpt"
-echo "[STEP 8/8] Done."
+# Copy reports
+[ -f "output_files/${PROJ_NAME}.sta.rpt" ] && cp "output_files/${PROJ_NAME}.sta.rpt" "timing_summary.rpt"
+[ -f "output_files/${PROJ_NAME}.fit.rpt" ] && cp "output_files/${PROJ_NAME}.fit.rpt" "utilization.rpt"
 
 echo ""
 echo "============================================"
-echo " FPGA WebServer Build Finished"
+echo " Build Complete"
 echo " Project : ${PROJ_DIR}"
+echo ""
+echo " This project is self-contained."
+echo " To rebuild: cd ${PROJ_DIR} && quartus_sh --flow compile ${PROJ_NAME}"
 echo "============================================"

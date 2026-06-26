@@ -3,17 +3,13 @@
 # build_fpga.sh — Xilinx XC7A35T-FGG484 FPGA WebServer build script
 #=============================================================================
 # Usage:
-#   ./build_fpga.sh <version>
+#   cd fpga_webserver
+#   ./build_xilinx_xc7a35tfgg484/build_fpga.sh <version>
 #
-# Workflow:
-#   1. Parse filelist.cfg → determine external repo files needed
-#   2. Clone external repos with sparse-checkout (rtl files only)
-#   3. Copy project's own rtl/ and ip_vendor/ into project dir
-#   4. Generate fpga_build_time.v with version stamp
-#   5. Run Vivado synthesis + implementation + bitstream
-#
-# All source files are gathered under the project directory so Vivado
-# never references paths outside the build workspace.
+# Creates a self-contained versioned project directory at the same level
+# as rtl/ sim/ c/ etc.  All external IP (fpga_cpu, ip_lcpu, ip_riscv,
+# ip_common) are cloned directly into the project so the entire directory
+# can be archived and rebuilt on any machine with zero external dependencies.
 #=============================================================================
 
 set -euo pipefail
@@ -32,34 +28,27 @@ if [[ ! "${VERSION_RAW}" =~ ^[0-9a-fA-F]{1,4}$ ]]; then
     echo "ERROR: Version must be 1~4 hex digits"
     exit 1
 fi
-
 VERSION=$(printf '%04s' "$(echo "${VERSION_RAW}" | tr '[:upper:]' '[:lower:]')" | tr ' ' '0')
 
 #--------------------------------------------------------------------
 # 2. Paths
 #--------------------------------------------------------------------
-SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-FPGA_WS_DIR="$(dirname "$SCRIPT_DIR")"          # fpga_webserver/
-WORK_DIR="$(dirname "$FPGA_WS_DIR")"            # parent of fpga_webserver
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"       # .../build_xilinx_xc7a35tfgg484
+REPO_ROOT="$(dirname "$SCRIPT_DIR")"              # .../fpga_webserver  (git clone root)
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="xilinx_xc7a35tfgg484_v${VERSION}_${TIMESTAMP}"
-PROJ_DIR="${FPGA_WS_DIR}/${PROJ_NAME}"
+PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"              # sibling of rtl/ sim/ etc.
 
-# Repo root directories (assumed to be siblings of fpga_webserver)
-REPO_FPGA_CPU="${WORK_DIR}/fpga_cpu"
-REPO_IP_LCPU="${WORK_DIR}/ip_lcpu"
-REPO_IP_RISCV="${WORK_DIR}/ip_riscv"
-REPO_IP_COMMON="${WORK_DIR}/ip_common"
-
-# GitHub remotes (fallback if local repos missing)
-REMOTE_PREFIX="git@github.com:HuanghmBuck"
+# GitHub organisation
+GH_BASE="https://github.com/HuanghmBuck"
 
 echo "============================================"
-echo " FPGA WebServer Build (Xilinx)"
-echo " Target : XC7A35T-FGG484"
-echo " Version: ${VERSION}"
-echo " Project: ${PROJ_NAME}"
+echo " FPGA WebServer Build (Xilinx XC7A35T)"
+echo " Repo    : ${REPO_ROOT}"
+echo " Project : ${PROJ_NAME}"
+echo "          ${PROJ_DIR}"
+echo " Version : ${VERSION}"
 echo "============================================"
 
 #--------------------------------------------------------------------
@@ -69,32 +58,30 @@ mkdir -p "${PROJ_DIR}"
 echo "[STEP 1/8] Project directory created."
 
 #--------------------------------------------------------------------
-# 4. Parse filelist.cfg → classify files by source repo
+# 4. Parse filelist.cfg — classify source files by origin
 #--------------------------------------------------------------------
 echo "[STEP 2/8] Analyzing filelist.cfg..."
 
-FILELIST_CFG="${SCRIPT_DIR}/filelist.cfg"
+FILELIST_SRC="${SCRIPT_DIR}/filelist.cfg"
 
-declare -a FILES_RTL=()          # ../rtl/...
-declare -a FILES_IP_VENDOR=()    # ../ip_vendor/...
-declare -a FILES_FPGA_CPU=()     # ../fpga_cpu/rtl/...
-declare -a FILES_IP_LCPU=()      # ../ip_lcpu/rtl/...
-declare -a FILES_IP_RISCV=()     # ../ip_riscv/rtl/...
-declare -a FILES_IP_COMMON=()    # ../ip_common/rtl/...
-declare -a FILES_LOCAL=()        # fpga_build_time.v (local)
+declare -a FILES_OWN_RTL=()
+declare -a FILES_OWN_IPVENDOR=()
+declare -a FILES_FPGA_CPU=()
+declare -a FILES_IP_LCPU=()
+declare -a FILES_IP_RISCV=()
+declare -a FILES_IP_COMMON=()
 
 while IFS= read -r line; do
-    # strip comments & whitespace
     line="${line%%#*}"
     line="$(echo "$line" | xargs)"
     [ -z "$line" ] && continue
 
     case "$line" in
         ../rtl/*)
-            FILES_RTL+=("${line#../rtl/}")
+            FILES_OWN_RTL+=("${line#../rtl/}")
             ;;
         ../ip_vendor/*)
-            FILES_IP_VENDOR+=("${line#../ip_vendor/}")
+            FILES_OWN_IPVENDOR+=("${line#../ip_vendor/}")
             ;;
         ../../fpga_cpu/rtl/*)
             FILES_FPGA_CPU+=("${line#../../fpga_cpu/rtl/}")
@@ -109,227 +96,169 @@ while IFS= read -r line; do
             FILES_IP_COMMON+=("${line#../../ip_common/rtl/}")
             ;;
         fpga_build_time.v)
-            FILES_LOCAL+=("$line")
-            ;;
+            ;;  # auto-generated, not copied
         *)
-            echo "  WARN: unrecognized path prefix: $line"
+            echo "  WARN: unrecognized: $line"
             ;;
     esac
-done < "${FILELIST_CFG}"
+done < "${FILELIST_SRC}"
 
-echo "  rtl          : ${#FILES_RTL[@]} files"
-echo "  ip_vendor    : ${#FILES_IP_VENDOR[@]} files"
-echo "  fpga_cpu/rtl : ${#FILES_FPGA_CPU[@]} files"
-echo "  ip_lcpu/rtl  : ${#FILES_IP_LCPU[@]} files"
-echo "  ip_riscv/rtl : ${#FILES_IP_RISCV[@]} files"
-echo "  ip_common/rtl: ${#FILES_IP_COMMON[@]} files"
+echo "  Own rtl       : ${#FILES_OWN_RTL[@]} files"
+echo "  Own ip_vendor : ${#FILES_OWN_IPVENDOR[@]} files"
+echo "  fpga_cpu/rtl  : ${#FILES_FPGA_CPU[@]} files"
+echo "  ip_lcpu/rtl   : ${#FILES_IP_LCPU[@]} files"
+echo "  ip_riscv/rtl  : ${#FILES_IP_RISCV[@]} files"
+echo "  ip_common/rtl : ${#FILES_IP_COMMON[@]} files"
 echo "[STEP 2/8] Done."
 
 #--------------------------------------------------------------------
-# 5. Clone external repos (sparse-checkout: only needed rtl/*)
+# 5. Clone external IP repos into project directory
 #--------------------------------------------------------------------
-echo "[STEP 3/8] Cloning external repositories..."
+echo "[STEP 3/8] Cloning external IP from GitHub..."
 
-clone_repo_with_files() {
-    local local_src="$1"          # local cache path (or empty)
-    local remote_url="$2"         # GitHub URL (fallback)
-    local dst="$3"                # destination dir
-    local label="$4"              # human-readable label
-    shift 4
-    local files=("$@")            # files to sparse-checkout (relative to repo root)
+clone_repo_rtl() {
+    local repo_name="$1"          # e.g. fpga_cpu
+    local dst="${PROJ_DIR}/${repo_name}"
+    shift
+    local files=("$@")
 
     if [ ${#files[@]} -eq 0 ]; then
-        echo "  ${label}: no files needed, skipping."
+        echo "  ${repo_name}: no files needed, skipping."
         return
     fi
 
-    echo -n "  Cloning ${label} (${#files[@]} files)... "
+    local url="${GH_BASE}/${repo_name}.git"
+    echo -n "  Cloning ${repo_name} (${#files[@]} files) from GitHub... "
 
-    local src_repo=""
-    if [ -n "${local_src}" ] && [ -d "${local_src}/.git" ]; then
-        src_repo="${local_src}"
-        echo -n "from local cache... "
-    else
-        src_repo="${remote_url}"
-        echo -n "from GitHub... "
-    fi
-
-    # Clone with no checkout, then sparse-checkout only needed files
-    git clone --no-checkout --depth 1 "${src_repo}" "${dst}" > /dev/null 2>&1 || {
-        echo "FAILED (clone)"
-        return 1
+    # Shallow clone with sparse-checkout for rtl/ only
+    git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" > /dev/null 2>&1 || {
+        echo "FAILED"
+        echo "  ERROR: Could not clone ${url}"
+        echo "  Make sure the repo exists and is accessible."
+        exit 1
     }
 
     cd "${dst}"
-
-    # Build sparse-checkout pattern: "rtl/file1.v" "rtl/file2.v" ...
     local patterns=()
     for f in "${files[@]}"; do
-        # Some repos may store files at different paths; assume rtl/ prefix
         patterns+=("rtl/${f}")
     done
 
-    git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1 || {
-        echo "FAILED (sparse-checkout)"
-        cd - > /dev/null
-        return 1
-    }
-    git checkout > /dev/null 2>&1 || {
-        echo "FAILED (checkout)"
-        cd - > /dev/null
-        return 1
-    }
+    git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
+    git checkout > /dev/null 2>&1
     cd - > /dev/null
-    echo "done -> ${dst}/rtl/"
+    echo "done  -> ${PROJ_DIR}/${repo_name}/rtl/"
 }
 
-clone_repo_with_files \
-    "${REPO_FPGA_CPU}" \
-    "${REMOTE_PREFIX}/fpga_cpu.git" \
-    "${PROJ_DIR}/fpga_cpu" \
-    "fpga_cpu" \
-    "${FILES_FPGA_CPU[@]}"
-
-clone_repo_with_files \
-    "${REPO_IP_LCPU}" \
-    "${REMOTE_PREFIX}/ip_lcpu.git" \
-    "${PROJ_DIR}/ip_lcpu" \
-    "ip_lcpu" \
-    "${FILES_IP_LCPU[@]}"
-
-clone_repo_with_files \
-    "${REPO_IP_RISCV}" \
-    "${REMOTE_PREFIX}/ip_riscv.git" \
-    "${PROJ_DIR}/ip_riscv" \
-    "ip_riscv" \
-    "${FILES_IP_RISCV[@]}"
-
-clone_repo_with_files \
-    "${REPO_IP_COMMON}" \
-    "${REMOTE_PREFIX}/ip_common.git" \
-    "${PROJ_DIR}/ip_common" \
-    "ip_common" \
-    "${FILES_IP_COMMON[@]}"
+clone_repo_rtl "fpga_cpu"  "${FILES_FPGA_CPU[@]}"
+clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
+clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
+clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
 
 echo "[STEP 3/8] Done."
 
 #--------------------------------------------------------------------
-# 6. Copy project files (rtl/, ip_vendor/, constraints)
+# 6. Copy project's own files into project directory
 #--------------------------------------------------------------------
-echo "[STEP 4/8] Copying project files..."
+echo "[STEP 4/8] Copying project source files..."
 
-# rtl/
-if [ ${#FILES_RTL[@]} -gt 0 ]; then
+# Own RTL files
+if [ ${#FILES_OWN_RTL[@]} -gt 0 ]; then
     mkdir -p "${PROJ_DIR}/rtl"
-    for f in "${FILES_RTL[@]}"; do
-        src="${FPGA_WS_DIR}/rtl/${f}"
+    for f in "${FILES_OWN_RTL[@]}"; do
+        src="${REPO_ROOT}/rtl/${f}"
         if [ -f "${src}" ]; then
             cp "${src}" "${PROJ_DIR}/rtl/${f}"
         else
-            echo "  WARN: missing rtl/${f}"
+            echo "  ERROR: missing ${src}"
+            exit 1
         fi
     done
-    echo "  rtl/ -> ${PROJ_DIR}/rtl/"
+    echo "  rtl/          -> ${PROJ_DIR}/rtl/  (${#FILES_OWN_RTL[@]} files)"
 fi
 
-# ip_vendor/
-# For .xci files, copy the entire containing directory so Vivado
-# can find all generated support files (.dcp, .xml, .xdc, .vh, …).
-if [ ${#FILES_IP_VENDOR[@]} -gt 0 ]; then
-    declare -A ip_dirs
-    for f in "${FILES_IP_VENDOR[@]}"; do
-        ip_dirs["$(dirname "$f")"]=1
+# Own ip_vendor (copy entire IP directories)
+if [ ${#FILES_OWN_IPVENDOR[@]} -gt 0 ]; then
+    declare -A ip_vendor_dirs
+    for f in "${FILES_OWN_IPVENDOR[@]}"; do
+        ip_vendor_dirs["$(dirname "$f")"]=1
     done
-    for d in "${!ip_dirs[@]}"; do
-        src="${FPGA_WS_DIR}/ip_vendor/${d}"
+    for d in "${!ip_vendor_dirs[@]}"; do
+        src="${REPO_ROOT}/ip_vendor/${d}"
         dst="${PROJ_DIR}/ip_vendor/${d}"
         mkdir -p "$(dirname "${dst}")"
         if [ -d "${src}" ]; then
             cp -r "${src}" "$(dirname "${dst}")/"
             echo "  ip_vendor/${d}/ -> ${PROJ_DIR}/ip_vendor/${d}/"
         else
-            echo "  WARN: missing ip_vendor/${d}"
+            echo "  ERROR: missing ip_vendor/${d}"
+            exit 1
         fi
     done
 fi
 
-# constraints
+# Constraints
 cp "${SCRIPT_DIR}/pins.xdc"   "${PROJ_DIR}/pins.xdc"
 cp "${SCRIPT_DIR}/timing.xdc" "${PROJ_DIR}/timing.xdc"
-echo "  pins.xdc, timing.xdc -> ${PROJ_DIR}/"
+echo "  pins.xdc, timing.xdc copied"
 
 echo "[STEP 4/8] Done."
 
 #--------------------------------------------------------------------
-# 7. Generate corrected filelist.cfg (paths relative to PROJ_DIR)
+# 7. Generate project filelist.cfg (paths relative to PROJ_DIR)
 #--------------------------------------------------------------------
 echo "[STEP 5/8] Generating project filelist.cfg..."
 
-cat > "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+CFG="${PROJ_DIR}/filelist.cfg"
+cat > "${CFG}" << EOF
 #===================================================================
 # filelist.cfg — auto-generated for ${PROJ_NAME}
-# All paths relative to: ${PROJ_DIR}
+# All paths are relative to this project directory.
+# This project is fully self-contained: zip it, copy it anywhere,
+# open with Vivado and run — no external dependencies.
 #===================================================================
 
 # -- FPGA Webserver RTL --
-CFG_EOF
+EOF
+for f in "${FILES_OWN_RTL[@]}"; do echo "rtl/${f}" >> "${CFG}"; done
 
-for f in "${FILES_RTL[@]}"; do
-    echo "rtl/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- Vendor IP --
-CFG_EOF
+EOF
+for f in "${FILES_OWN_IPVENDOR[@]}"; do echo "ip_vendor/${f}" >> "${CFG}"; done
 
-for f in "${FILES_IP_VENDOR[@]}"; do
-    echo "ip_vendor/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- FPGA CPU RTL --
-CFG_EOF
+EOF
+for f in "${FILES_FPGA_CPU[@]}"; do echo "fpga_cpu/rtl/${f}" >> "${CFG}"; done
 
-for f in "${FILES_FPGA_CPU[@]}"; do
-    echo "fpga_cpu/rtl/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- IP: lcpu --
-CFG_EOF
+EOF
+for f in "${FILES_IP_LCPU[@]}"; do echo "ip_lcpu/rtl/${f}" >> "${CFG}"; done
 
-for f in "${FILES_IP_LCPU[@]}"; do
-    echo "ip_lcpu/rtl/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- IP: riscv --
-CFG_EOF
+EOF
+for f in "${FILES_IP_RISCV[@]}"; do echo "ip_riscv/rtl/${f}" >> "${CFG}"; done
 
-for f in "${FILES_IP_RISCV[@]}"; do
-    echo "ip_riscv/rtl/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- IP: common --
-CFG_EOF
+EOF
+for f in "${FILES_IP_COMMON[@]}"; do echo "ip_common/rtl/${f}" >> "${CFG}"; done
 
-for f in "${FILES_IP_COMMON[@]}"; do
-    echo "ip_common/rtl/${f}" >> "${PROJ_DIR}/filelist.cfg"
-done
-
-cat >> "${PROJ_DIR}/filelist.cfg" << CFG_EOF
+cat >> "${CFG}" << EOF
 
 # -- Build time stamp (auto-generated) --
 fpga_build_time.v
-CFG_EOF
+EOF
 
-echo "[STEP 5/8] Done."
+echo "[STEP 5/8] Done  -> ${CFG}"
 
 #--------------------------------------------------------------------
 # 8. Generate fpga_build_time.v
@@ -361,6 +290,13 @@ TCL_SCRIPT="${PROJ_DIR}/build.tcl"
 TOP_MODULE="xilinx_xc7a35tfgg484_webserver_top"
 
 cat > "${TCL_SCRIPT}" << TCL_EOF
+#=============================================================================
+# build.tcl — auto-generated Vivado build script
+#=============================================================================
+# This project is fully self-contained. All source files and IP are
+# under the project directory.  No external paths are referenced.
+#=============================================================================
+
 set proj_name [lindex \$argv 0]
 set proj_dir  [lindex \$argv 1]
 set top_module "${TOP_MODULE}"
@@ -383,7 +319,9 @@ foreach line [split \$cfg_data "\n"] {
     set line [string trim \$line]
     if {\$line eq "" || [string match "#*" \$line]} { continue }
     set comment_idx [string first "#" \$line]
-    if {\$comment_idx >= 0} { set line [string trim [string range \$line 0 [expr {\$comment_idx - 1}]]] }
+    if {\$comment_idx >= 0} {
+        set line [string trim [string range \$line 0 [expr {\$comment_idx - 1}]]]
+    }
     if {\$line ne ""} {
         lappend file_list \$line
         if {[string match "*.xci" \$line]} { lappend xci_list \$line }
@@ -392,32 +330,31 @@ foreach line [split \$cfg_data "\n"] {
 
 puts "Found [llength \$file_list] source files"
 
-# Add Verilog sources
+# Add Verilog sources (all paths relative to proj_dir)
 foreach f \$file_list {
     if {[string match "*.xci" \$f]} { continue }
     set resolved [file normalize "\$proj_dir/\$f"]
     if {[file exists \$resolved]} {
         add_files -norecurse \$resolved
     } else {
-        puts "  [WARN] Not found: \$f"
+        puts "  [WARN] Not found: \$f  (resolved: \$resolved)"
     }
 }
 
-# Add XCI IP
+# XCI IP
 foreach f \$xci_list {
     set resolved [file normalize "\$proj_dir/\$f"]
     if {[file exists \$resolved]} {
         read_ip \$resolved
     }
 }
-
 if {[llength \$xci_list] > 0} {
     upgrade_ip [get_ips]
     generate_target all [get_ips]
     synth_ip [get_ips]
 }
 
-# Add fpga_build_time.v
+# fpga_build_time.v
 set bt_f "\$proj_dir/fpga_build_time.v"
 if {[file exists \$bt_f]} { add_files -norecurse \$bt_f }
 
@@ -439,7 +376,7 @@ puts "Running implementation..."
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 
-# Copy bitstream
+# Bitstream
 set bit_src "\$proj_dir/\$proj_name.runs/impl_1/\$top_module.bit"
 set bit_dst "\$proj_dir/\$proj_name.bit"
 if {[file exists \$bit_src]} { file copy -force \$bit_src \$bit_dst }
@@ -464,6 +401,7 @@ echo "[STEP 7/8] Done."
 echo "[STEP 8/8] Launching Vivado..."
 mkdir -p "${PROJ_DIR}/log"
 cd "${PROJ_DIR}"
+
 vivado -mode batch \
     -source build.tcl \
     -log    "${PROJ_DIR}/log/vivado.log" \
@@ -472,6 +410,9 @@ vivado -mode batch \
 
 echo ""
 echo "============================================"
-echo " FPGA WebServer Build Finished"
+echo " Build Complete"
 echo " Project : ${PROJ_DIR}"
+echo ""
+echo " This project is self-contained."
+echo " To rebuild: cd ${PROJ_DIR} && vivado -source build.tcl -tclargs ${PROJ_NAME} ${PROJ_DIR}"
 echo "============================================"
