@@ -86,7 +86,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="xilinx_xc7a35tfgg484_v${VERSION}_${TIMESTAMP}"
 PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
-GH_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/HuanghmBuck"
+GH_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/${GH_USER}"
 
 echo "============================================"
 echo " FPGA WebServer Build (Xilinx XC7A35T)"

@@ -80,7 +80,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="altera_ep4ce10f17c6_v${VERSION}_${TIMESTAMP}"
 PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
-GH_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/HuanghmBuck"
+GH_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/${GH_USER}"
 
 QUARTUS_ROOT="${QUARTUS_ROOT:-/home/huamingh/tools/altera/13.1/quartus}"
 QUARTUS_BIN="${QUARTUS_ROOT}/bin"
