@@ -270,7 +270,7 @@ foreach f \$xci_list {
     set r [file normalize "\$proj_dir/\$f"]
     if {[file exists \$r]} { read_ip \$r }
 }
-if {[llength \$xci_list] > 0} { upgrade_ip [get_ips]; generate_target all [get_ips]; synth_ip [get_ips] }
+if {[llength \$xci_list] > 0} { upgrade_ip [get_ips]; generate_target all [get_ips] }
 
 set bt_f "\$proj_dir/fpga_build_time.v"
 if {[file exists \$bt_f]} { add_files -norecurse \$bt_f }
