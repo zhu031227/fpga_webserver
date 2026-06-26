@@ -11,13 +11,25 @@
 # project so the entire directory can be archived and rebuilt on any
 # machine with zero external dependencies.
 #
-# GitHub credentials are prompted once at the start and cached locally.
+# External IP repos are cloned via SSH.  Each user must have:
+#   (1) An SSH key added to their GitHub account.
+#   (2) Collaborator access to fpga_cpu, ip_lcpu, ip_riscv, ip_common.
 #=============================================================================
 
 set -euo pipefail
 
 #--------------------------------------------------------------------
-# 1. Version check
+# 1. Verify SSH access
+#--------------------------------------------------------------------
+if ! ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -qE 'successfully authenticated|Hu|HuanghmBuck'; then
+    echo "ERROR: SSH key not configured or no GitHub access."
+    echo "  Generate a key:  ssh-keygen -t ed25519 -C \"your@email.com\""
+    echo "  Add public key:  https://github.com/settings/keys"
+    exit 1
+fi
+
+#--------------------------------------------------------------------
+# 2. Version check
 #--------------------------------------------------------------------
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <version>"
@@ -33,44 +45,6 @@ fi
 VERSION=$(printf '%04s' "$(echo "${VERSION_RAW}" | tr '[:upper:]' '[:lower:]')" | tr ' ' '0')
 
 #--------------------------------------------------------------------
-# 2. GitHub credentials
-#--------------------------------------------------------------------
-CRED_FILE="${HOME}/.fpga_webserver_gh_creds"
-
-if [ -f "${CRED_FILE}" ]; then
-    echo "Found cached credentials: ${CRED_FILE}"
-    echo -n "Reuse? [Y/n] "
-    read -r REUSE < /dev/tty
-    if [ "${REUSE}" != "n" ] && [ "${REUSE}" != "N" ]; then
-        source "${CRED_FILE}"
-        echo "  Using cached credentials for ${GH_USER}."
-    fi
-fi
-
-if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
-    echo ""
-    echo "=== GitHub Authentication ==="
-    echo "External IP repos will be cloned from GitHub."
-    echo "(Make sure your proxy/VPN is on if needed before proceeding.)"
-    echo ""
-    printf "  GitHub username: "
-    read -r GH_USER < /dev/tty
-    printf "  GitHub token/password: "
-    read -rs GH_TOKEN < /dev/tty
-    echo ""
-    if [ -z "${GH_USER}" ] || [ -z "${GH_TOKEN}" ]; then
-        echo "ERROR: Username and password/token are required."; exit 1
-    fi
-    cat > "${CRED_FILE}" << EOF
-# fpga_webserver GitHub credentials (auto-generated)
-GH_USER='${GH_USER}'
-GH_TOKEN='${GH_TOKEN}'
-EOF
-    chmod 600 "${CRED_FILE}"
-    echo "  Credentials cached -> ${CRED_FILE}"
-fi
-
-#--------------------------------------------------------------------
 # 3. Paths & toolchain
 #--------------------------------------------------------------------
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -80,7 +54,7 @@ TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="altera_ep4ce10f17c6_v${VERSION}_${TIMESTAMP}"
 PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
-GH_AUTH="https://${GH_USER}:${GH_TOKEN}@github.com/${GH_USER}"
+GH_REMOTE="git@github.com:HuanghmBuck"
 
 QUARTUS_ROOT="${QUARTUS_ROOT:-/home/huamingh/tools/altera/13.1/quartus}"
 QUARTUS_BIN="${QUARTUS_ROOT}/bin"
@@ -146,14 +120,18 @@ clone_repo_rtl() {
     local repo_name="$1"; local dst="${PROJ_DIR}/${repo_name}"
     shift; local files=("$@")
     [ ${#files[@]} -eq 0 ] && return
-    local url="${GH_AUTH}/${repo_name}.git"
+    local url="${GH_REMOTE}/${repo_name}.git"
     echo -n "  Cloning ${repo_name} (${#files[@]} files)... "
     if ! git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" 2>/tmp/gh_clone_err; then
         echo "FAILED"
-        if grep -q 'could not resolve\|Connection refused\|timed out' /tmp/gh_clone_err 2>/dev/null; then
-            echo "  Network unreachable. Make sure your proxy/VPN is on."
-        elif grep -q 'Authentication\|403\|401' /tmp/gh_clone_err 2>/dev/null; then
-            echo "  Authentication failed. Check username and token/password."
+        if grep -qE 'Could not resolve host|Connection refused|timed out|Network is unreachable' /tmp/gh_clone_err 2>/dev/null; then
+            echo "  Network is unreachable. Make sure your proxy/VPN is on."
+        elif grep -qE 'Permission denied|Could not read from remote' /tmp/gh_clone_err 2>/dev/null; then
+            echo "  SSH access denied. Make sure your SSH key is added to GitHub."
+            echo "    Generate: ssh-keygen -t ed25519 -C \"your@email.com\""
+            echo "    Add key:  https://github.com/settings/keys"
+        elif grep -qE 'Repository not found|not found' /tmp/gh_clone_err 2>/dev/null; then
+            echo "  Repository not found or no access. Ask the repo owner to add you as a collaborator."
         else
             echo "  git error: $(head -1 /tmp/gh_clone_err 2>/dev/null)"
         fi
