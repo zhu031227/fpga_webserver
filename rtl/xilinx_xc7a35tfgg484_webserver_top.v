@@ -102,7 +102,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   endgenerate
 
   rgmii2gmii #(
-      .xilinx_idelay_value(xilinx_idelay_value),
+      .Xilinx_IDELAY_VALUE(xilinx_idelay_value),
       .vendor(device_vendor)
   ) u_rgmii2gmii (
       .reset_l (reset_l_synced),
