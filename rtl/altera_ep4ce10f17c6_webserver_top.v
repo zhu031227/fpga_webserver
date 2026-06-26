@@ -1,3 +1,5 @@
+`include "define.sv"
+
 // altera_ep4ce10f17c6_webserver_top — altera cyclone iv e fpga webserver top module
 //
 // target: ep4ce10f17c6
