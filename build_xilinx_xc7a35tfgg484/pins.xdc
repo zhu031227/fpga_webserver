@@ -34,8 +34,8 @@ set_property PACKAGE_PIN W20  [get_ports {rgmii_txd[3]}]
 set_property PACKAGE_PIN AA19 [get_ports rgmii_tx_ctl]
 
 # --- MDIO ---
-set_property PACKAGE_PIN R14 [get_ports Eth0_MDC]
-set_property PACKAGE_PIN U21 [get_ports Eth0_MDIO]
+set_property PACKAGE_PIN R14 [get_ports eth0_mdc]
+set_property PACKAGE_PIN U21 [get_ports eth0_mdio]
 
 #===================================================================
 # I/O Standards
@@ -50,8 +50,8 @@ set_property IOSTANDARD LVCMOS33 [get_ports {led_o[1]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_o[2]}]
 set_property IOSTANDARD LVCMOS33 [get_ports {led_o[3]}]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_reset_l]
-set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDC]
-set_property IOSTANDARD LVCMOS33 [get_ports Eth0_MDIO]
+set_property IOSTANDARD LVCMOS33 [get_ports eth0_mdc]
+set_property IOSTANDARD LVCMOS33 [get_ports eth0_mdio]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_txc]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_rxc]
 set_property IOSTANDARD LVCMOS33 [get_ports {rgmii_rxd[*]}]
