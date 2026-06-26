@@ -40,7 +40,7 @@ CRED_FILE="${HOME}/.fpga_webserver_gh_creds"
 if [ -f "${CRED_FILE}" ]; then
     echo "Found cached credentials: ${CRED_FILE}"
     echo -n "Reuse? [Y/n] "
-    read -r REUSE
+    read -r REUSE < /dev/tty
     if [ "${REUSE}" != "n" ] && [ "${REUSE}" != "N" ]; then
         source "${CRED_FILE}"
         echo "  Using cached credentials for ${GH_USER}."
@@ -53,10 +53,10 @@ if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
     echo "External IP repos will be cloned from GitHub."
     echo "Enter your credentials once (classic PAT with 'repo' scope)."
     echo ""
-    echo -n "  GitHub username: "
-    read -r GH_USER
-    echo -n "  GitHub token:    "
-    read -rs GH_TOKEN
+    printf "  GitHub username: "
+    read -r GH_USER < /dev/tty
+    printf "  GitHub token:    "
+    read -rs GH_TOKEN < /dev/tty
     echo ""
     if [ -z "${GH_USER}" ] || [ -z "${GH_TOKEN}" ]; then
         echo "ERROR: Username and token are required."; exit 1

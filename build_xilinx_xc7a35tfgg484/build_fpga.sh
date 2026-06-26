@@ -40,8 +40,8 @@ CRED_FILE="${HOME}/.fpga_webserver_gh_creds"
 
 if [ -f "${CRED_FILE}" ]; then
     echo "Found cached credentials: ${CRED_FILE}"
-    echo -n "Reuse? [Y/n] "
-    read -r REUSE
+    printf "Reuse? [Y/n] "
+    read -r REUSE < /dev/tty
     if [ "${REUSE}" != "n" ] && [ "${REUSE}" != "N" ]; then
         source "${CRED_FILE}"
         echo "  Using cached credentials for ${GH_USER}."
@@ -55,10 +55,10 @@ if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
     echo "will be cloned from GitHub. Enter your credentials once."
     echo "(Use a classic Personal Access Token with 'repo' scope.)"
     echo ""
-    echo -n "  GitHub username: "
-    read -r GH_USER
-    echo -n "  GitHub token:    "
-    read -rs GH_TOKEN
+    printf "  GitHub username: "
+    read -r GH_USER < /dev/tty
+    printf "  GitHub token:    "
+    read -rs GH_TOKEN < /dev/tty
     echo ""
 
     if [ -z "${GH_USER}" ] || [ -z "${GH_TOKEN}" ]; then
