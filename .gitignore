@@ -93,6 +93,8 @@ NAMEDATABASE/
 *.log
 *.xpr
 *.xdc
+!pins.xdc
+!timing.xdc
 *.strategy
 *.backup.jou
 *.backup.log
