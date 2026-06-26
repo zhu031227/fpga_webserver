@@ -242,9 +242,9 @@ puts " Vivado WebServer Build"
 puts " Project : \$proj_name"
 puts "============================================"
 
-create_project -force \$proj_name \$proj_dir -part xc7a35tfgg484-2
+create_project -force \$proj_name \\$proj_dir -part xc7a35tfgg484-2
 
-set cfg_file [open "\$proj_dir/filelist.cfg" r]
+set cfg_file [open "\\$proj_dir/filelist.cfg" r]
 set cfg_data [read \$cfg_file]
 close \$cfg_file
 
@@ -263,16 +263,16 @@ puts "Found [llength \$file_list] source files"
 
 foreach f \$file_list {
     if {[string match "*.xci" \$f]} { continue }
-    set r [file normalize "\$proj_dir/\$f"]
+    set r [file normalize "\\$proj_dir/\$f"]
     if {[file exists \$r]} { add_files -norecurse \$r } else { puts "  [WARN] Not found: \$f" }
 }
 foreach f \$xci_list {
-    set r [file normalize "\$proj_dir/\$f"]
+    set r [file normalize "\\$proj_dir/\$f"]
     if {[file exists \$r]} { read_ip \$r }
 }
 if {[llength \$xci_list] > 0} { upgrade_ip [get_ips]; generate_target all [get_ips] }
 
-set bt_f "\$proj_dir/fpga_build_time.v"
+set bt_f "\\$proj_dir/fpga_build_time.v"
 if {[file exists \$bt_f]} { add_files -norecurse \$bt_f }
 
 # Parse all .v files as SystemVerilog (many RTL files use SV constructs like 'int')
@@ -281,12 +281,12 @@ if {[llength \$sv_files] > 0} {
     set_property file_type SystemVerilog \$sv_files
     puts "Set [llength \$sv_files] .v file(s) to SystemVerilog"
 }
-set_property include_dirs [file normalize "$proj_dir/ip_vendor/xilinx_xc7a35tfgg484"] [current_fileset]
+set_property include_dirs [file normalize "\$proj_dir/ip_vendor/xilinx_xc7a35tfgg484"] [current_fileset]
 
 set_property top \$top_module [current_fileset]
 update_compile_order -fileset sources_1
-add_files -fileset constrs_1 -norecurse "\$proj_dir/pins.xdc"
-add_files -fileset constrs_1 -norecurse "\$proj_dir/timing.xdc"
+add_files -fileset constrs_1 -norecurse "\\$proj_dir/pins.xdc"
+add_files -fileset constrs_1 -norecurse "\\$proj_dir/timing.xdc"
 
 puts "Running synthesis..."
 launch_runs synth_1 -jobs 8
@@ -295,13 +295,13 @@ puts "Running implementation..."
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 
-set bit_src "\$proj_dir/\$proj_name.runs/impl_1/\$top_module.bit"
-set bit_dst "\$proj_dir/\$proj_name.bit"
+set bit_src "\\$proj_dir/\$proj_name.runs/impl_1/\$top_module.bit"
+set bit_dst "\\$proj_dir/\$proj_name.bit"
 if {[file exists \$bit_src]} { file copy -force \$bit_src \$bit_dst }
 
 open_run impl_1
-report_timing_summary -file "\$proj_dir/timing_summary.rpt"
-report_utilization    -file "\$proj_dir/utilization.rpt"
+report_timing_summary -file "\\$proj_dir/timing_summary.rpt"
+report_utilization    -file "\\$proj_dir/utilization.rpt"
 close_design
 
 puts "============================================"
