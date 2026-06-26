@@ -21,7 +21,8 @@ set -euo pipefail
 #--------------------------------------------------------------------
 # 1. Verify SSH access
 #--------------------------------------------------------------------
-if ! ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1 | grep -qE 'successfully authenticated|Hu|HuanghmBuck'; then
+SSH_OUTPUT=$(ssh -o StrictHostKeyChecking=accept-new -T git@github.com 2>&1) || true
+if ! echo "$SSH_OUTPUT" | grep -qE 'successfully authenticated|Hu|HuanghmBuck'; then
     echo "ERROR: SSH key not configured or no GitHub access."
     echo "  Generate a key:  ssh-keygen -t ed25519 -C \"your@email.com\""
     echo "  Add public key:  https://github.com/settings/keys"
