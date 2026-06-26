@@ -54,8 +54,8 @@ module altera_ep4ce10f17c6_webserver_top #(
   localparam int cpu_buf_block_addr_width = 2;
   localparam int cpu_buf_data_width = 8;
   localparam int cpu_buf_para_width = 1;
-  localparam string cpu_buf_data_ram_type = "m9k";
-  localparam string cpu_buf_para_ram_type = "registers";
+  localparam string cpu_buf_data_ram_type = `LARGER_RAM;
+  localparam string cpu_buf_para_ram_type = `SMALL_RAM;
 
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;

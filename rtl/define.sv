@@ -8,7 +8,11 @@
 `ifndef DEFINE_SV
 `define DEFINE_SV
 
-// Global definitions for FPGA WebServer project
-// Add shared `define macros here
+// ── Device vendor ─────────────────────────────────────
+`define DEVICE_VENDOR "xilinx"
+
+// ── RAM type (per platform) ───────────────────────────
+`define LARGER_RAM  "block"        // ≥128bit storage: block RAM
+`define SMALL_RAM   "distributed"  // <128bit storage: distributed RAM
 
 `endif
