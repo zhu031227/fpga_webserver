@@ -52,37 +52,17 @@ if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
     echo ""
     echo "=== GitHub Authentication ==="
     echo "External IP repos (fpga_cpu, ip_lcpu, ip_riscv, ip_common)"
-    echo "will be cloned from GitHub. Enter your credentials once."
-    echo "(GitHub password or Personal Access Token with repo scope.)"
+    echo "will be cloned from GitHub."
+    echo "(Make sure your proxy/VPN is on if needed before proceeding.)"
     echo ""
     printf "  GitHub username: "
     read -r GH_USER < /dev/tty
-    printf "  GitHub token:    "
+    printf "  GitHub token/password: "
     read -rs GH_TOKEN < /dev/tty
     echo ""
 
     if [ -z "${GH_USER}" ] || [ -z "${GH_TOKEN}" ]; then
-        echo "ERROR: Username and token are required."
-        exit 1
-    fi
-
-    # Quick validation — try git ls-remote on fpga_cpu (works with password or PAT)
-    echo -n "  Validating... "
-    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo \
-        git ls-remote "https://${GH_USER}:${GH_TOKEN}@github.com/HuanghmBuck/fpga_cpu.git" \
-        HEAD > /dev/null 2>&1; then
-        echo "OK"
-    else
-        echo "FAILED"
-        echo "ERROR: GitHub authentication failed."
-        echo "  Username : ${GH_USER}"
-        echo "  Token    : $(echo "${GH_TOKEN}" | sed 's/./*/g')"
-        echo ""
-        echo "  Make sure:"
-        echo "  1. The username and token/password are correct"
-        echo "  2. For a token: use a 'classic' Personal Access Token"
-        echo "     (Settings → Developer settings → PAT → Generate)"
-        echo "     with 'repo' scope enabled"
+        echo "ERROR: Username and password/token are required."
         exit 1
     fi
 
@@ -172,9 +152,20 @@ clone_repo_rtl() {
     [ ${#files[@]} -eq 0 ] && return
     local url="${GH_AUTH}/${repo_name}.git"
     echo -n "  Cloning ${repo_name} (${#files[@]} files)... "
-    git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" > /dev/null 2>&1 || {
-        echo "FAILED"; echo "  ERROR: Could not clone ${url}"; exit 1
-    }
+    if ! git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" 2>/tmp/gh_clone_err; then
+        echo "FAILED"
+        echo "  ERROR: Could not clone ${repo_name}."
+        if grep -q 'could not resolve\|Connection refused\|timed out\|Could not resolve' /tmp/gh_clone_err 2>/dev/null; then
+            echo "  Network is unreachable. Make sure your proxy/VPN is on."
+        elif grep -q 'Authentication failed\|Invalid username\|403\|401' /tmp/gh_clone_err 2>/dev/null; then
+            echo "  Authentication failed. Check your username and token/password."
+        else
+            echo "  git error: $(head -1 /tmp/gh_clone_err 2>/dev/null)"
+        fi
+        rm -f /tmp/gh_clone_err
+        exit 1
+    fi
+    rm -f /tmp/gh_clone_err
     cd "${dst}"
     local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
     git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
