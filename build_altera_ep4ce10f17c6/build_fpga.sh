@@ -51,7 +51,7 @@ if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
     echo ""
     echo "=== GitHub Authentication ==="
     echo "External IP repos will be cloned from GitHub."
-    echo "Enter your credentials once (classic PAT with 'repo' scope)."
+    echo "Enter your credentials once (password or PAT with repo scope)."
     echo ""
     printf "  GitHub username: "
     read -r GH_USER < /dev/tty
@@ -61,13 +61,18 @@ if [ -z "${GH_USER:-}" ] || [ -z "${GH_TOKEN:-}" ]; then
     if [ -z "${GH_USER}" ] || [ -z "${GH_TOKEN}" ]; then
         echo "ERROR: Username and token are required."; exit 1
     fi
-    HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" \
-        -u "${GH_USER}:${GH_TOKEN}" "https://api.github.com/user" 2>/dev/null || echo "000")
-    if [ "${HTTP_CODE}" != "200" ]; then
-        echo "ERROR: GitHub authentication failed (HTTP ${HTTP_CODE})."
+    echo -n "  Validating... "
+    if GIT_TERMINAL_PROMPT=0 GIT_ASKPASS=echo \
+        git ls-remote "https://${GH_USER}:${GH_TOKEN}@github.com/HuanghmBuck/fpga_cpu.git" \
+        HEAD > /dev/null 2>&1; then
+        echo "OK"
+    else
+        echo "FAILED"
+        echo "ERROR: GitHub authentication failed."
+        echo "  Username : ${GH_USER}"
+        echo "  Make sure the username and token/password are correct."
         exit 1
     fi
-    echo "  Authentication OK."
     cat > "${CRED_FILE}" << EOF
 # fpga_webserver GitHub credentials (auto-generated)
 GH_USER='${GH_USER}'
