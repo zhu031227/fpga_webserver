@@ -10,7 +10,7 @@
 //   - idelay/oddr primitives for rgmii ddr i/o
 
 module xilinx_xc7a35tfgg484_webserver_top #(
-    parameter int sim_mod = 0,
+    parameter int sim_mod = 1,
     parameter string script_file = "../tcl/InstructRAM.tcl"
 ) (
     input clk_50m_in,

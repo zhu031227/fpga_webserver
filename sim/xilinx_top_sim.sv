@@ -10,8 +10,8 @@
 //   - idelay/oddr primitives for rgmii ddr i/o
 
 module xilinx_xc7a35tfgg484_webserver_top #(
-    parameter int sim_mod = 0,
-    parameter string script_file = "../tcl/InstructRAM.tcl"
+    parameter sim_mod = 0,
+    parameter script_file = "../tcl/InstructRAM.tcl"
 ) (
     input clk_50m_in,
     input reset_l,
@@ -35,15 +35,15 @@ module xilinx_xc7a35tfgg484_webserver_top #(
     output [3:0] led_o
 );
 
-  localparam string device_vendor = (sim_mod == 0) ? "xilinx" : "";
+  localparam device_vendor = (sim_mod == 0) ? "xilinx" : "";
 
   // webserver_wrapper configuration
   localparam int second_event_period = 50000000;
   localparam int uart_baud_rate = 115200;
-  localparam string cpu_vendor = "xilinx";  //"intel"; "xilinx"; "uart"
+  localparam cpu_vendor = "xilinx";  //"intel"; "xilinx"; "uart"
   localparam int xilinx_idelay_value = 16;
   localparam int riscv_inst_en = 1;
-  localparam string instr_ram_type = "block";
+  localparam instr_ram_type = "block";
   localparam int instr_addr_depth = 1024 * 5;
   localparam int instr_addr_width = $clog2(instr_addr_depth);
   localparam int init_blockram_size = 32;
@@ -51,12 +51,12 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int amd_coe_init_instru = 0;
   localparam int intel_hex_init_instru = 0;
   localparam int cpu_buf_addr_width = 12;
-  localparam string cpu_buf_block_mode = "false";
+  localparam cpu_buf_block_mode = "false";
   localparam int cpu_buf_block_addr_width = 2;
   localparam int cpu_buf_data_width = 8;
   localparam int cpu_buf_para_width = 1;
-  localparam string cpu_buf_data_ram_type = "M9K";
-  localparam string cpu_buf_para_ram_type = "registers";
+  localparam cpu_buf_data_ram_type = "M9K";
+  localparam cpu_buf_para_ram_type = "registers";
 
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;

@@ -3,7 +3,7 @@
 module lcpu_bfm #(
     parameter read_time_out = 2000,
     parameter delay_time = 1000,
-    parameter string script_file = "../ref/script.tcl") (
+    parameter script_file = "../ref/script.tcl") (
     input  logic        clk,
     input  logic        reset_l,
 
@@ -16,6 +16,7 @@ module lcpu_bfm #(
 );
 
     integer file;
+    reg [8191:0] command;
     int temp_addr, temp_data, dly_t;
     int have_expect = 0;
     int expect_data;
@@ -24,12 +25,12 @@ module lcpu_bfm #(
     int ret;
 
     initial begin
-        file = $fopen("../tcl/InstructRAM.tcl", "r");
+        file = $fopen(script_file, "r");
         if (file == 0) begin
-            $display("BFM Error: Failed to open ../tcl/InstructRAM.tcl");
+            $display("BFM Error: Failed to open %s", script_file);
         end
         else begin
-            $display("BFM: Opened ../tcl/InstructRAM.tcl");
+            $display("BFM: Opened %s", script_file);
         end
 
         ADDRESS = 0;
@@ -37,14 +38,14 @@ module lcpu_bfm #(
         RH_WL   = 1;
         EXEC     = 0;
         # delay_time;
-        $display("BFM: Starting TCL command loop (delay done)");
 
-        // Use $fscanf to read directly from file (avoids $sscanf/wide-reg issues)
         while (!$feof(file)) begin
+            command = 0;
+            void'($fgets(command, file));
             read_time_out_cnt = 0;
 
             // Try jwrite: "jwrite 0xADDR 0xDATA"
-            ret = $fscanf(file, " jwrite 0x%h 0x%h\n", temp_addr, temp_data);
+            ret = $sscanf(command, "jwrite 0x%h 0x%h", temp_addr, temp_data);
             if (ret == 2) begin
                 @(posedge clk);
                 ADDRESS = temp_addr;
@@ -59,7 +60,7 @@ module lcpu_bfm #(
             end
             else begin
                 // Try jread: "jread 0xADDR"
-                ret = $fscanf(file, " jread 0x%h\n", temp_addr);
+                ret = $sscanf(command, "jread 0x%h", temp_addr);
                 if (ret == 1) begin
                     @(posedge clk);
                     ADDRESS = temp_addr;
@@ -92,23 +93,18 @@ module lcpu_bfm #(
                 end
                 else begin
                     // Try after: "after DELAY"
-                    ret = $fscanf(file, " after %d\n", dly_t);
+                    ret = $sscanf(command, "after %d", dly_t);
                     if (ret == 1) begin
                         have_expect = 0;
-                        #(dly_t);
+                        # dly_t;
                         cmd_count = cmd_count + 1;
                     end
                     else begin
                         // Try #expect: "#expect 0xVALUE"
-                        ret = $fscanf(file, " #expect 0x%h\n", expect_data);
+                        ret = $sscanf(command, "#expect 0x%h", expect_data);
                         if (ret == 1) begin
                             have_expect = 1;
                             cmd_count = cmd_count + 1;
-                        end
-                        else begin
-                            // Skip unknown line
-                            ret = $fscanf(file, " %*s\n");
-                            $display("BFM: Skipped unknown line (cmd %0d)", cmd_count);
                         end
                     end
                 end

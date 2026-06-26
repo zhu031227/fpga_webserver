@@ -83,12 +83,62 @@ module webserver_wrapper #(
   wire [                31:0] cpu_address;
   wire [                31:0] cpu_rdata;
   wire                        cpu_ack;
+  wire                        reg_ack;
+  wire                        pram_ack;
 
   // instruction ram interface
-  wire                        pram_wr;
-  wire [instr_addr_width-1:0] pram_addr;
-  wire [                31:0] pram_wdata;
+  reg                         pram_wr;
+  reg  [instr_addr_width-1:0] pram_addr;
+  reg  [                31:0] pram_wdata;
   wire [                31:0] pram_rdata;
+
+  // ── bus-to-pram bridge (simulation only) ─────────────────
+  // The BFM writes firmware to bus addresses 0x10000–0x10FFF.
+  // This bridge routes those writes to the instruction RAM
+  // and generates a one-cycle ack pulse.
+  localparam PRAM_BASE = 32'h00010000;
+  localparam PRAM_SIZE = 32'h00001000;  // 4KB = 1024 x 32-bit words
+
+  wire pram_sel = cpu_req && !cpu_rhwl
+                  && (cpu_address >= PRAM_BASE)
+                  && (cpu_address < PRAM_BASE + PRAM_SIZE);
+
+  reg pram_sel_d;  // delayed to generate ack pulse
+
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      pram_wr     <= 1'b0;
+      pram_addr   <= {instr_addr_width{1'b0}};
+      pram_wdata  <= 32'b0;
+      pram_sel_d  <= 1'b0;
+    end else begin
+      pram_wr     <= pram_sel;
+      pram_addr   <= cpu_address[instr_addr_width-1:0];
+      pram_wdata  <= cpu_wdata;
+      pram_sel_d  <= pram_sel;  // one-cycle delay for ack pulse
+    end
+  end
+
+  assign pram_ack = pram_sel_d;  // ack one cycle after write
+  assign cpu_ack  = reg_ack || pram_ack;
+
+  // ── CPU reset delay (simulation only) ───────────────────
+  // Keep RISC-V CPU in reset for ~250us while BFM loads firmware.
+  // This prevents the CPU from executing garbage before firmware is ready.
+  reg [15:0] cpu_rst_cnt;
+  reg        cpu_reset_n;
+
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      cpu_rst_cnt  <= 16'd0;
+      cpu_reset_n  <= 1'b0;
+    end else if (cpu_rst_cnt < 12500) begin  // 12500 * 20ns = 250us
+      cpu_rst_cnt  <= cpu_rst_cnt + 1;
+      cpu_reset_n  <= 1'b0;
+    end else begin
+      cpu_reset_n  <= 1'b1;
+    end
+  end
 
   // --- register signals ---
   wire                        get_local_time;
@@ -208,7 +258,7 @@ module webserver_wrapper #(
       .reset_l      (reset_l),
       .uart_rx      (uart_rx),
       .uart_tx      (uart_tx),
-      .riscv_reset_l(reset_l),
+      .riscv_reset_l(cpu_reset_n),  // delayed: CPU stays in reset while BFM loads firmware
 
       .pram_wr   (pram_wr),
       .pram_addr (pram_addr),
@@ -306,7 +356,7 @@ module webserver_wrapper #(
       .wdata                  (cpu_wdata),
       .address                (cpu_address[15:0]),
       .rdata                  (cpu_rdata),
-      .ack                    (cpu_ack)
+      .ack                    (reg_ack)
   );
 
   // --- mdio controller (from ip_common) ---
@@ -329,14 +379,14 @@ module webserver_wrapper #(
       .clk    (clk_125mhz),
       .reset_l(reset_l),
 
-      .eth_txd (gmii_txd),
-      .eth_txen(gmii_tx_en),
-      .eth_txer(gmii_tx_err),
+      .Eth_TXD (gmii_txd),
+      .Eth_TXEN(gmii_tx_en),
+      .Eth_TXER(gmii_tx_err),
 
-      .eth_rxc (gmii_rx_clk),
-      .eth_rxdv(gmii_rx_dv),
-      .eth_rxer(gmii_rx_err),
-      .eth_rxd (gmii_rxd),
+      .Eth_RXC (gmii_rx_clk),
+      .Eth_RXDV(gmii_rx_dv),
+      .Eth_RXER(gmii_rx_err),
+      .Eth_RXD (gmii_rxd),
 
       .mac_rx_sop (eth0_mac_rx_sop),
       .mac_rx_en  (eth0_mac_rx_en),

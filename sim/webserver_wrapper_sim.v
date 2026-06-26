@@ -13,29 +13,29 @@
 // altera top connects gmii directly
 
 module webserver_wrapper #(
-    parameter int sim_mod = 0,
-    parameter string script_file = "../tcl/InstructRAM.tcl",
-    parameter int second_event_period = 50000000,  // 1s at 50mhz
+    parameter sim_mod = 0,
+    parameter script_file = "../tcl/InstructRAM.tcl",
+    parameter second_event_period = 50000000,  // 1s at 50mhz
 
     // configuration (from platform top)
-    parameter int    uart_baud_rate           = 115200,
-    parameter string cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
-    parameter string device_vendor            = "xilinx",                     // "Intel", "xilinx"
-    parameter int    riscv_inst_en            = 1,
-    parameter string instr_ram_type           = "block",
-    parameter int    instr_addr_depth         = 1024 * 5,
-    parameter int    instr_addr_width         = $clog2(instr_addr_depth),
-    parameter int    init_blockram_size       = 32,
-    parameter int    lcpu_init_instru         = 1,
-    parameter int    amd_coe_init_instru      = 0,
-    parameter int    intel_hex_init_instru    = 0,
-    parameter int    cpu_buf_addr_width       = 12,
-    parameter string cpu_buf_block_mode       = "false",
-    parameter int    cpu_buf_block_addr_width = 2,
-    parameter int    cpu_buf_data_width       = 8,
-    parameter int    cpu_buf_para_width       = 1,
-    parameter string cpu_buf_data_ram_type    = "M9K",
-    parameter string cpu_buf_para_ram_type    = "registers"
+    parameter    uart_baud_rate           = 115200,
+    parameter cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
+    parameter device_vendor            = "xilinx",                     // "Intel", "xilinx"
+    parameter    riscv_inst_en            = 1,
+    parameter instr_ram_type           = "block",
+    parameter    instr_addr_depth         = 1024 * 5,
+    parameter    instr_addr_width         = $clog2(instr_addr_depth),
+    parameter    init_blockram_size       = 32,
+    parameter    lcpu_init_instru         = 1,
+    parameter    amd_coe_init_instru      = 0,
+    parameter    intel_hex_init_instru    = 0,
+    parameter    cpu_buf_addr_width       = 12,
+    parameter cpu_buf_block_mode       = "false",
+    parameter    cpu_buf_block_addr_width = 2,
+    parameter    cpu_buf_data_width       = 8,
+    parameter    cpu_buf_para_width       = 1,
+    parameter cpu_buf_data_ram_type    = "M9K",
+    parameter cpu_buf_para_ram_type    = "registers"
 ) (
     input reset_l,
     input clk_50mhz,  // 50mhz clock from platform top
@@ -329,14 +329,14 @@ module webserver_wrapper #(
       .clk    (clk_125mhz),
       .reset_l(reset_l),
 
-      .eth_txd (gmii_txd),
-      .eth_txen(gmii_tx_en),
-      .eth_txer(gmii_tx_err),
+      .Eth_TXD (gmii_txd),
+      .Eth_TXEN(gmii_tx_en),
+      .Eth_TXER(gmii_tx_err),
 
-      .eth_rxc (gmii_rx_clk),
-      .eth_rxdv(gmii_rx_dv),
-      .eth_rxer(gmii_rx_err),
-      .eth_rxd (gmii_rxd),
+      .Eth_RXC (gmii_rx_clk),
+      .Eth_RXDV(gmii_rx_dv),
+      .Eth_RXER(gmii_rx_err),
+      .Eth_RXD (gmii_rxd),
 
       .mac_rx_sop (eth0_mac_rx_sop),
       .mac_rx_en  (eth0_mac_rx_en),

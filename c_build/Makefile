@@ -60,8 +60,25 @@ HEX_OUT   = $(RTL_DIR)/InstructRAM.hex
 # ---- Targets ----
 .PHONY: all elf bin pads tcl verilog hex clean disasm info
 
-# Parse instruction RAM depth from RTL parameter (e.g. "1024*12" → 12288)
-INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9*]+' $(RTL_DIR)/webserver_wrapper.v 2>/dev/null | head -1)
+# ---- Platform selection ----
+# Usage: make PLATFORM=xilinx  (or PLATFORM=intel)
+#        make                  (interactive prompt, default: xilinx)
+# Skip prompt for non-build targets (clean, disasm, info, etc.)
+NEED_PLATFORM := $(if $(filter clean disasm info,$(MAKECMDGOALS)),,1)
+ifeq ($(NEED_PLATFORM),1)
+  ifndef PLATFORM
+    PLATFORM := $(shell bash -c 'read -p "Select platform [xilinx/intel] (default: xilinx): " p; echo $${p:-xilinx}')
+  endif
+else
+  PLATFORM := none
+endif
+
+ifeq ($(PLATFORM),intel)
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/huamingh/work/fpga_webserver/rtl/altera_ep4ce10f17c6_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+else
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/huamingh/work/fpga_webserver/rtl/xilinx_xc7a35tfgg484_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+endif
+
 ifeq ($(INSTR_ADDR_DEPTH),)
   INSTR_ADDR_DEPTH := 12288
 else
@@ -71,7 +88,7 @@ endif
 all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT)
 	@echo ""
 	@echo "============================================"
-	@echo "  Build Summary"
+	@echo "  Build Summary  (platform: $(PLATFORM))"
 	@echo "============================================"
 	@echo "  Instruction space : $(INSTR_ADDR_DEPTH) x 32-bit words ($(shell echo $$(($(INSTR_ADDR_DEPTH) * 4))) bytes)"
 	@$(PYTHON) -c "import pathlib,os; \
@@ -93,10 +110,11 @@ $(OUT_DIR):
 
 $(BUILD_TIME_H): | $(OUT_DIR)
 	@echo "  GEN  $@"
-	@printf '#ifndef _BUILD_TIME_H_\n#define _BUILD_TIME_H_\n' > $@
-	@printf '#define SW_BUILD_DATE 32'h%04d%02d%02d\n' $$(date +%Y) $$(date +%m) $$(date +%d) >> $@
-	@printf '#define SW_BUILD_TIME 32'h%02d%02d0000\n' $$(date +%H) $$(date +%M) >> $@
-	@printf '#endif // _BUILD_TIME_H_\n' >> $@
+	@echo "#ifndef _BUILD_TIME_H_" > $@
+	@echo "#define _BUILD_TIME_H_" >> $@
+	@echo "#define SW_BUILD_DATE 32'h$$(date +%Y)$$(date +%m)$$(date +%d)" >> $@
+	@echo "#define SW_BUILD_TIME 32'h$$(date +%H)$$(date +%M)0000" >> $@
+	@echo "#endif // _BUILD_TIME_H_" >> $@
 
 # ---- Compile ----
 $(OUT_DIR)/%.o: $(C_DIR)/%.c $(BUILD_TIME_H) | $(OUT_DIR)

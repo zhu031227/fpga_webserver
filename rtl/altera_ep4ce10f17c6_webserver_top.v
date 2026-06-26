@@ -37,6 +37,26 @@ module altera_ep4ce10f17c6_webserver_top #(
 
   localparam string device_vendor = (sim_mod == 0) ? "Intel" : "";
 
+  // webserver_wrapper configuration
+  localparam int second_event_period = 50000000;
+  localparam int uart_baud_rate = 115200;
+  localparam string cpu_vendor = "intel";  //"intel"; "xilinx"; "uart"
+  localparam int riscv_inst_en = 1;
+  localparam string instr_ram_type = "m9k";
+  localparam int instr_addr_depth = 1024 * 3;
+  localparam int instr_addr_width = $clog2(instr_addr_depth);
+  localparam int init_blockram_size = 8;
+  localparam int lcpu_init_instru = 1;
+  localparam int amd_coe_init_instru = 0;
+  localparam int intel_hex_init_instru = 0;
+  localparam int cpu_buf_addr_width = 12;
+  localparam string cpu_buf_block_mode = "false";
+  localparam int cpu_buf_block_addr_width = 2;
+  localparam int cpu_buf_data_width = 8;
+  localparam int cpu_buf_para_width = 1;
+  localparam string cpu_buf_data_ram_type = "m9k";
+  localparam string cpu_buf_para_ram_type = "registers";
+
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;
 
@@ -98,10 +118,11 @@ module altera_ep4ce10f17c6_webserver_top #(
 
   // --- webserver core wrapper ---
   webserver_wrapper #(
-      .lcpu_inst_en(1),
-      .pll_bypass  (sim_mod == 1)
+      .sim_mod         (sim_mod),
+      .cpu_vendor      ("Intel"),
+      .device_vendor   (device_vendor),
+      .instr_addr_depth(1024 * 5)
   ) u_webserver (
-      .clk          (clk_50m_in),
       .reset_l      (reset_l_synced),
       .clk_50mhz_in (clk_50m),
       .clk_125mhz_in(clk_125m),

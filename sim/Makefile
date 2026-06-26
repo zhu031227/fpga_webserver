@@ -1,128 +1,151 @@
 # ============================================================================
-# Makefile — FPGA WebServer simulation
+# Makefile — Verilator simulation for xilinx_xc7a35tfgg484_webserver_top
 # ============================================================================
 # Usage:
-#   make sim SIM=icarus      — Icarus Verilog simulation
-#   make sim SIM=verilator   — Verilator simulation
-#   make wave                — Open GTKWave viewer
-#   make clean               — Remove build artifacts
-#
-# Default simulator: icarus
-SIM ?= icarus
+#   make          — compile + run
+#   make wave     — open gtkwave
+#   make clean    — remove build artifacts
+# ============================================================================
+
+VERILATOR = verilator
+GTKWAVE   = gtkwave
 
 # ---- Paths ----
-RTL_DIR  = ../rtl
-SIM_DIR  = .
-OUT_DIR  = out
+IP_COMMON = /home/huamingh/work/ip_common
+IP_RISCV  = /home/huamingh/work/ip_riscv
+IP_LCPU   = /home/huamingh/work/ip_lcpu
+FPGA_CPU  = /home/huamingh/work/fpga_cpu
+RTL       = /home/huamingh/work/fpga_webserver/rtl
+SIM       = /home/huamingh/work/fpga_webserver/sim
 
-# DUT RTL files (project-specific)
-DUT_RTL  = $(RTL_DIR)/webserver_wrapper.v \
-           $(RTL_DIR)/reg_webserver.v \
-           $(RTL_DIR)/cpu_channel.v \
-           $(RTL_DIR)/xilinx_xc7a35tfgg484_webserver_top.v
+# ---- Top module ----
+TOP  = xilinx_xc7a35tfgg484_webserver_top
+EXE  = V$(TOP)
 
-# Simulation-only files
-SIM_SRC  = $(SIM_DIR)/tb_webserver.sv \
-           $(SIM_DIR)/define.sv \
-           $(SIM_DIR)/pll_bypass.v \
-           $(SIM_DIR)/InstructRAM.v \
-           $(SIM_DIR)/lcpu_bfm.sv
+# ---- FPGA Webserver RTL ----
+WEB_RTL = \
+	$(SIM)/xilinx_xc7a35tfgg484_webserver_top.v \
+	$(SIM)/webserver_wrapper.v \
+	$(RTL)/reg_webserver.v \
+	$(RTL)/cpu_channel.v
 
-# External IP paths (relative — populated by build_fpga.sh or manual clone)
-IP_LCPU   = ../ip_lcpu/rtl
-IP_RISCV  = ../ip_riscv/rtl
-IP_COMMON = ../ip_common/rtl
+# ---- FPGA CPU shared ----
+FPGA_CPU_RTL = $(SIM)/lcpu_riscv_wrapper.v
 
-IP_RTL   = $(IP_LCPU)/lcpu_top.v \
-           $(IP_LCPU)/jtag_cpu_xilinx.v \
-           $(IP_RISCV)/picorv32.v \
-           $(IP_RISCV)/riscv32_top.v \
-           $(IP_RISCV)/riscv32_localbus.v \
-           $(IP_RISCV)/riscv_reg.v \
-           $(IP_RISCV)/riscv32intfbridge.v \
-           $(IP_COMMON)/lcpu_merge.v \
-           $(IP_COMMON)/gmii2mac.v \
-           $(IP_COMMON)/rgmii2gmii.v \
-           $(IP_COMMON)/lcpu_mdio.v \
-           $(IP_COMMON)/ram2pktfifo_int.v \
-           $(IP_COMMON)/pktfifo2ram_int_v2.v \
-           $(IP_COMMON)/package_fifo_v2.v \
-           $(IP_COMMON)/sop_eop_gen.v \
-           $(IP_COMMON)/dual_clock_fifo.v \
-           $(IP_COMMON)/fifo2pktfifo_int.v \
-           $(IP_COMMON)/eth_presemble.v \
-           $(IP_COMMON)/crc.v \
-           $(IP_COMMON)/mac_rx.v \
-           $(IP_COMMON)/mac_top.v \
-           $(IP_COMMON)/ramintf.v
+# ---- IP common RTL (exclude real rgmii* — use behavioral stubs instead) ----
+IP_COMMON_RTL = \
+	$(IP_COMMON)/rtl/async_signal_sync.v \
+	$(IP_COMMON)/rtl/cdc_bus_sync.v \
+	$(IP_COMMON)/rtl/cdc_bus_sync_vec.v \
+	$(IP_COMMON)/rtl/clk_rst_ctrl.v \
+	$(IP_COMMON)/rtl/clock_frequency_divider.v \
+	$(IP_COMMON)/rtl/crc.v \
+	$(IP_COMMON)/rtl/dual_clock_fifo.v \
+	$(IP_COMMON)/rtl/dual_clock_simple_dual_port_ram.v \
+	$(IP_COMMON)/rtl/dynamic_delay.v \
+	$(IP_COMMON)/rtl/eth_presemble.v \
+	$(IP_COMMON)/rtl/fifo2pktfifo_int.v \
+	$(IP_COMMON)/rtl/fix_delay.v \
+	$(IP_COMMON)/rtl/gmii2mac.v \
+	$(IP_COMMON)/rtl/interval_timer.v \
+	$(IP_COMMON)/rtl/lcpu_clock_cross.v \
+	$(IP_COMMON)/rtl/lcpu_mdio.v \
+	$(IP_COMMON)/rtl/lcpu_merge.v \
+	$(IP_COMMON)/rtl/mac_rx.v \
+	$(IP_COMMON)/rtl/mac_top.v \
+	$(IP_COMMON)/rtl/mac_tx.v \
+	$(IP_COMMON)/rtl/mdio_ctrl.v \
+	$(IP_COMMON)/rtl/package_analyzer.v \
+	$(IP_COMMON)/rtl/package_fifo_v2.v \
+	$(IP_COMMON)/rtl/package_generator.v \
+	$(IP_COMMON)/rtl/packet_stat.v \
+	$(IP_COMMON)/rtl/pktfifo2ram_int_v2.v \
+	$(IP_COMMON)/rtl/pktfifo_nr21w_merge.v \
+	$(IP_COMMON)/rtl/pulse_clock_region_pass.v \
+	$(IP_COMMON)/rtl/ram2pktfifo_int.v \
+	$(IP_COMMON)/rtl/ramintf.v \
+	$(IP_COMMON)/rtl/single_clock_fifo.v \
+	$(IP_COMMON)/rtl/single_clock_simple_dual_port_ram.v \
+	$(IP_COMMON)/rtl/single_clock_true_dual_port_ram.v \
+	$(IP_COMMON)/rtl/sop_eop_gen.v \
+	$(IP_COMMON)/rtl/tod.v
 
-# ---- Icarus Verilog ----
-ifeq ($(SIM),icarus)
-IVL       = iverilog
-VVP       = vvp
-IVL_FLAGS = -g2012 -Wall -DIVL_SIM -I$(SIM_DIR) -I$(RTL_DIR)
+# ---- IP riscv RTL ----
+IP_RISCV_RTL = \
+	$(IP_RISCV)/rtl/picorv32.v \
+	$(IP_RISCV)/rtl/riscv32intfbridge.v \
+	$(IP_RISCV)/rtl/riscv32_localbus.v \
+	$(IP_RISCV)/rtl/riscv32_top.v \
+	$(IP_RISCV)/rtl/riscv_reg.v
 
-TOP_VVP   = $(OUT_DIR)/tb_webserver.vvp
-VCD_FILE  = $(OUT_DIR)/tb_webserver.vcd
-VENDOR_STUB = $(SIM_DIR)/vendor_stubs.v
+# ---- LCPU BFM (simulation-only, local copy with reduced string width) ----
+LCPU_BFM = $(SIM)/lcpu_bfm.sv
 
-sim: $(TOP_VVP)
-	@echo "Running simulation..."
-	$(VVP) -n $(TOP_VVP) -vcd
-	@echo "Waveform: $(VCD_FILE)"
+# ---- Simulation stubs (behavioral models) ----
+SIM_STUBS = \
+	$(SIM)/pll_50m_bypass.v \
+	$(SIM)/fpga_build_time_sim.v \
+	$(SIM)/vendor_stubs.sv
 
-$(TOP_VVP): $(DUT_RTL) $(SIM_SRC) $(VENDOR_STUB) | $(OUT_DIR)
-	@echo "Compiling with Icarus Verilog..."
-	$(IVL) $(IVL_FLAGS) -o $@ \
-	    $(VENDOR_STUB) \
-	    $(IP_RTL) \
-	    $(DUT_RTL) \
-	    $(SIM_SRC)
-endif
+# ---- Testbench (C++) ----
+TB_CPP = $(SIM)/tb_webserver.cpp
 
-# ---- Verilator ----
-ifeq ($(SIM),verilator)
-VERILATOR = verilator
-VL_FLAGS  = --timing -Wall -Wno-fatal -Wno-TIMESCALEMOD -Wno-WIDTHEXPAND \
-            -Wno-IMPLICIT -Wno-UNOPTFLAT \
-            +define+VERILATOR +define+IVL_SIM -I$(SIM_DIR) -I$(RTL_DIR)
+# ---- All Verilog/SystemVerilog sources ----
+VERILOG_SRCS = \
+	$(WEB_RTL) \
+	$(FPGA_CPU_RTL) \
+	$(IP_COMMON_RTL) \
+	$(IP_RISCV_RTL) \
+	$(LCPU_BFM) \
+	$(SIM_STUBS)
 
-VL_OBJ_DIR = $(OUT_DIR)/obj_dir
-VL_BIN     = $(VL_OBJ_DIR)/Vtb_webserver
-VENDOR_STUB = $(SIM_DIR)/vendor_stubs.sv
+# ---- Verilator flags ----
+VERILATOR_FLAGS = \
+	--timing \
+	--trace \
+	--public-depth 2 \
+	-Wno-fatal \
+	-Wno-lint \
+	-Wno-style \
+	-Wno-COMBDLY \
+	-Wno-INITIALDLY \
+	-O3 \
+	-CFLAGS "-O2"
 
-sim: $(VL_BIN)
-	@echo "Running simulation..."
-	$(VL_BIN)
+# ---- Targets ----
+.PHONY: all compile run wave clean
 
-$(VL_BIN): $(DUT_RTL) $(SIM_SRC) $(VENDOR_STUB) | $(OUT_DIR)
-	@echo "Compiling with Verilator..."
-	$(VERILATOR) --cc --exe --build -j \
-	    $(VL_FLAGS) \
-	    $(VENDOR_STUB) \
-	    $(IP_RTL) \
-	    $(DUT_RTL) \
-	    $(SIM_SRC) \
-	    --Mdir $(VL_OBJ_DIR) \
-	    --top-module tb_webserver
-endif
+all: run
 
-# ---- Output directory ----
-$(OUT_DIR):
-	mkdir -p $(OUT_DIR)
+compile: obj_dir/$(EXE)
 
-# ---- Waveform viewer ----
+obj_dir/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
+	@echo "== Verilator: compiling $(TOP) =="
+	$(VERILATOR) $(VERILATOR_FLAGS) \
+		--cc --exe $(TB_CPP) \
+		--top-module $(TOP) \
+		$(VERILOG_SRCS)
+	@echo "== Verilog → C++ done =="
+
+obj_dir/$(EXE): obj_dir/V$(TOP).mk
+	@echo "== Building C++ executable =="
+	$(MAKE) -C obj_dir -f V$(TOP).mk $(EXE)
+	@echo "== Build done: $@ =="
+
+run: obj_dir/$(EXE)
+	@echo "== Running simulation =="
+	./obj_dir/$(EXE)
+	@echo "== Simulation complete =="
+
 wave:
-ifeq ($(SIM),verilator)
-	gtkwave $(OUT_DIR)/simx.vcd $(SIM_DIR)/top_wave.gtkw 2>/dev/null || \
-	gtkwave $(OUT_DIR)/simx.vcd
-else
-	gtkwave $(VCD_FILE) $(SIM_DIR)/top_wave.gtkw 2>/dev/null || \
-	gtkwave $(VCD_FILE)
-endif
+	@if [ -f xilinx_xc7a35tfgg484_webserver_top_verilator.vcd ]; then \
+		echo "Opening gtkwave..."; \
+		$(GTKWAVE) xilinx_xc7a35tfgg484_webserver_top_verilator.vcd & \
+	else \
+		echo "No VCD found. Run 'make run' first."; \
+		exit 1; \
+	fi
 
-# ---- Clean ----
 clean:
-	rm -rf $(OUT_DIR)
-
-.PHONY: sim wave clean
+	rm -rf obj_dir/ *.vcd *.vvp
+	@echo "== Cleaned =="

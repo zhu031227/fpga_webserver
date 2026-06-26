@@ -106,3 +106,12 @@ altera_ep4ce10f17c6_v*/
 rtl/InstructRAM.v
 rtl/InstructRAM.hex
 tcl/InstructRAM.tcl
+
+# C build outputs
+c_build/out/
+
+# Verilator simulation output
+sim/obj_dir/
+
+# Vivado strategy files
+*.str
