@@ -55,8 +55,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int cpu_buf_block_addr_width = 2;
   localparam int cpu_buf_data_width = 8;
   localparam int cpu_buf_para_width = 1;
-  localparam string cpu_buf_data_ram_type = "M9K";
-  localparam string cpu_buf_para_ram_type = "registers";
+  localparam string cpu_buf_data_ram_type = "block";
+  localparam string cpu_buf_para_ram_type = "distributed";
 
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;
