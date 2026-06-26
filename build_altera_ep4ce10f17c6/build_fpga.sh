@@ -52,7 +52,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
-PROJ_NAME="altera_ep4ce10f17c6_v${VERSION}_${TIMESTAMP}"
+PROJ_NAME="webserver_altera_ep4ce10f17c6_v${VERSION}_${TIMESTAMP}"
 PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
 GH_REMOTE="git@github.com:HuanghmBuck"
