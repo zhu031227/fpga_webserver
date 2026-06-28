@@ -1,4 +1,4 @@
-module lcpu_riscv_wrapper #(
+module lcpu_riscv_wrapper_sim #(
     parameter sim_mod = 0,
     parameter script_file = "../tcl/InstructRAM.tcl",
 
@@ -163,5 +163,4 @@ module lcpu_riscv_wrapper #(
       .op_ack (ack),
       .rddata (rdata)
   );
-
 endmodule

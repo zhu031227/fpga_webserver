@@ -18,29 +18,28 @@ module webserver_wrapper #(
     parameter int second_event_period = 50000000,  // 1s at 50mhz
 
     // configuration (from platform top)
-    parameter int    uart_baud_rate           = 115200,
-    parameter string cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
-    parameter string device_vendor            = "xilinx",                     // "Intel", "xilinx"
-    parameter int    riscv_inst_en            = 1,
-    parameter string instr_ram_type           = "block",
-    parameter int    instr_addr_depth         = 1024 * 5,
-    parameter int    instr_addr_width         = $clog2(instr_addr_depth),
-    parameter int    init_blockram_size       = 32,
-    parameter int    lcpu_init_instru         = 1,
-    parameter int    amd_coe_init_instru      = 0,
-    parameter int    intel_hex_init_instru    = 0,
-    parameter int    cpu_buf_addr_width       = 12,
-    parameter string cpu_buf_block_mode       = "false",
-    parameter int    cpu_buf_block_addr_width = 2,
-    parameter int    cpu_buf_data_width       = 8,
-    parameter int    cpu_buf_para_width       = 1,
-    parameter string cpu_buf_data_ram_type    = "M9K",
-    parameter string cpu_buf_para_ram_type    = "registers"
+    parameter int uart_baud_rate = 115200,
+    parameter string cpu_vendor = "xilinx",  // "Intel", "xilinx", "UART"
+    parameter string device_vendor = "xilinx",  // "Intel", "xilinx"
+    parameter int riscv_inst_en = 1,
+    parameter string instr_ram_type = "block",
+    parameter int instr_addr_depth = 1024 * 5,
+    parameter int instr_addr_width = $clog2(instr_addr_depth),
+    parameter int init_blockram_size = 32,
+    parameter int lcpu_init_instru = 1,
+    parameter int amd_coe_init_instru = 0,
+    parameter int intel_hex_init_instru = 0,
+    parameter int cpu_buf_addr_width = 12,
+    parameter string cpu_buf_block_mode = "false",
+    parameter int cpu_buf_block_addr_width = 2,
+    parameter int cpu_buf_data_width = 8,
+    parameter int cpu_buf_para_width = 1,
+    parameter string cpu_buf_data_ram_type = "M9K",
+    parameter string cpu_buf_para_ram_type = "registers"
 ) (
-    input reset_l,
-    input clk_50mhz,  // 50mhz clock from platform top
-    input clk_125mhz, // 125mhz clock from platform top
-
+    input  reset_l,
+    input  clk_50mhz,   // 50mhz clock from platform top
+    input  clk_125mhz,  // 125mhz clock from platform top
     input  uart_rx,
     output uart_tx,
 
@@ -62,36 +61,6 @@ module webserver_wrapper #(
     output [3:0] led
 );
 
-  // build time
-  wire [                31:0] fpga_build_date;
-  wire [                31:0] fpga_build_time;
-
-  // --- 64-bit local time counter (tod) ---
-  wire [                63:0] local_time_counter;
-  wire [                31:0] local_time_l = local_time_counter[31:0];
-  wire [                31:0] local_time_h = local_time_counter[63:32];
-
-  // --- second event timer ---
-  wire                        second_event;
-
-  // --- cpu subsystem: lcpu + risc-v + bus merge ---
-  // reuses fpga_cpu/rtl/lcpu_riscv_wrapper.v
-
-  wire                        cpu_req;
-  wire                        cpu_rhwl;
-  wire [                31:0] cpu_wdata;
-  wire [                31:0] cpu_address;
-  wire [                31:0] cpu_rdata;
-  wire                        cpu_ack;
-  wire                        reg_ack;
-  wire                        pram_ack;
-
-  // instruction ram interface
-  reg                         pram_wr;
-  reg  [instr_addr_width-1:0] pram_addr;
-  reg  [                31:0] pram_wdata;
-  wire [                31:0] pram_rdata;
-
   // ── bus-to-pram bridge (simulation only) ─────────────────
   // The BFM writes firmware to bus addresses 0x10000–0x10FFF.
   // This bridge routes those writes to the instruction RAM
@@ -99,60 +68,61 @@ module webserver_wrapper #(
   localparam PRAM_BASE = 32'h00010000;
   localparam PRAM_SIZE = 32'h00001000;  // 4KB = 1024 x 32-bit words
 
+  // build time
+  wire [31:0] fpga_build_date;
+  wire [31:0] fpga_build_time;
+
+  // --- 64-bit local time counter (tod) ---
+  wire [63:0] local_time_counter;
+  wire [31:0] local_time_l = local_time_counter[31:0];
+  wire [31:0] local_time_h = local_time_counter[63:32];
+
+  // --- second event timer ---
+  wire second_event;
+
+  // --- cpu subsystem: lcpu + risc-v + bus merge ---
+  // reuses fpga_cpu/rtl/lcpu_riscv_wrapper.v
+
+  wire cpu_req;
+  wire cpu_rhwl;
+  wire [31:0] cpu_wdata;
+  wire [31:0] cpu_address;
+  wire [31:0] cpu_rdata;
+  wire cpu_ack;
+  wire reg_ack;
+  wire pram_ack;
+
+  // instruction ram interface
+  reg pram_wr;
+  reg [instr_addr_width-1:0] pram_addr;
+  reg [31:0] pram_wdata;
+  wire [31:0] pram_rdata;
+
   wire pram_sel = cpu_req && !cpu_rhwl
                   && (cpu_address >= PRAM_BASE)
                   && (cpu_address < PRAM_BASE + PRAM_SIZE);
 
   reg pram_sel_d;  // delayed to generate ack pulse
 
-  always @(posedge clk_50mhz or negedge reset_l) begin
-    if (!reset_l) begin
-      pram_wr     <= 1'b0;
-      pram_addr   <= {instr_addr_width{1'b0}};
-      pram_wdata  <= 32'b0;
-      pram_sel_d  <= 1'b0;
-    end else begin
-      pram_wr     <= pram_sel;
-      pram_addr   <= cpu_address[instr_addr_width-1:0];
-      pram_wdata  <= cpu_wdata;
-      pram_sel_d  <= pram_sel;  // one-cycle delay for ack pulse
-    end
-  end
-
-  assign pram_ack = pram_sel_d;  // ack one cycle after write
-  assign cpu_ack  = reg_ack || pram_ack;
-
   // ── CPU reset delay (simulation only) ───────────────────
   // Keep RISC-V CPU in reset for ~250us while BFM loads firmware.
   // This prevents the CPU from executing garbage before firmware is ready.
   reg [15:0] cpu_rst_cnt;
-  reg        cpu_reset_n;
-
-  always @(posedge clk_50mhz or negedge reset_l) begin
-    if (!reset_l) begin
-      cpu_rst_cnt  <= 16'd0;
-      cpu_reset_n  <= 1'b0;
-    end else if (cpu_rst_cnt < 12500) begin  // 12500 * 20ns = 250us
-      cpu_rst_cnt  <= cpu_rst_cnt + 1;
-      cpu_reset_n  <= 1'b0;
-    end else begin
-      cpu_reset_n  <= 1'b1;
-    end
-  end
+  reg cpu_reset_n;
 
   // --- register signals ---
-  wire                        get_local_time;
-  wire [                31:0] debug_rw_0;  // 50MHz, debug reg
-  wire [                15:0] filter_data_src;  // 50MHz, from reg_webserver
-  wire [                15:0] filter_data_synced;  // 125MHz, REQACK → cpu_channel
-  wire [                15:0] filter_offset_src;
-  wire [                15:0] filter_offset_synced;
-  wire [                31:0] debug_rw_1;
-  wire [                31:0] debug_ro_0;  // 50MHz, assembled → reg_webserver
-  wire [                 7:0] recv_pkt_drop_cnt_src;  // 125MHz, from cpu_channel
-  wire [                 7:0] recv_pkt_drop_cnt;  // 50MHz, GRAY synced → debug_ro_0
-  wire [                31:0] debug_ro_1;
-  wire [                 3:0] eth_greset;
+  wire get_local_time;
+  wire [31:0] debug_rw_0;  // 50MHz, debug reg
+  wire [15:0] filter_data_src;  // 50MHz, from reg_webserver
+  wire [15:0] filter_data_synced;  // 125MHz, REQACK → cpu_channel
+  wire [15:0] filter_offset_src;
+  wire [15:0] filter_offset_synced;
+  wire [31:0] debug_rw_1;
+  wire [31:0] debug_ro_0;  // 50MHz, assembled → reg_webserver
+  wire [7:0] recv_pkt_drop_cnt_src;  // 125MHz, from cpu_channel
+  wire [7:0] recv_pkt_drop_cnt;  // 50MHz, GRAY synced → debug_ro_0
+  wire [31:0] debug_ro_1;
+  wire [3:0] eth_greset;
 
   // ethernet mdio sub-bus
   wire eth0_op_req, eth0_wrl_rdh;
@@ -210,6 +180,35 @@ module webserver_wrapper #(
   wire        filter_offset_valid;
   wire        filter_offset_reqack_ready;
 
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      pram_wr    <= 1'b0;
+      pram_addr  <= {instr_addr_width{1'b0}};
+      pram_wdata <= 32'b0;
+      pram_sel_d <= 1'b0;
+    end else begin
+      pram_wr    <= pram_sel;
+      pram_addr  <= cpu_address[instr_addr_width-1:0];
+      pram_wdata <= cpu_wdata;
+      pram_sel_d <= pram_sel;  // one-cycle delay for ack pulse
+    end
+  end
+
+  assign pram_ack = pram_sel_d;  // ack one cycle after write
+  assign cpu_ack  = reg_ack || pram_ack;
+
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      cpu_rst_cnt <= 16'd0;
+      cpu_reset_n <= 1'b0;
+    end else if (cpu_rst_cnt < 12500) begin  // 12500 * 20ns = 250us
+      cpu_rst_cnt <= cpu_rst_cnt + 1;
+      cpu_reset_n <= 1'b0;
+    end else begin
+      cpu_reset_n <= 1'b1;
+    end
+  end
+
   // led (active low on acx750)
 
   tod #(
@@ -258,7 +257,7 @@ module webserver_wrapper #(
       .reset_l      (reset_l),
       .uart_rx      (uart_rx),
       .uart_tx      (uart_tx),
-      .riscv_reset_l(cpu_reset_n),  // delayed: CPU stays in reset while BFM loads firmware
+      .riscv_reset_l(cpu_reset_n), // delayed: CPU stays in reset while BFM loads firmware
 
       .pram_wr   (pram_wr),
       .pram_addr (pram_addr),

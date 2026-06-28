@@ -12,28 +12,28 @@
 // xilinx top adds rgmii2gmii for rgmii phy
 // altera top connects gmii directly
 
-module webserver_wrapper #(
+module webserver_wrapper_sim #(
     parameter sim_mod = 0,
     parameter script_file = "../tcl/InstructRAM.tcl",
     parameter second_event_period = 50000000,  // 1s at 50mhz
 
     // configuration (from platform top)
-    parameter    uart_baud_rate           = 115200,
-    parameter cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
-    parameter device_vendor            = "xilinx",                     // "Intel", "xilinx"
-    parameter    riscv_inst_en            = 1,
+    parameter uart_baud_rate           = 115200,
+    parameter cpu_vendor               = "xilinx",                  // "Intel", "xilinx", "UART"
+    parameter device_vendor            = "xilinx",                  // "Intel", "xilinx"
+    parameter riscv_inst_en            = 1,
     parameter instr_ram_type           = "block",
-    parameter    instr_addr_depth         = 1024 * 5,
-    parameter    instr_addr_width         = $clog2(instr_addr_depth),
-    parameter    init_blockram_size       = 32,
-    parameter    lcpu_init_instru         = 1,
-    parameter    amd_coe_init_instru      = 0,
-    parameter    intel_hex_init_instru    = 0,
-    parameter    cpu_buf_addr_width       = 12,
+    parameter instr_addr_depth         = 1024 * 5,
+    parameter instr_addr_width         = $clog2(instr_addr_depth),
+    parameter init_blockram_size       = 32,
+    parameter lcpu_init_instru         = 1,
+    parameter amd_coe_init_instru      = 0,
+    parameter intel_hex_init_instru    = 0,
+    parameter cpu_buf_addr_width       = 12,
     parameter cpu_buf_block_mode       = "false",
-    parameter    cpu_buf_block_addr_width = 2,
-    parameter    cpu_buf_data_width       = 8,
-    parameter    cpu_buf_para_width       = 1,
+    parameter cpu_buf_block_addr_width = 2,
+    parameter cpu_buf_data_width       = 8,
+    parameter cpu_buf_para_width       = 1,
     parameter cpu_buf_data_ram_type    = "M9K",
     parameter cpu_buf_para_ram_type    = "registers"
 ) (

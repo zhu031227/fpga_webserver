@@ -9,7 +9,7 @@
 //   - rgmii2gmii for rgmii-to-gmii conversion
 //   - idelay/oddr primitives for rgmii ddr i/o
 
-module xilinx_xc7a35tfgg484_webserver_top #(
+module xilinx_top_sim #(
     parameter sim_mod = 0,
     parameter script_file = "../tcl/InstructRAM.tcl"
 ) (

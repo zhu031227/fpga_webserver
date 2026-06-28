@@ -154,5 +154,4 @@ module lcpu_riscv_wrapper #(
       .op_ack (ack),
       .rddata (rdata)
   );
-
 endmodule

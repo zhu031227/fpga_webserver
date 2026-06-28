@@ -14,22 +14,22 @@ module tb_xilinx_top;
   //-------------------------------------------------------------------
   // Parameters
   //-------------------------------------------------------------------
-  localparam int PKT_ARP  = 1;
+  localparam int PKT_ARP = 1;
   localparam int PKT_ICMP = 2;
-  localparam int PKT_TCP  = 3;
-  localparam int PKT_UDP  = 4;
+  localparam int PKT_TCP = 3;
+  localparam int PKT_UDP = 4;
   localparam int ETH_MIN_FRAME_WITH_FCS = 64;
-  localparam int ETH_MIN_FRAME_WO_FCS   = ETH_MIN_FRAME_WITH_FCS - 4;
+  localparam int ETH_MIN_FRAME_WO_FCS = ETH_MIN_FRAME_WITH_FCS - 4;
   localparam time SIM_TIMEOUT_NS = 200_000;
 
-  parameter int   PKT_TYPE        = PKT_ARP;
-  parameter int   START_DELAY_NS  = 2000000;
+  parameter int PKT_TYPE = PKT_ARP;
+  parameter int START_DELAY_NS = 2000000;
 
   // ARP packet fields
   parameter logic [47:0] SRC_MAC = 48'h0011_2233_4455;
   parameter logic [47:0] DST_MAC = 48'h0000_0102_0405;
-  parameter logic [31:0] SRC_IP  = 32'hA9FE_0101;
-  parameter logic [31:0] DST_IP  = 32'hA9FE_0F58;
+  parameter logic [31:0] SRC_IP = 32'hA9FE_0101;
+  parameter logic [31:0] DST_IP = 32'hA9FE_0F58;
 
   //-------------------------------------------------------------------
   // Clocks & Reset
@@ -62,74 +62,20 @@ module tb_xilinx_top;
       .sim_mod    (1),
       .script_file("../tcl/InstructRAM.tcl")
   ) u_dut (
-      .clk_50m_in (clk_50m_in),
-      .reset_l    (reset_l),
-      .uart_rx    (1'b1),         // UART RX idle high
-      .uart_tx    (uart_tx),
-      .rgmii_rxc     (rgmii_rxc),
-      .rgmii_rx_ctl  (rgmii_rx_ctl),
-      .rgmii_rxd     (rgmii_rxd),
-      .rgmii_txc     (rgmii_txc),
-      .rgmii_tx_ctl  (rgmii_tx_ctl),
-      .rgmii_txd     (rgmii_txd),
-      .eth0_mdc      (eth0_mdc),
-      .eth0_mdio     (eth0_mdio),
-      .led           (led_o)
+      .clk_50m_in  (clk_50m_in),
+      .reset_l     (reset_l),
+      .uart_rx     (1'b1),          // UART RX idle high
+      .uart_tx     (uart_tx),
+      .rgmii_rxc   (rgmii_rxc),
+      .rgmii_rx_ctl(rgmii_rx_ctl),
+      .rgmii_rxd   (rgmii_rxd),
+      .rgmii_txc   (rgmii_txc),
+      .rgmii_tx_ctl(rgmii_tx_ctl),
+      .rgmii_txd   (rgmii_txd),
+      .eth0_mdc    (eth0_mdc),
+      .eth0_mdio   (eth0_mdio),
+      .led         (led_o)
   );
-
-  // (vendor="" → behavioral rgmii_rx/tx from vendor_stubs.sv)
-
-  //-------------------------------------------------------------------
-  // Internal signal probes (access DUT hierarchy)
-  //-------------------------------------------------------------------
-  // GMII TX (SDR — observed from webserver_wrapper)
-  wire        gmii_tx_en   = u_dut.u_webserver.gmii_tx_en;
-  wire [7:0]  gmii_txd     = u_dut.u_webserver.gmii_txd;
-  wire        gmii_tx_err  = u_dut.u_webserver.gmii_tx_err;
-
-  // GMII RX internal
-  wire        gmii_rx_dv   = u_dut.u_webserver.gmii_rx_dv;
-  wire [7:0]  gmii_rxd_int = u_dut.u_webserver.gmii_rxd;
-
-  // MAC-level packet interface (125MHz domain)
-  wire        eth0_mac_rx_sop  = u_dut.u_webserver.i_eth0.mac_rx_sop;
-  wire        eth0_mac_rx_en   = u_dut.u_webserver.i_eth0.mac_rx_en;
-  wire [7:0]  eth0_mac_rx_data = u_dut.u_webserver.i_eth0.mac_rx_data;
-  wire        eth0_mac_rx_eop  = u_dut.u_webserver.i_eth0.mac_rx_eop;
-  wire        eth0_mac_tx_sop  = u_dut.u_webserver.i_eth0.mac_tx_sop;
-  wire        eth0_mac_tx_en   = u_dut.u_webserver.i_eth0.mac_tx_en;
-  wire [7:0]  eth0_mac_tx_data = u_dut.u_webserver.i_eth0.mac_tx_data;
-  wire        eth0_mac_tx_eop  = u_dut.u_webserver.i_eth0.mac_tx_eop;
-
-  // CPU-side signals
-  wire        cpu_req     = u_dut.u_webserver.cpu_req;
-  wire        cpu_ack     = u_dut.u_webserver.cpu_ack;
-  wire [31:0] cpu_address = u_dut.u_webserver.cpu_address;
-
-  // RISC-V program RAM interface
-  wire        pram_wr    = u_dut.u_webserver.pram_wr;
-  wire [12:0] pram_addr  = u_dut.u_webserver.pram_addr;
-  wire [31:0] pram_wdata = u_dut.u_webserver.pram_wdata;
-
-  //-------------------------------------------------------------------
-  // 50 MHz clock (period = 20 ns)
-  //-------------------------------------------------------------------
-  initial clk_50m_in = 1'b0;
-  always #10 clk_50m_in = ~clk_50m_in;
-
-  //-------------------------------------------------------------------
-  // RGMII RX clock (125 MHz, period = 8 ns)
-  //-------------------------------------------------------------------
-  initial rgmii_rxc = 1'b0;
-  always #4 rgmii_rxc = ~rgmii_rxc;
-
-  //-------------------------------------------------------------------
-  // Packet capture in GMII TX domain
-  //-------------------------------------------------------------------
-  byte unsigned dut_tx_capture[$];
-  byte unsigned dut_tx_last_frame[$];
-  int unsigned  dut_tx_frame_count;
-  bit           dut_tx_capture_active;
 
   //-------------------------------------------------------------------
   // Helper tasks — byte/word queue manipulation
@@ -154,11 +100,6 @@ module tb_xilinx_top;
     q.push_back(mac[15:8]);
     q.push_back(mac[7:0]);
   endtask
-
-  //-------------------------------------------------------------------
-  // Ethernet CRC32 (uses simple byte array, no queue indexing)
-  //-------------------------------------------------------------------
-  logic [31:0] eth_crc32_result;
 
   task automatic eth_crc32_byte(input [7:0] b, inout logic [31:0] crc);
     for (int bit_idx = 0; bit_idx < 8; bit_idx = bit_idx + 1) begin
@@ -195,7 +136,7 @@ module tb_xilinx_top;
     int pad_bytes;
     logic [31:0] fcs;
 
-    tx_frame = mac_frame_wo_fcs;
+    tx_frame  = mac_frame_wo_fcs;
     pad_bytes = ETH_MIN_FRAME_WO_FCS - tx_frame.size();
     if (pad_bytes > 0) begin
       repeat (pad_bytes) tx_frame.push_back(8'h00);
@@ -203,8 +144,7 @@ module tb_xilinx_top;
 
     // Compute CRC32 byte-by-byte
     fcs = 32'hFFFF_FFFF;
-    for (int ci = 0; ci < tx_frame.size(); ci = ci + 1)
-      eth_crc32_byte(tx_frame[ci], fcs);
+    for (int ci = 0; ci < tx_frame.size(); ci = ci + 1) eth_crc32_byte(tx_frame[ci], fcs);
     fcs = ~fcs;
 
     // Inter-frame gap
@@ -215,12 +155,11 @@ module tb_xilinx_top;
     rgmii_send_byte(8'hD5, 1'b1, 1'b0);
 
     // Frame bytes
-    for (int i = 0; i < tx_frame.size(); i++)
-      rgmii_send_byte(tx_frame[i], 1'b1, 1'b0);
+    for (int i = 0; i < tx_frame.size(); i++) rgmii_send_byte(tx_frame[i], 1'b1, 1'b0);
 
     // FCS (LSByte first on wire)
-    rgmii_send_byte(fcs[7:0],   1'b1, 1'b0);
-    rgmii_send_byte(fcs[15:8],  1'b1, 1'b0);
+    rgmii_send_byte(fcs[7:0], 1'b1, 1'b0);
+    rgmii_send_byte(fcs[15:8], 1'b1, 1'b0);
     rgmii_send_byte(fcs[23:16], 1'b1, 1'b0);
     rgmii_send_byte(fcs[31:24], 1'b1, 1'b0);
 
@@ -235,18 +174,77 @@ module tb_xilinx_top;
     frame.delete();
     append_mac(frame, 48'hFFFF_FFFF_FFFF);  // broadcast
     append_mac(frame, SRC_MAC);
-    append_u16_be(frame, 16'h0806);          // EtherType = ARP
+    append_u16_be(frame, 16'h0806);  // EtherType = ARP
 
-    append_u16_be(frame, 16'h0001);          // HTYPE = Ethernet
-    append_u16_be(frame, 16'h0800);          // PTYPE = IPv4
-    frame.push_back(8'h06);                  // HLEN = 6
-    frame.push_back(8'h04);                  // PLEN = 4
-    append_u16_be(frame, 16'h0001);          // OPER = request
-    append_mac(frame, SRC_MAC);              // sender MAC
-    append_u32_be(frame, SRC_IP);            // sender IP
-    append_mac(frame, 48'h0000_0000_0000);   // target MAC (unknown)
-    append_u32_be(frame, DST_IP);            // target IP
+    append_u16_be(frame, 16'h0001);  // HTYPE = Ethernet
+    append_u16_be(frame, 16'h0800);  // PTYPE = IPv4
+    frame.push_back(8'h06);  // HLEN = 6
+    frame.push_back(8'h04);  // PLEN = 4
+    append_u16_be(frame, 16'h0001);  // OPER = request
+    append_mac(frame, SRC_MAC);  // sender MAC
+    append_u32_be(frame, SRC_IP);  // sender IP
+    append_mac(frame, 48'h0000_0000_0000);  // target MAC (unknown)
+    append_u32_be(frame, DST_IP);  // target IP
   endtask
+
+  // (vendor="" → behavioral rgmii_rx/tx from vendor_stubs.sv)
+
+  //-------------------------------------------------------------------
+  // Internal signal probes (access DUT hierarchy)
+  //-------------------------------------------------------------------
+  // GMII TX (SDR — observed from webserver_wrapper)
+  wire         gmii_tx_en = u_dut.u_webserver.gmii_tx_en;
+  wire  [ 7:0] gmii_txd = u_dut.u_webserver.gmii_txd;
+  wire         gmii_tx_err = u_dut.u_webserver.gmii_tx_err;
+
+  // GMII RX internal
+  wire         gmii_rx_dv = u_dut.u_webserver.gmii_rx_dv;
+  wire  [ 7:0] gmii_rxd_int = u_dut.u_webserver.gmii_rxd;
+
+  // MAC-level packet interface (125MHz domain)
+  wire         eth0_mac_rx_sop = u_dut.u_webserver.i_eth0.mac_rx_sop;
+  wire         eth0_mac_rx_en = u_dut.u_webserver.i_eth0.mac_rx_en;
+  wire  [ 7:0] eth0_mac_rx_data = u_dut.u_webserver.i_eth0.mac_rx_data;
+  wire         eth0_mac_rx_eop = u_dut.u_webserver.i_eth0.mac_rx_eop;
+  wire         eth0_mac_tx_sop = u_dut.u_webserver.i_eth0.mac_tx_sop;
+  wire         eth0_mac_tx_en = u_dut.u_webserver.i_eth0.mac_tx_en;
+  wire  [ 7:0] eth0_mac_tx_data = u_dut.u_webserver.i_eth0.mac_tx_data;
+  wire         eth0_mac_tx_eop = u_dut.u_webserver.i_eth0.mac_tx_eop;
+
+  // CPU-side signals
+  wire         cpu_req = u_dut.u_webserver.cpu_req;
+  wire         cpu_ack = u_dut.u_webserver.cpu_ack;
+  wire  [31:0] cpu_address = u_dut.u_webserver.cpu_address;
+
+  // RISC-V program RAM interface
+  wire         pram_wr = u_dut.u_webserver.pram_wr;
+  wire  [12:0] pram_addr = u_dut.u_webserver.pram_addr;
+  wire  [31:0] pram_wdata = u_dut.u_webserver.pram_wdata;
+
+  //-------------------------------------------------------------------
+  // Ethernet CRC32 (uses simple byte array, no queue indexing)
+  //-------------------------------------------------------------------
+  logic [31:0] eth_crc32_result;
+
+  //-------------------------------------------------------------------
+  // 50 MHz clock (period = 20 ns)
+  //-------------------------------------------------------------------
+  initial clk_50m_in = 1'b0;
+  always #10 clk_50m_in = ~clk_50m_in;
+
+  //-------------------------------------------------------------------
+  // RGMII RX clock (125 MHz, period = 8 ns)
+  //-------------------------------------------------------------------
+  initial rgmii_rxc = 1'b0;
+  always #4 rgmii_rxc = ~rgmii_rxc;
+
+  //-------------------------------------------------------------------
+  // Packet capture in GMII TX domain
+  //-------------------------------------------------------------------
+  byte unsigned dut_tx_capture        [$];
+  byte unsigned dut_tx_last_frame     [$];
+  int unsigned  dut_tx_frame_count;
+  bit           dut_tx_capture_active;
 
   //-------------------------------------------------------------------
   // Main simulation sequence
@@ -264,10 +262,10 @@ module tb_xilinx_top;
     $display("");
 
     // Initialize
-    reset_l      = 1'b0;
-    rgmii_rx_ctl = 1'b0;
-    rgmii_rxd    = 4'h0;
-    dut_tx_frame_count = 0;
+    reset_l               = 1'b0;
+    rgmii_rx_ctl          = 1'b0;
+    rgmii_rxd             = 4'h0;
+    dut_tx_frame_count    = 0;
     dut_tx_capture_active = 1'b0;
 
     // Hold reset for ~200 ns (10 cycles @ 50MHz)
@@ -314,7 +312,8 @@ module tb_xilinx_top;
       dut_tx_last_frame = dut_tx_capture;
       dut_tx_frame_count = dut_tx_frame_count + 1;
       dut_tx_capture_active = 1'b0;
-      $display("[%0t ns] DUT TX frame #%0d: %0d bytes", $time, dut_tx_frame_count, dut_tx_last_frame.size());
+      $display("[%0t ns] DUT TX frame #%0d: %0d bytes", $time, dut_tx_frame_count,
+               dut_tx_last_frame.size());
     end
   end
 
@@ -330,7 +329,7 @@ module tb_xilinx_top;
   end
 
   always @(posedge cpu_req) begin
-    $display("[%0t ns] cpu_req addr=0x%08h rhwl=%b", $time, cpu_address, u_dut.u_webserver.cpu_rhwl);
+    $display("[%0t ns] cpu_req addr=0x%08h rhwl=%b", $time, cpu_address,
+             u_dut.u_webserver.cpu_rhwl);
   end
-
 endmodule

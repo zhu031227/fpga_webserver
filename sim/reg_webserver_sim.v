@@ -1,5 +1,5 @@
 //Code Generate at: 2026-06-24 16:41:04
-module reg_webserver (
+module reg_webserver_sim (
     input [31:0] fpga_build_date,
     input [31:0] fpga_build_time,
     output reg [31:0] sw_build_date,

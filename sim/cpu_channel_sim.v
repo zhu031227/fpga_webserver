@@ -3,12 +3,12 @@
 // rx path: mac → ram2pktfifo_int → package_fifo (async) → cpu read port
 // tx path: cpu write port → package_fifo (async) → pktfifo2ram_int → sop_eop_gen → mac
 
-module cpu_channel #(
-    parameter    cpu_buf_addr_width       = 11,
+module cpu_channel_sim #(
+    parameter cpu_buf_addr_width       = 11,
     parameter cpu_buf_block_mode       = "false",
-    parameter    cpu_buf_block_addr_width = 3,
-    parameter    cpu_buf_data_width       = 8,
-    parameter    cpu_buf_para_width       = 3,
+    parameter cpu_buf_block_addr_width = 3,
+    parameter cpu_buf_data_width       = 8,
+    parameter cpu_buf_para_width       = 3,
     parameter cpu_buf_data_ram_type    = "M9K",
     parameter cpu_buf_para_ram_type    = "registers"
 ) (
