@@ -1,0 +1,4858 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>基于RiscV@FPGA的WebServer逻辑设计方案(ED001R01)</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6;
+       color: #24292e; background: #fff; }
+h1 { border-bottom: 2px solid #1a73e8; padding-bottom: 8px; color: #1a73e8; }
+h2 { border-bottom: 1px solid #e1e4e8; padding-bottom: 6px; margin-top: 32px; }
+h3 { margin-top: 24px; color: #444; }
+h4 { margin-top: 20px; color: #666; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+th { background: #f5f7fa; font-weight: 600; }
+tr:nth-child(even) { background: #fafbfc; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid #e1e4e8; font-size: 13px; line-height: 1.45; }
+pre.mermaid { background: #fff; border: 1px dashed #ccc; }
+blockquote { border-left: 4px solid #1a73e8; margin: 0; padding: 0 16px;
+             color: #6a737d; }
+hr { border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0; }
+ul, ol { padding-left: 24px; }
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>mermaid.initialize({startOnLoad:true});</script>
+</head>
+<body>
+<h1>基于RiscV@FPGA的WebServer 逻辑设计方案</h1>
+
+<strong>文档编号</strong>：ED001R01
+
+<table class="md-table">
+<thead><tr>
+<th>项目</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>产品名称</td>
+<td>基于RiscV@FPGA的WebServer</td>
+</tr>
+<tr>
+<td>密级</td>
+<td>内部</td>
+</tr>
+<tr>
+<td>总页数</td>
+<td>78</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<strong>LinkReal</strong>
+LinkReal
+
+<p>版权所有 侵权必究</p>
+
+<hr>
+
+<h2>修订记录 Revision Record</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>日期 Date</th>
+<th>修订版本 Revision Version</th>
+<th>修改描述 Change Description</th>
+<th>作者 Author</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>2026-06-29</td>
+<td>ED001R01</td>
+<td>初稿 initial transmittal</td>
+<td>BuckFPGA</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2>目录 Table of Contents</h2>
+
+<ul>
+<li>[参考资料清单](#参考资料清单)</li>
+<li>[介绍](#1-介绍)</li>
+</ul>
+   <ul>
+<li>1.1 [目的](#11-目的)</li>
+</ul>
+   <ul>
+<li>1.2 [选型分析](#12-选型分析)</li>
+<li>[设计的体系结构](#2-设计的体系结构)</li>
+</ul>
+   <ul>
+<li>2.1 [模块分解分析](#21-模块分解分析)</li>
+<li>[模块结构详细说明](#3-模块结构详细说明)</li>
+</ul>
+   <ul>
+<li>3.1 [零级模块说明](#31-零级模块说明)</li>
+</ul>
+   <ul>
+<li>3.2 [顶层 xilinx_xc7a35tfgg484_webserver_top](#32-顶层-xilinx_xc7a35tfgg484_webserver_top)</li>
+</ul>
+   <ul>
+<li>3.3 [clk_rst_ctrl — 时钟复位管理](#33-clk_rst_ctrl--时钟复位管理)</li>
+</ul>
+   <ul>
+<li>3.4 [pll_50m — MMCM PLL](#34-pll_50m--mmcm-pll)</li>
+</ul>
+   <ul>
+<li>3.5 [rgmii2gmii — RGMII↔GMII 转换](#35-rgmii2gmii--rgmiigmii-转换)</li>
+</ul>
+   <ul>
+<li>3.6 [webserver_wrapper — WebServer 功能封装](#36-webserver_wrapper--webserver-功能封装)</li>
+</ul>
+     <ul>
+<li>3.6.1 [tod — 时间戳模块](#361-tod--时间戳模块)</li>
+</ul>
+     <ul>
+<li>3.6.2 [interval_timer — 间隔定时器](#362-interval_timer--间隔定时器)</li>
+</ul>
+     <ul>
+<li>3.6.3 [fpga_build_time — 构建时间戳](#363-fpga_build_time--构建时间戳)</li>
+</ul>
+     <ul>
+<li>3.6.4 [lcpu_riscv_wrapper — RISC-V CPU 系统](#364-lcpu_riscv_wrapper--risc-v-cpu-系统)</li>
+</ul>
+     <ul>
+<li>3.6.5 [cpu_channel — CPU 数据通道](#365-cpu_channel--cpu-数据通道)</li>
+</ul>
+     <ul>
+<li>3.6.6 [reg_webserver — 寄存器组](#366-reg_webserver--寄存器组)</li>
+</ul>
+     <ul>
+<li>3.6.7 [lcpu_mdio — MDIO 控制器](#367-lcpu_mdio--mdio-控制器)</li>
+</ul>
+     <ul>
+<li>3.6.8 [cdc_bus_sync — CDC 单路同步](#368-cdc_bus_sync--cdc-单路同步)</li>
+</ul>
+     <ul>
+<li>3.6.9 [cdc_bus_sync_vec — CDC 向量同步](#369-cdc_bus_sync_vec--cdc-向量同步)</li>
+</ul>
+   <ul>
+<li>3.7 [RISC-V 固件与编译环境](#37-risc-v-固件与编译环境)</li>
+</ul>
+
+<hr>
+
+<h2>参考资料清单 List of Reference</h2>
+
+<ul>
+<li>ACX750 用户自助服务手册 — 基于 Artix-7 FPGA 的 PCIE 开发板</li>
+<li>DS181 — Xilinx Artix-7 FPGAs Data Sheet: DC and AC Switching Characteristics</li>
+<li>UG472 — 7 Series FPGAs Clocking Resources User Guide</li>
+<li>KSZ9031RNX Datasheet — Microchip Gigabit Ethernet PHY Transceiver</li>
+<li>JESD79-3F — DDR3 SDRAM Standard Specification</li>
+<li>RISC-V Unprivileged ISA Specification, Volume 1 (RV32I)</li>
+<li>RISC-V "C" Standard Extension for Compressed Instructions</li>
+</ul>
+
+<hr>
+
+<h2>1 介绍</h2>
+
+<h3>1.1 目的</h3>
+
+<p>本文档详细介绍基于 RISC-V@FPGA 的 WebServer 的 FPGA 逻辑实现原理，包括模块划分、接口信号定义、内部实现说明、表项/寄存器定义以及 RAM 资源使用情况。本设计以 Xilinx Artix-7 FPGA 为核心，内嵌 RISC-V 软核处理器运行 TCP/IP 协议栈，通过 RGMII 千兆以太网接口实现完整的 HTTP Web 服务器功能。</p>
+
+<h3>1.2 选型分析</h3>
+
+<h4>1.2.1 FPGA 芯片 — Xilinx XC7A35T-2FGG484</h4>
+
+<p>本设计选用 Xilinx Artix-7 系列 <strong>XC7A35T-2FGG484</strong>（工业级可选 -2I），基于 28nm 工艺，面向低成本、低功耗应用场景。</p>
+
+<strong>Feature:</strong>
+
+<ul>
+<li>逻辑资源：33,280 Logic Cells，5,200 Slices，41,600 CLB Flip-Flops</li>
+<li>存储资源：1,800 Kb Block RAM（50 个 36Kb BRAM），最大 400KB 分布式 RAM</li>
+<li>DSP 资源：90 个 DSP48E1 Slices（25×18 乘法器，48 位累加器）</li>
+<li>时钟管理：5 个 CMT（含 MMCM + PLL），支持多时钟域管理</li>
+<li>高速收发：4 个 GTP Transceivers，每通道最高 6.6Gb/s</li>
+<li>PCIe 接口：集成 PCIe 2.0 x2 硬核</li>
+<li>用户 I/O：约 210 个，支持 LVCMOS/LVDS/SSTL 等多种电平标准</li>
+<li>封装：FGG484（484 引脚，1.0mm 间距）</li>
+<li>内核电压：1.0V，支持 -2 速度等级</li>
+</ul>
+
+<strong>选型理由：</strong>
+
+<ul>
+<li>逻辑资源满足 WebServer 协议栈（TCP/IP + HTTP）和 RISC-V CPU 的轻量需求</li>
+<li>GTP 收发器支持千兆以太网 RGMII 接口和光纤 SFP 扩展</li>
+<li>Block RAM 容量足够存储 RISC-V 指令存储器（5K×32bit）和报文缓冲区</li>
+<li>ACX750 开发板核心板+底板分离设计，便于二次开发和验证</li>
+</ul>
+
+<strong>图1 XC7A35T 内部资源架构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    subgraph XC7A35T[XC7A35T-2FGG484]
+        CLB[CLB\n33,280 LC\n5,200 Slices]
+        BRAM[Block RAM\n1,800 Kb\n50×36Kb]
+        DSP[DSP48E1\n90 Slices]
+        CMT[CMT\n5×MMCM+PLL]
+        GTP[GTP XCVR\n4ch×6.6Gb/s]
+        PCIE[PCIe 2.0 x2]
+        IO[User I/O\n~210 pins]
+    end
+
+</pre>
+
+<h4>1.2.2 以太网 PHY 芯片 — Microchip KSZ9031RNX</h4>
+
+<strong>Feature:</strong>
+
+<ul>
+<li>支持 10/100/1000 Mbps 三速自适应</li>
+<li>RGMII 接口（DDR 双沿传输，125MHz 时钟）</li>
+<li>MDC/MDIO 管理接口（符合 IEEE 802.3 Clause 22）</li>
+<li>支持 LinkMD 电缆诊断功能</li>
+<li>低功耗设计：< 300mW（千兆全双工）</li>
+<li>支持 Auto-MDIX（自动线序交叉）</li>
+<li>工业级温度范围：-40°C ~ +85°C</li>
+<li>封装：48-pin QFN</li>
+</ul>
+
+<h4>1.2.3 USB 转 UART 芯片 — Silicon Labs CP2102</h4>
+
+<strong>Feature:</strong>
+
+<ul>
+<li>USB 2.0 全速（12Mbps）转 UART</li>
+<li>波特率最高 1 Mbps</li>
+<li>内置 5V→3.3V 稳压器</li>
+<li>免外部晶振设计</li>
+</ul>
+
+<h4>1.2.4 QSPI FLASH — Macronix MX25L12845</h4>
+
+<strong>Feature:</strong>
+
+<ul>
+<li>容量：128 Mbit（16MB）</li>
+<li>支持单/双/四线 SPI（QSPI）</li>
+<li>最高时钟频率：104MHz（四线模式）</li>
+<li>用于 FPGA 配置比特流存储和 RISC-V 固件非易失存储</li>
+</ul>
+
+<hr>
+
+<h2>2 设计的体系结构</h2>
+
+<h3>2.1 模块分解分析</h3>
+
+<h4>总体结构框图</h4>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph FPGA[XC7A35T-2FGG484]
+        direction TB
+        PLL[pll_50m\nMMCM PLL\n50→125/200MHz]
+        RST[clk_rst_ctrl\n复位同步+门控]
+        RGMII[rgmii2gmii\nRGMII↔GMII\n含IDELAY/ODDR]
+
+<p>subgraph WRAPPER[webserver_wrapper]<br>
+            direction TB<br>
+            subgraph CPU_SYS[lcpu_riscv_wrapper]<br>
+                UART_CPU[lcpu_top\nUART调试CPU]<br>
+                BFM[lcpu_bfm\n仿真BFM]<br>
+                RV32[riscv32_top\nRISC-V RV32IC]<br>
+                MERGE[lcpu_merge\nCPU仲裁]<br>
+            end<br>
+            CHAN[cpu_channel\nCPU数据通道]<br>
+            REG[reg_webserver\n寄存器组]<br>
+            MDIO[lcpu_mdio\nMDIO控制器]<br>
+            TOD[tod\n时间戳]<br>
+            TIM[interval_timer\n定时器]<br>
+            BUILD[fpga_build_time\n构建时间]<br>
+            CDC[cdc_bus_sync ×3\nCDC同步]<br>
+            CDCV[cdc_bus_sync_vec\nCDC向量同步]<br>
+        end<br>
+    end</p>
+
+<p>XTAL[50MHz晶振] --&gt; PLL<br>
+    PLL --&gt;|50/125/200MHz| RST<br>
+    XTAL --&gt; RST<br>
+    RST --&gt;|rst_l| RGMII<br>
+    RST --&gt;|rst_l| WRAPPER</p>
+
+<p>PHY[KSZ9031RNX\nRGMII PHY] &lt;--&gt;|RGMII| RGMII<br>
+    RGMII &lt;--&gt;|GMII| CHAN<br>
+    CHAN &lt;--&gt;|包FIFO| CPU_SYS<br>
+    CPU_SYS --&gt;|LCPU总线| REG<br>
+    REG --&gt; MDIO<br>
+    MDIO &lt;--&gt;|MDIO| PHY<br>
+    REG --&gt; TOD<br>
+    REG --&gt; TIM<br>
+    CPU_SYS --&gt; CDC --&gt; CDCV</p>
+
+<p>UART[CP2102 USB-UART] &lt;--&gt; UART_CPU<br>
+    LAN[以太网 ↔ PC浏览器] &lt;--&gt; PHY</p>
+
+</pre>
+
+<h4>处理流程图</h4>
+
+<pre class="mermaid">
+flowchart LR
+    PC[PC浏览器] &lt;--&gt;|HTTP/TCP/IP| LAN[局域网]
+    LAN &lt;--&gt;|千兆以太网| PHY[KSZ9031RNX\nPHY]
+    PHY &lt;--&gt;|RGMII DDR| RGMII[rgmii2gmii\nRGMII↔GMII]
+    RGMII &lt;--&gt;|GMII SDR| CH[cpu_channel\n包FIFO]
+    CH &lt;--&gt;|包FIFO r/w| CPU[lcpu_riscv_wrapper\nRISC-V CPU]
+    CPU --&gt;|LCPU总线| REG[reg_webserver]
+    REG --&gt;|MDIO| PHY
+
+<p>CPU --&gt;|TCP状态机| TCP[TCP\nc/tcp.c]<br>
+    CPU --&gt;|HTTP解析| HTTP[HTTP\nc/http.c]<br>
+    HTTP --&gt;|HTML页面| PC</p>
+
+</pre>
+
+<hr>
+
+<h2>3 模块结构详细说明</h2>
+
+<h3>3.1 零级模块说明</h3>
+
+<h4>3.1.1 零级模块外围功能点描述（Feature）</h4>
+
+<h5>KSZ9031RNX（Microchip 千兆以太网 PHY）</h5>
+
+<ul>
+<li>10/100/1000 Mbps 自适应</li>
+<li>RGMII 接口，125MHz DDR 双沿传输</li>
+<li>MDC/MDIO 管理接口</li>
+<li>Auto-MDIX 自动线序交叉</li>
+</ul>
+
+<h5>CP2102（Silicon Labs USB 转 UART）</h5>
+
+<ul>
+<li>USB 2.0 全速转 UART 调试串口，波特率 115200</li>
+<li>用于 RISC-V 调试打印和 FPGA 状态监控</li>
+</ul>
+
+<h5>MX25L12845（Macronix QSPI FLASH）</h5>
+
+<ul>
+<li>128 Mbit 非易失存储，存储 FPGA 比特流和固件</li>
+</ul>
+
+<h4>3.1.2 零级模块与外围接口说明（Interface）</h4>
+
+<h5>1. KSZ9031RNX 接口</h5>
+
+<p>###### 1）接口信号</p>
+
+<strong>表1 KSZ9031RNX RGMII 接口信号列表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>RGMII 数据接口</strong></td>
+</tr>
+<tr>
+<td>rgmii_rxc</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收时钟（125MHz DDR，PHY 输出）</td>
+</tr>
+<tr>
+<td>rgmii_rx_ctl</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收控制（上升沿=RXDV，下降沿=RXERR）</td>
+</tr>
+<tr>
+<td>rgmii_rxd</td>
+<td>4</td>
+<td>I</td>
+<td>RGMII 接收数据（DDR 双沿 → 等效 8bit SDR）</td>
+</tr>
+<tr>
+<td>rgmii_txc</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送时钟（125MHz，FPGA 输出，90° 相移）</td>
+</tr>
+<tr>
+<td>rgmii_tx_ctl</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送控制（上升沿=TXEN，下降沿=TXERR）</td>
+</tr>
+<tr>
+<td>rgmii_txd</td>
+<td>4</td>
+<td>O</td>
+<td>RGMII 发送数据（DDR 双沿，来自 8bit SDR）</td>
+</tr>
+<tr>
+<td><strong>MDIO 管理接口</strong></td>
+</tr>
+<tr>
+<td>eth0_mdc</td>
+<td>1</td>
+<td>O</td>
+<td>管理接口时钟（≤2.5MHz）</td>
+</tr>
+<tr>
+<td>eth0_mdio</td>
+<td>1</td>
+<td>IO</td>
+<td>管理接口双向数据</td>
+</tr>
+<tr>
+<td><strong>PHY 复位</strong></td>
+</tr>
+<tr>
+<td>rgmii_reset_l</td>
+<td>1</td>
+<td>O</td>
+<td>PHY 硬件复位（低有效）</td>
+</tr>
+</tbody></table>
+
+<p>###### 2）接口时序</p>
+
+<strong>图2 RGMII 发送时序（TXC 由 FPGA 产生，125MHz DDR）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant FPGA_TX as FPGA (TXC Generator)
+    participant PHY_RX as KSZ9031RNX
+
+<p>Note over FPGA_TX,PHY_RX: TXC 125MHz, 90° phase-shifted</p>
+
+<p>FPGA_TX-&gt;&gt;PHY_RX: TXC (125MHz clock)<br>
+    FPGA_TX-&gt;&gt;PHY_RX: TXD[3:0] ─┬─ posedge = bits[3:0]<br>
+    Note over FPGA_TX,PHY_RX:           └─ negedge = bits[7:4]<br>
+    FPGA_TX-&gt;&gt;PHY_RX: TX_CTL ─┬─ posedge = TXEN<br>
+    Note over FPGA_TX,PHY_RX:         └─ negedge = TXERR</p>
+
+</pre>
+
+<strong>图3 RGMII 接收时序（RXC 由 PHY 产生，125MHz DDR）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant PHY_TX as KSZ9031RNX
+    participant FPGA_RX as FPGA (IDELAY)
+
+<p>Note over PHY_TX,FPGA_RX: RXC 125MHz, 含 PCB 走线延迟</p>
+
+<p>PHY_TX-&gt;&gt;FPGA_RX: RXC (125MHz)<br>
+    PHY_TX-&gt;&gt;FPGA_RX: RXD[3:0] ─┬─ posedge = bits[3:0]<br>
+    Note over PHY_TX,FPGA_RX:           └─ negedge = bits[7:4]<br>
+    PHY_TX-&gt;&gt;FPGA_RX: RX_CTL ─┬─ posedge = RXDV<br>
+    Note over PHY_TX,FPGA_RX:         └─ negedge = RXERR<br>
+    Note over FPGA_RX: IDELAYE2 延迟调节\n对齐数据眼图中心</p>
+
+</pre>
+
+<strong>图4 MDIO 接口时序（IEEE 802.3 Clause 22）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant FPGA as FPGA (MDIO Master)
+    participant PHY as KSZ9031RNX
+
+<p>Note over FPGA,PHY: MDC ≤ 2.5MHz</p>
+
+<p>FPGA-&gt;&gt;PHY: MDC (clock)</p>
+
+<p>rect rgb(230, 245, 255)<br>
+        Note over FPGA,PHY: Clause 22 Write Frame<br>
+        FPGA-&gt;&gt;PHY: MDIO: PREAMBLE(32×1) + ST(01) + OP(01=Write) + PHYAD(5bit) + REGAD(5bit) + TA(10) + DATA(16bit)<br>
+        Note over FPGA,PHY: TA期间PHY驱动"0"作为ACK<br>
+    end</p>
+
+<p>rect rgb(255, 245, 230)<br>
+        Note over FPGA,PHY: Clause 22 Read Frame<br>
+        FPGA-&gt;&gt;PHY: MDIO: PREAMBLE(32×1) + ST(01) + OP(10=Read) + PHYAD(5bit) + REGAD(5bit)<br>
+        PHY-&gt;&gt;FPGA: MDIO: TA(2bit) + DATA(16bit)<br>
+        Note over FPGA,PHY: TA期间PHY先出"0"ACK，FPGA释放总线<br>
+    end</p>
+
+</pre>
+
+<h5>2. CP2102 UART 接口</h5>
+
+<p>###### 1）接口信号</p>
+
+<strong>表2 CP2102 UART 接口信号列表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>uart_rx</td>
+<td>1</td>
+<td>I</td>
+<td>UART 接收数据（FPGA 侧，CP2102 TX → FPGA RX）</td>
+</tr>
+<tr>
+<td>uart_tx</td>
+<td>1</td>
+<td>O</td>
+<td>UART 发送数据（FPGA 侧，FPGA TX → CP2102 RX）</td>
+</tr>
+</tbody></table>
+
+<p>###### 2）接口时序</p>
+
+<strong>图5 UART 异步串行时序（115200 8N1）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant FPGA
+    participant CP2102
+
+<p>Note over FPGA,CP2102: Baud 115200, 8N1: 1Start + 8Data + 0Parity + 1Stop</p>
+
+<p>rect rgb(230, 255, 230)<br>
+        Note over FPGA,CP2102: TX Direction (FPGA → CP2102)<br>
+        FPGA-&gt;&gt;CP2102: Start=0 → D0..D7 → Stop=1<br>
+    end</p>
+
+<p>rect rgb(255, 255, 230)<br>
+        Note over FPGA,CP2102: RX Direction (CP2102 → FPGA)<br>
+        CP2102-&gt;&gt;FPGA: Start=0 → D0..D7 → Stop=1<br>
+    end</p>
+
+<p>Note over FPGA,CP2102: 每bit宽度 = 1/115200 ≈ 8.68μs</p>
+
+</pre>
+
+<h4>3.1.3 零级模块寄存器定义（Register）</h4>
+
+<p>无。PHY 寄存器通过 MDIO 接口访问，由 <code>lcpu_mdio</code> 模块管理。</p>
+
+<hr>
+
+<h3>3.2 顶层 xilinx_xc7a35tfgg484_webserver_top</h3>
+
+<h4>3.2.1 功能描述（Feature）</h4>
+
+<h5>1. 模块标识</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>属性</th>
+<th>值</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>模块名称</td>
+<td>xilinx_xc7a35tfgg484_webserver_top</td>
+</tr>
+<tr>
+<td>文件路径</td>
+<td>fpga_webserver/rtl/xilinx_xc7a35tfgg484_webserver_top.v</td>
+</tr>
+<tr>
+<td>目标器件</td>
+<td>XC7A35T-2FGG484</td>
+</tr>
+</tbody></table>
+
+<h5>2. 功能描述</h5>
+
+<ul>
+<li>基于 Xilinx Artix-7 XC7A35T FPGA 的 WebServer 顶层模块</li>
+<li>集成 MMCM PLL，将 50MHz 输入时钟倍频至 50/125/200MHz</li>
+<li>完成 RGMII DDR 双沿接口到 GMII SDR 单沿接口的转换（含 IDELAY/ODDR 原语）</li>
+<li>例化 WebServer 核心功能（webserver_wrapper），提供 RISC-V 软核 + TCP/IP 完整协议栈</li>
+<li>提供 UART 调试串口、LED 状态指示</li>
+</ul>
+
+<h5>3. 内部模块结构图</h5>
+
+<strong>图6 xilinx_xc7a35tfgg484_webserver_top 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    subgraph TOP[xilinx_xc7a35tfgg484_webserver_top]
+        direction TB
+        U0[clk_rst_ctrl\n复位同步+时钟门控] --&gt;|rst_l| U2[rgmii2gmii\nRGMII↔GMII]
+        U0 --&gt;|rst_l| U3[webserver_wrapper\nWebServer核心]
+        U1[pll_50m\nMMCM PLL] --&gt;|clk_50m/125m/200m| U0
+        U1 --&gt;|clk_125m| U2
+        U1 --&gt;|clk_50m/125m| U3
+    end
+
+<p>CLK[clk_50m_in\n50MHz晶振] --&gt; U1<br>
+    RST[reset_l] --&gt; U0<br>
+    PHY[KSZ9031RNX] &lt;--&gt;|RGMII| U2<br>
+    U2 &lt;--&gt;|GMII 8bit SDR| U3<br>
+    UART[CP2102] &lt;--&gt; U3<br>
+    U3 --&gt; LED[led_o 4bit]<br>
+    U3 &lt;--&gt;|MDIO| PHY</p>
+
+</pre>
+
+<h4>3.2.2 接口说明（Interface）</h4>
+
+<h5>1. 接口信号</h5>
+
+<strong>表3 xilinx_xc7a35tfgg484_webserver_top 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统时钟复位</strong></td>
+</tr>
+<tr>
+<td>clk_50m_in</td>
+<td>1</td>
+<td>I</td>
+<td>50MHz 外部晶振输入</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>全局硬件复位（低有效）</td>
+</tr>
+<tr>
+<td><strong>UART 调试接口</strong></td>
+</tr>
+<tr>
+<td>uart_rx</td>
+<td>1</td>
+<td>I</td>
+<td>UART 接收数据</td>
+</tr>
+<tr>
+<td>uart_tx</td>
+<td>1</td>
+<td>O</td>
+<td>UART 发送数据</td>
+</tr>
+<tr>
+<td><strong>RGMII 以太网接口</strong></td>
+</tr>
+<tr>
+<td>rgmii_reset_l</td>
+<td>1</td>
+<td>O</td>
+<td>PHY 芯片复位（低有效）</td>
+</tr>
+<tr>
+<td>rgmii_rxc</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收时钟</td>
+</tr>
+<tr>
+<td>rgmii_rx_ctl</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收控制</td>
+</tr>
+<tr>
+<td>rgmii_rxd</td>
+<td>4</td>
+<td>I</td>
+<td>RGMII 接收数据</td>
+</tr>
+<tr>
+<td>rgmii_txc</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送时钟</td>
+</tr>
+<tr>
+<td>rgmii_tx_ctl</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送控制</td>
+</tr>
+<tr>
+<td>rgmii_txd</td>
+<td>4</td>
+<td>O</td>
+<td>RGMII 发送数据</td>
+</tr>
+<tr>
+<td><strong>MDIO 管理接口</strong></td>
+</tr>
+<tr>
+<td>eth0_mdc</td>
+<td>1</td>
+<td>O</td>
+<td>MDIO 管理时钟</td>
+</tr>
+<tr>
+<td>eth0_mdio</td>
+<td>1</td>
+<td>IO</td>
+<td>MDIO 管理数据（双向）</td>
+</tr>
+<tr>
+<td><strong>LED 指示</strong></td>
+</tr>
+<tr>
+<td>led_o</td>
+<td>4</td>
+<td>O</td>
+<td>用户 LED 输出（高电平点亮）</td>
+</tr>
+<tr>
+<td><strong>模块控制参数</strong></td>
+</tr>
+<tr>
+<td>sim_mod</td>
+<td>parameter</td>
+<td>integer</td>
+<td>0：综合模式；≠0：仿真模式</td>
+</tr>
+<tr>
+<td>script_file</td>
+<td>parameter</td>
+<td>string</td>
+<td>TCL 脚本文件路径</td>
+</tr>
+</tbody></table>
+
+<h5>2. 接口时序</h5>
+
+<p>RGMII → GMII 接口时序参考图2、图3（rgmii2gmii 内部完成转换）。顶层不做额外时序处理。</p>
+
+<h5>3. 输入/输出数据结构</h5>
+
+<p>以太网帧经 RGMII DDR → rgmii2gmii 转换为 GMII 8bit SDR 标准流后进入 webserver_wrapper。收发对称。</p>
+
+<h4>3.2.3 实现说明（Implementation）</h4>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>子模块实例</td>
+<td>4 个：clk_rst_ctrl / pll_50m / rgmii2gmii / webserver_wrapper</td>
+</tr>
+<tr>
+<td>时钟域</td>
+<td>50MHz（系统） + 125MHz（RGMII/GMII） + 200MHz（IDELAY参考）</td>
+</tr>
+<tr>
+<td>上电流程</td>
+<td>50MHz 晶振 → MMCM 锁定（≤100µs）→ clk_rst_ctrl 释放复位 → 系统启动</td>
+</tr>
+</tbody></table>
+
+<h4>3.2.4 内部表项（Table）</h4>
+
+<p>无。</p>
+
+<h4>3.2.5 RAM 使用情况（RAM Resource）</h4>
+
+<p>顶层本身无 RAM 使用。RAM 由子模块消耗。</p>
+
+<hr>
+
+<h3>3.3 clk_rst_ctrl — 时钟复位管理</h3>
+
+<h4>3.3.1 功能描述（Feature）</h4>
+
+<h5>1. 模块标识</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>属性</th>
+<th>值</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>模块名称</td>
+<td>clk_rst_ctrl</td>
+</tr>
+<tr>
+<td>文件路径</td>
+<td>ip_common/rtl/clk_rst_ctrl.sv</td>
+</tr>
+</tbody></table>
+
+<h5>2. 功能描述</h5>
+
+<ul>
+<li>异步复位同步撤离控制器</li>
+<li>多路 PLL 锁定信号输入，全部锁定后才释放系统复位</li>
+<li>确保 FPGA 内部逻辑在时钟稳定后才开始工作</li>
+</ul>
+
+<h5>3. 内部模块结构图</h5>
+
+<strong>图7 clk_rst_ctrl 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    async_rst_l[async_rst_l\n外部异步复位] --&gt; SYNC[多级同步器链\nRST_SYNC_STAGES=3]
+    pll_locked[pll_locked\n各路PLL锁定] --&gt; AND[与门\n全部锁定?]
+    AND --&gt;|locked_all| GATE[复位门控]
+    SYNC --&gt; GATE
+    GATE --&gt; rst_l[rst_l\n同步撤离复位]
+    clk[clk] --&gt; SYNC
+    clk --&gt; GATE
+
+</pre>
+
+<h4>3.3.2 接口说明（Interface）</h4>
+
+<h5>1. 接口信号</h5>
+
+<strong>表4 clk_rst_ctrl 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统接口</strong></td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>async_rst_l</td>
+<td>1</td>
+<td>I</td>
+<td>外部异步复位（低有效）</td>
+</tr>
+<tr>
+<td>pll_locked</td>
+<td>NUM_LOCK_INPUTS</td>
+<td>I</td>
+<td>PLL 锁定状态向量（全1=全部锁定）</td>
+</tr>
+<tr>
+<td>rst_l</td>
+<td>1</td>
+<td>O</td>
+<td>同步撤离后的系统复位（低有效）</td>
+</tr>
+<tr>
+<td><strong>模块控制参数</strong></td>
+</tr>
+<tr>
+<td>NUM_LOCK_INPUTS</td>
+<td>parameter</td>
+<td>integer</td>
+<td>PLL 锁定信号路数</td>
+</tr>
+<tr>
+<td>RST_SYNC_STAGES</td>
+<td>parameter</td>
+<td>integer</td>
+<td>复位同步级数（默认 3）</td>
+</tr>
+</tbody></table>
+
+<h5>2. 接口时序</h5>
+
+<strong>图8 clk_rst_ctrl 上电复位时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant EXT as 外部复位
+    participant PLL as PLL锁定
+    participant CTRL as clk_rst_ctrl
+    participant SYS as 系统逻辑
+
+<p>Note over EXT,SYS: 上电阶段<br>
+    EXT-&gt;&gt;CTRL: async_rst_l = 0 (复位有效)<br>
+    Note over CTRL: 内部同步器全0</p>
+
+<p>Note over EXT,SYS: PLL锁定阶段 (~100µs)<br>
+    PLL-&gt;&gt;CTRL: pll_locked 逐路变1<br>
+    Note over CTRL: 等待所有PLL锁定</p>
+
+<p>Note over EXT,SYS: 复位撤离<br>
+    PLL-&gt;&gt;CTRL: pll_locked = ALL_ONES<br>
+    EXT-&gt;&gt;CTRL: async_rst_l = 1 (外部复位释放)<br>
+    Note over CTRL: 多级同步器逐级传递 '1'<br>
+    CTRL-&gt;&gt;SYS: rst_l = 1 (系统复位释放)<br>
+    Note over SYS: 系统开始正常工作</p>
+
+</pre>
+
+<h4>3.3.3 实现说明（Implementation）</h4>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>实现方式</td>
+<td>多级移位寄存器同步 + PLL 锁定门控</td>
+</tr>
+<tr>
+<td>复位策略</td>
+<td>异步复位同步撤离 (Asynchronous Reset Synchronous De-assertion)</td>
+</tr>
+</tbody></table>
+
+<h4>3.3.4 内部表项（Table）</h4>
+
+<p>无。</p>
+
+<h4>3.3.5 RAM 使用情况（RAM Resource）</h4>
+
+<p>无。</p>
+
+<hr>
+
+<h3>3.4 pll_50m — MMCM PLL</h3>
+
+<h4>3.4.1 功能描述（Feature）</h4>
+
+<h5>1. 模块标识</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>属性</th>
+<th>值</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>模块名称</td>
+<td>pll_50m</td>
+</tr>
+<tr>
+<td>文件路径</td>
+<td>ip_vendor/xilinx_xc7a35tfgg484/PLL/pll_50m.v</td>
+</tr>
+</tbody></table>
+
+<h5>2. 功能描述</h5>
+
+<ul>
+<li>Xilinx MMCM (Mixed-Mode Clock Manager) PLL IP</li>
+<li>输入 50MHz → 输出 50MHz / 125MHz / 200MHz 三路时钟</li>
+<li>提供 PLL 锁定指示信号</li>
+</ul>
+
+<h5>3. 内部模块结构图</h5>
+
+<strong>图9 pll_50m MMCM 内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    CLKIN[clk_50m_in\n50MHz] --&gt; MMCM[MMCME2_ADV\nMixed-Mode Clock Manager]
+
+<p>subgraph MMCM<br>
+        PFD[鉴相器\nPFD] --&gt; CP[电荷泵\n+环路滤波]<br>
+        CP --&gt; VCO[压控振荡器\nVCO]<br>
+        VCO --&gt; DIV[分频器\nCLKOUT0/1/2]<br>
+        VCO --&gt; FB[反馈分频器]<br>
+    end</p>
+
+<p>MMCM --&gt; CLK0[clk_50m\n50MHz]<br>
+    MMCM --&gt; CLK1[clk_125m\n125MHz]<br>
+    MMCM --&gt; CLK2[clk_200m\n200MHz]<br>
+    MMCM --&gt; LOCKED[pll_locked\n锁定指示]</p>
+
+</pre>
+
+<h4>3.4.2 接口说明（Interface）</h4>
+
+<h5>1. 接口信号</h5>
+
+<strong>表5 pll_50m 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>时钟接口</strong></td>
+</tr>
+<tr>
+<td>clk_50m_in</td>
+<td>1</td>
+<td>I</td>
+<td>50MHz 输入时钟</td>
+</tr>
+<tr>
+<td>clk_50m</td>
+<td>1</td>
+<td>O</td>
+<td>50MHz 输出时钟（系统逻辑）</td>
+</tr>
+<tr>
+<td>clk_125m</td>
+<td>1</td>
+<td>O</td>
+<td>125MHz 输出时钟（RGMII/GMII）</td>
+</tr>
+<tr>
+<td>clk_200m</td>
+<td>1</td>
+<td>O</td>
+<td>200MHz 输出时钟（IDELAY 参考）</td>
+</tr>
+<tr>
+<td><strong>状态接口</strong></td>
+</tr>
+<tr>
+<td>pll_locked</td>
+<td>1</td>
+<td>O</td>
+<td>PLL 锁定指示（高有效，≤100µs 锁定）</td>
+</tr>
+</tbody></table>
+
+<h5>2. 接口时序</h5>
+
+<strong>图10 MMCM 锁定与时钟输出时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant OSC as 50MHz晶振
+    participant MMCM as MMCME2_ADV
+    participant SYS as 系统
+
+<p>OSC-&gt;&gt;MMCM: clk_50m_in 连续时钟<br>
+    Note over MMCM: VCO调谐锁定过程 (~100µs)</p>
+
+<p>MMCM-&gt;&gt;SYS: pll_locked = 0 (锁定中)<br>
+    Note over SYS: 系统保持复位</p>
+
+<p>Note over MMCM: VCO锁定完成<br>
+    MMCM-&gt;&gt;SYS: pll_locked = 1 (已锁定)<br>
+    MMCM-&gt;&gt;SYS: clk_50m/clk_125m/clk_200m 全部稳定<br>
+    Note over SYS: clk_rst_ctrl释放复位,系统启动</p>
+
+</pre>
+
+<h4>3.4.3 实现说明（Implementation）</h4>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>原语</td>
+<td>Xilinx MMCME2_ADV</td>
+</tr>
+<tr>
+<td>输入频率</td>
+<td>50MHz</td>
+</tr>
+<tr>
+<td>输出频率</td>
+<td>50MHz / 125MHz / 200MHz</td>
+</tr>
+<tr>
+<td>锁定时间</td>
+<td>≤ 100µs (典型)</td>
+</tr>
+</tbody></table>
+
+<h4>3.4.4 内部表项（Table）</h4>
+
+<p>无。</p>
+
+<h4>3.4.5 RAM 使用情况（RAM Resource）</h4>
+
+<p>无。</p>
+
+<hr>
+
+<h3>3.5 rgmii2gmii — RGMII↔GMII 转换</h3>
+
+<h4>3.5.1 功能描述（Feature）</h4>
+
+<h5>1. 模块标识</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>属性</th>
+<th>值</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>模块名称</td>
+<td>rgmii2gmii</td>
+</tr>
+<tr>
+<td>文件路径</td>
+<td>ip_common/rtl/rgmii2gmii.v</td>
+</tr>
+</tbody></table>
+
+<h5>2. 功能描述</h5>
+
+<ul>
+<li>RGMII（DDR 双沿，4bit 数据） ↔ GMII（SDR 单沿，8bit 数据）双向转换</li>
+<li>接收方向：RGMII DDR → GMII SDR（含 IDELAY 延迟调节）</li>
+<li>发送方向：GMII SDR → RGMII DDR（含 ODDR 双沿输出）</li>
+<li>RGMII TXC 时钟由 FPGA 产生（125MHz，90° 相移）</li>
+<li>RGMII 复位信号输出</li>
+</ul>
+
+<h5>3. 内部模块结构图</h5>
+
+<strong>图11 rgmii2gmii 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    subgraph RGMII2GMII[rgmii2gmii]
+        subgraph RX_PATH[接收通路 RGMII→GMII]
+            IDELAY[IDELAYE2\n延迟调节] --&gt; DDR_RX[DDR→SDR\n解双沿]
+            DDR_RX --&gt; RX_REG[输出寄存器]
+        end
+
+<p>subgraph TX_PATH[发送通路 GMII→RGMII]<br>
+            TX_REG[输入寄存器] --&gt; SDR_TX[SDR→DDR\n组双沿]<br>
+            SDR_TX --&gt; ODDR[ODDR\nDDR输出]<br>
+        end<br>
+    end</p>
+
+<p>PHY_RX[RGMII RX\nrxd[3:0]/rx_ctl/rxc] --&gt; IDELAY<br>
+    RX_REG --&gt; GMII_RX[GMII RX\ngmii_rxd[7:0]/rx_dv/rx_clk]</p>
+
+<p>GMII_TX[GMII TX\ngmii_txd[7:0]/tx_en/tx_clk] --&gt; TX_REG<br>
+    ODDR --&gt; PHY_TX[RGMII TX\ntxd[3:0]/tx_ctl/txc]</p>
+
+<p>CLK200[clk_200m\nIDELAY参考] --&gt; IDELAY<br>
+    CLK125[clk_125m] --&gt; DDR_RX<br>
+    CLK125 --&gt; SDR_TX<br>
+    CLK125 --&gt; ODDR</p>
+
+</pre>
+
+<h4>3.5.2 接口说明（Interface）</h4>
+
+<h5>1. 接口信号</h5>
+
+<strong>表6 rgmii2gmii 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统接口</strong></td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>系统复位（低有效）</td>
+</tr>
+<tr>
+<td>clk_200m</td>
+<td>1</td>
+<td>I</td>
+<td>200MHz IDELAY 参考时钟</td>
+</tr>
+<tr>
+<td><strong>GMII 侧（SDR，内部 FPGA 逻辑）</strong></td>
+</tr>
+<tr>
+<td>gmii_rx_clk</td>
+<td>1</td>
+<td>O</td>
+<td>GMII 接收时钟（125MHz）</td>
+</tr>
+<tr>
+<td>gmii_rx_dv</td>
+<td>1</td>
+<td>O</td>
+<td>GMII 接收数据有效</td>
+</tr>
+<tr>
+<td>gmii_rxd</td>
+<td>8</td>
+<td>O</td>
+<td>GMII 接收数据</td>
+</tr>
+<tr>
+<td>gmii_tx_clk</td>
+<td>1</td>
+<td>I</td>
+<td>GMII 发送时钟（125MHz）</td>
+</tr>
+<tr>
+<td>gmii_tx_en</td>
+<td>1</td>
+<td>I</td>
+<td>GMII 发送使能</td>
+</tr>
+<tr>
+<td>gmii_txd</td>
+<td>8</td>
+<td>I</td>
+<td>GMII 发送数据</td>
+</tr>
+<tr>
+<td><strong>RGMII 侧（DDR，外部 PHY）</strong></td>
+</tr>
+<tr>
+<td>rgmii_rxc</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收时钟（PHY 输出）</td>
+</tr>
+<tr>
+<td>rgmii_rx_ctl</td>
+<td>1</td>
+<td>I</td>
+<td>RGMII 接收控制</td>
+</tr>
+<tr>
+<td>rgmii_rxd</td>
+<td>4</td>
+<td>I</td>
+<td>RGMII 接收数据</td>
+</tr>
+<tr>
+<td>rgmii_txc</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送时钟（FPGA 输出）</td>
+</tr>
+<tr>
+<td>rgmii_tx_ctl</td>
+<td>1</td>
+<td>O</td>
+<td>RGMII 发送控制</td>
+</tr>
+<tr>
+<td>rgmii_txd</td>
+<td>4</td>
+<td>O</td>
+<td>RGMII 发送数据</td>
+</tr>
+</tbody></table>
+
+<h5>2. 接口时序</h5>
+
+<p>RGMII ↔ GMII 转换时序参考图2、图3（零级模块 RGMII 接口时序）。</p>
+
+<strong>图12 GMII 发送接口时序（8bit SDR 125MHz）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant FPGA as FPGA GMII TX
+    participant RGMII_BLK as rgmii2gmii
+
+<p>FPGA-&gt;&gt;RGMII_BLK: gmii_tx_clk (125MHz)<br>
+    FPGA-&gt;&gt;RGMII_BLK: gmii_txd[7:0] (8bit, 单沿)<br>
+    FPGA-&gt;&gt;RGMII_BLK: gmii_tx_en<br>
+    Note over FPGA,RGMII_BLK: tx_en=1时数据有效<br>
+    Note over RGMII_BLK: 内部转换为RGMII DDR双沿输出</p>
+
+</pre>
+
+<strong>图13 GMII 接收接口时序（8bit SDR 125MHz）</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant RGMII_BLK as rgmii2gmii
+    participant FPGA as FPGA GMII RX
+
+<p>RGMII_BLK-&gt;&gt;FPGA: gmii_rx_clk (125MHz)<br>
+    RGMII_BLK-&gt;&gt;FPGA: gmii_rxd[7:0] (8bit, 单沿)<br>
+    RGMII_BLK-&gt;&gt;FPGA: gmii_rx_dv<br>
+    Note over RGMII_BLK,FPGA: rx_dv=1时数据有效<br>
+    Note over RGMII_BLK: 内部IDELAY调节后\nRGMII DDR→GMII SDR</p>
+
+</pre>
+
+<h4>3.5.3 实现说明（Implementation）</h4>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>关键原语</td>
+<td>Xilinx IDELAYE2 / ODDR / BUFIO / BUFR</td>
+</tr>
+<tr>
+<td>时钟要求</td>
+<td>200MHz 参考时钟用于 IDELAY 精细延迟调节（78ps/tap）</td>
+</tr>
+<tr>
+<td>TXC 产生</td>
+<td>ODDR 输出 125MHz，90° 相移使时钟沿对齐数据中心</td>
+</tr>
+</tbody></table>
+
+<h4>3.5.4 内部表项（Table）</h4>
+
+<p>无。</p>
+
+<h4>3.5.5 RAM 使用情况（RAM Resource）</h4>
+
+<p>无。</p>
+
+<hr>
+
+<h3>3.6 webserver_wrapper — WebServer 功能封装</h3>
+
+<h4>3.6.1 功能描述（Feature）</h4>
+
+<h5>1. 模块标识</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>属性</th>
+<th>值</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>模块名称</td>
+<td>webserver_wrapper</td>
+</tr>
+<tr>
+<td>文件路径</td>
+<td>fpga_webserver/rtl/webserver_wrapper.v</td>
+</tr>
+</tbody></table>
+
+<h5>2. 功能描述</h5>
+
+<ul>
+<li>WebServer 功能总封装模块，集成 RISC-V 软核 CPU、MDIO 控制器、寄存器组、定时器等</li>
+<li>通过 LCPU 总线连接 CPU 与 FPGA 硬件寄存器</li>
+<li>数据处理通路：GMII ↔ cpu_channel（包 FIFO/过滤） ↔ RISC-V CPU</li>
+<li>管理通路：RISC-V CPU → LCPU 总线 → reg_webserver → 各外设</li>
+</ul>
+
+<h5>3. 内部模块结构图</h5>
+
+<strong>图14 webserver_wrapper 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph WRAPPER[webserver_wrapper]
+        direction TB
+
+<p>subgraph CPU_SYS[3.6.4 lcpu_riscv_wrapper]<br>
+            direction LR<br>
+            UART_CPU[lcpu_top\n调试CPU]<br>
+            BFM[lcpu_bfm\n仿真BFM]<br>
+            RV32[riscv32_top\nRISC-V Core]<br>
+            MERGE[lcpu_merge\nCPU仲裁]<br>
+            UART_CPU --&gt; MERGE<br>
+            BFM --&gt; MERGE<br>
+            RV32 --&gt; MERGE<br>
+        end</p>
+
+<p>subgraph CHAN[3.6.5 cpu_channel]<br>
+            direction LR<br>
+            PKG[package_fifo_v2]<br>
+            WR[pktfifo2ram_int_v2]<br>
+            RD[ram2pktfifo_int]<br>
+            SOP[sop_eop_gen]<br>
+            PKG --&gt; WR<br>
+            RD --&gt; SOP<br>
+        end</p>
+
+<p>REG[3.6.6 reg_webserver]<br>
+        MDIO[3.6.7 lcpu_mdio]<br>
+        TOD[3.6.1 tod]<br>
+        TIM[3.6.2 interval_timer]<br>
+        BUILD[3.6.3 fpga_build_time]<br>
+        CDC1[3.6.8 cdc_bus_sync]<br>
+        CDC2[3.6.8 cdc_bus_sync]<br>
+        CDC3[3.6.8 cdc_bus_sync]<br>
+        CDCV[3.6.9 cdc_bus_sync_vec]<br>
+    end</p>
+
+<p>GMII_RX[GMII RX] --&gt; CHAN<br>
+    CHAN --&gt;|包FIFO读| CPU_SYS<br>
+    CPU_SYS --&gt;|包FIFO写| CHAN<br>
+    CHAN --&gt; GMII_TX[GMII TX]</p>
+
+<p>CPU_SYS --&gt;|LCPU总线| CDC1 --&gt; REG<br>
+    REG --&gt; TOD<br>
+    REG --&gt; TIM<br>
+    REG --&gt; MDIO<br>
+    CPU_SYS --&gt; CDC2 --&gt; CDCV<br>
+    CPU_SYS --&gt; CDC3<br>
+    BUILD --&gt; REG</p>
+
+<p>MDIO &lt;--&gt;|MDC/MDIO| PHY[KSZ9031RNX]</p>
+
+</pre>
+
+<h4>3.6.2 接口说明（Interface）</h4>
+
+<h5>1. 接口信号</h5>
+
+<strong>表7 webserver_wrapper 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统时钟复位</strong></td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>系统复位（低有效）</td>
+</tr>
+<tr>
+<td>clk_50mhz</td>
+<td>1</td>
+<td>I</td>
+<td>50MHz 系统时钟</td>
+</tr>
+<tr>
+<td>clk_125mhz</td>
+<td>1</td>
+<td>I</td>
+<td>125MHz GMII 时钟</td>
+</tr>
+<tr>
+<td><strong>UART 调试接口</strong></td>
+</tr>
+<tr>
+<td>uart_rx</td>
+<td>1</td>
+<td>I</td>
+<td>UART 接收</td>
+</tr>
+<tr>
+<td>uart_tx</td>
+<td>1</td>
+<td>O</td>
+<td>UART 发送</td>
+</tr>
+<tr>
+<td><strong>MDIO 管理接口</strong></td>
+</tr>
+<tr>
+<td>eth0_mdc</td>
+<td>1</td>
+<td>O</td>
+<td>MDIO 时钟</td>
+</tr>
+<tr>
+<td>eth0_mdio</td>
+<td>1</td>
+<td>IO</td>
+<td>MDIO 数据</td>
+</tr>
+<tr>
+<td><strong>GMII 接收接口</strong></td>
+</tr>
+<tr>
+<td>gmii_rx_clk</td>
+<td>1</td>
+<td>I</td>
+<td>GMII 接收时钟（125MHz）</td>
+</tr>
+<tr>
+<td>gmii_rx_dv</td>
+<td>1</td>
+<td>I</td>
+<td>GMII 接收数据有效</td>
+</tr>
+<tr>
+<td>gmii_rx_err</td>
+<td>1</td>
+<td>I</td>
+<td>GMII 接收错误指示</td>
+</tr>
+<tr>
+<td>gmii_rxd</td>
+<td>8</td>
+<td>I</td>
+<td>GMII 接收数据</td>
+</tr>
+<tr>
+<td><strong>GMII 发送接口</strong></td>
+</tr>
+<tr>
+<td>gmii_txd</td>
+<td>8</td>
+<td>O</td>
+<td>GMII 发送数据</td>
+</tr>
+<tr>
+<td>gmii_tx_en</td>
+<td>1</td>
+<td>O</td>
+<td>GMII 发送使能</td>
+</tr>
+<tr>
+<td>gmii_tx_err</td>
+<td>1</td>
+<td>O</td>
+<td>GMII 发送错误指示</td>
+</tr>
+<tr>
+<td><strong>LED 指示</strong></td>
+</tr>
+<tr>
+<td>led</td>
+<td>4</td>
+<td>O</td>
+<td>LED 状态输出</td>
+</tr>
+</tbody></table>
+
+<h5>2. 接口时序</h5>
+
+<p>GMII 接口时序参考图12、图13（GMII SDR 125MHz 标准时序）。UART 时序参考图5。</p>
+
+<h5>3. 输入/输出数据结构</h5>
+
+<p>GMII 侧为标准以太网 MAC 帧格式（前导码已由 MAC 层剥离/添加）。</p>
+
+<h4>3.6.3 实现说明（Implementation）</h4>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>子模块实例</td>
+<td>13 个（含 3×cdc_bus_sync）</td>
+</tr>
+<tr>
+<td>时钟域</td>
+<td>50MHz（CPU/寄存器）+ 125MHz（GMII 数据通路），CDC 隔离</td>
+</tr>
+<tr>
+<td>CPU 接口</td>
+<td>LCPU 总线（req/rhwl/wdata/address + ack/rdata）</td>
+</tr>
+</tbody></table>
+
+<h4>3.6.4 内部表项（Table）</h4>
+
+<p>无。</p>
+
+<h4>3.6.5 RAM 使用情况（RAM Resource）</h4>
+
+<p>无直接 RAM 使用（子模块消耗）。</p>
+
+<hr>
+
+<h4>3.6.1 tod — 时间戳模块</h4>
+
+<h5>3.6.1.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>tod</code> | <strong>文件路径：</strong> <code>ip_common/rtl/tod.v</code>
+
+<ul>
+<li>Time of Day 自由运行计数器（64bit）</li>
+<li>外部 snapshot 脉冲触发时锁存当前计数值</li>
+<li>实时计数器值连续输出</li>
+</ul>
+
+<strong>图15 tod 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    clk[clk] --&gt; CNT[64bit 自由运行计数器\ncounter_live 连续输出]
+    snapshot[snapshot 脉冲] --&gt; LATCH[锁存寄存器\n]
+    CNT --&gt; LATCH
+    LATCH --&gt; time_out[time_out[63:0]\n快照时间值]
+    CNT --&gt; counter_live[counter_live[63:0]\n实时计数值]
+    reset_l[reset_l] --&gt; CNT
+    reset_l --&gt; LATCH
+
+</pre>
+
+<h5>3.6.1.2 接口说明（Interface）</h5>
+
+<strong>表8 tod 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>snapshot</td>
+<td>1</td>
+<td>I</td>
+<td>锁存脉冲（单周期）</td>
+</tr>
+<tr>
+<td>counter_live</td>
+<td>64</td>
+<td>O</td>
+<td>实时计数器值（连续输出）</td>
+</tr>
+<tr>
+<td>time_out</td>
+<td>64</td>
+<td>O</td>
+<td>snapshot 锁存的 64bit 时间值</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.1.3 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>计数器位宽</td>
+<td>64bit</td>
+</tr>
+<tr>
+<td>锁存机制</td>
+<td>snapshot 单周期脉冲 → 锁存当前计数值到 time_out</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.1.4 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.1.5 RAM 使用情况（RAM Resource）</h5>
+
+<p>无（64bit 寄存器实现）。</p>
+
+<hr>
+
+<h4>3.6.2 interval_timer — 间隔定时器</h4>
+
+<h5>3.6.2.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>interval_timer</code> | <strong>文件路径：</strong> <code>ip_common/rtl/interval_timer.v</code>
+
+<ul>
+<li>可编程间隔定时器，产生周期性 event_out 脉冲</li>
+<li>用于 WebServer 软件定时器（如 TCP 重传定时、ARP 老化定时、HTTP 超时等）</li>
+</ul>
+
+<strong>图16 interval_timer 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    clk[clk] --&gt; CNT[递减计数器\nperiod_cnt]
+    CNT --&gt;|==0| PULSE[脉冲生成\n1周期event_out]
+    PULSE --&gt;|重载PERIOD| CNT
+    PULSE --&gt; event_out[event_out\n定时脉冲输出]
+    reset_l[reset_l] --&gt; CNT
+
+<p>subgraph CONFIG[参数配置]<br>
+        PERIOD[PERIOD\n定时周期值]<br>
+    end<br>
+    PERIOD --&gt; CNT</p>
+
+</pre>
+
+<h5>3.6.2.2 接口说明（Interface）</h5>
+
+<strong>表9 interval_timer 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>event_out</td>
+<td>1</td>
+<td>O</td>
+<td>定时脉冲输出</td>
+</tr>
+<tr>
+<td><strong>模块控制参数</strong></td>
+</tr>
+<tr>
+<td>PERIOD</td>
+<td>parameter</td>
+<td>integer</td>
+<td>定时周期（时钟周期数）</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.2.3 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>实现方式</td>
+<td>递减计数器 + 自动重载</td>
+</tr>
+<tr>
+<td>PERIOD 典型值</td>
+<td>50MHz 时钟下，50000000 = 1秒周期</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.2.4 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.2.5 RAM 使用情况（RAM Resource）</h5>
+
+<p>无。</p>
+
+<hr>
+
+<h4>3.6.3 fpga_build_time — 构建时间戳</h4>
+
+<h5>3.6.3.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>fpga_build_time</code> | <strong>文件路径：</strong> 编译时自动生成（无独立源文件）
+
+<ul>
+<li>编译时自动生成的 FPGA 构建时间戳模块</li>
+<li>通过 TCL 脚本或 Verilog 宏在综合时将当前日期时间编码为 32bit 常量</li>
+<li>输出 fpga_build_date（YYYYMMDD 格式）、fpga_build_time（HHMM0000 格式）</li>
+</ul>
+
+<h5>3.6.3.2 接口说明（Interface）</h5>
+
+<strong>表10 fpga_build_time 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>fpga_build_date</td>
+<td>32</td>
+<td>O</td>
+<td>FPGA 综合日期（YYYYMMDD）</td>
+</tr>
+<tr>
+<td>fpga_build_time</td>
+<td>32</td>
+<td>O</td>
+<td>FPGA 综合时间（HHMM0000）</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.3.3 实现说明（Implementation）</h5>
+
+<p>编译脚本自动生成 Verilog 模块，assign 常量输出。</p>
+
+<h5>3.6.3.4 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.3.5 RAM 使用情况（RAM Resource）</h5>
+
+<p>无。</p>
+
+<hr>
+
+<h4>3.6.4 lcpu_riscv_wrapper — RISC-V CPU 系统</h4>
+
+<h5>3.6.4.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>lcpu_riscv_wrapper</code> | <strong>文件路径：</strong> <code>fpga_cpu/rtl/lcpu_riscv_wrapper.v</code>
+
+<ul>
+<li>RISC-V CPU 系统封装模块，集成以下子模块：</li>
+</ul>
+  <ul>
+<li><strong>lcpu_top</strong>（3.6.4.1）：UART 调试 CPU（通过 UART 加载指令到程序 RAM）</li>
+</ul>
+  <ul>
+<li><strong>lcpu_bfm</strong>（3.6.4.2）：仿真 Bus Functional Model（仅在仿真模式综合）</li>
+</ul>
+  <ul>
+<li><strong>riscv32_top</strong>（3.6.4.3）：RISC-V RV32IC 处理器核心</li>
+</ul>
+  <ul>
+<li><strong>lcpu_merge</strong>（3.6.4.4）：多路 CPU LCPU 总线仲裁器</li>
+<li>统一 LCPU 总线接口（req / rhwl / wdata / address / ack / rdata）</li>
+<li>支持程序 RAM 在线编程（program_wr / waddr / wdata 接口）</li>
+</ul>
+
+<strong>图17 lcpu_riscv_wrapper 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph LCPU_WRAP[lcpu_riscv_wrapper]
+        direction TB
+
+<p>UART_CPU[lcpu_top\nUART调试CPU\n↓ 3.6.4.1]<br>
+        BFM[lcpu_bfm\n仿真BFM\n↓ 3.6.4.2]<br>
+        RV32[riscv32_top\nRISC-V RV32IC Core\n↓ 3.6.4.3]<br>
+        MERGE[lcpu_merge\nCPU总线仲裁\n↓ 3.6.4.4]</p>
+
+<p>UART_CPU --&gt;|LCPU1| MERGE<br>
+        BFM --&gt;|LCPU2| MERGE<br>
+        RV32 --&gt;|LCPU3| MERGE<br>
+    end</p>
+
+<p>UART_RX[UART RX] --&gt; UART_CPU<br>
+    UART_CPU --&gt; UART_TX[UART TX]<br>
+    PROG[程序RAM编程\npram_wr/waddr/wdata] --&gt; RV32<br>
+    RV32 --&gt; PRDATA[pram_rdata]<br>
+    MERGE --&gt; LCPU_BUS[统一LCPU总线\nreq/rhwl/wdata/address]<br>
+    LCPU_BUS --&gt; ACK[ack/rdata 返回]<br>
+    ACK --&gt; MERGE</p>
+
+</pre>
+
+<h5>3.6.4.2 接口说明（Interface）</h5>
+
+<strong>表11 lcpu_riscv_wrapper 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统接口</strong></td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>系统复位（低有效）</td>
+</tr>
+<tr>
+<td><strong>UART 调试接口</strong></td>
+</tr>
+<tr>
+<td>uart_rx</td>
+<td>1</td>
+<td>I</td>
+<td>UART 接收</td>
+</tr>
+<tr>
+<td>uart_tx</td>
+<td>1</td>
+<td>O</td>
+<td>UART 发送</td>
+</tr>
+<tr>
+<td><strong>RISC-V 复位</strong></td>
+</tr>
+<tr>
+<td>riscv_reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>RISC-V 独立复位</td>
+</tr>
+<tr>
+<td><strong>程序 RAM 编程接口</strong></td>
+</tr>
+<tr>
+<td>pram_wr</td>
+<td>1</td>
+<td>I</td>
+<td>程序 RAM 写使能</td>
+</tr>
+<tr>
+<td>pram_addr</td>
+<td>init_addr_width</td>
+<td>I</td>
+<td>程序 RAM 写地址</td>
+</tr>
+<tr>
+<td>pram_wdata</td>
+<td>instr_databits</td>
+<td>I</td>
+<td>程序 RAM 写数据</td>
+</tr>
+<tr>
+<td>pram_rdata</td>
+<td>instr_databits</td>
+<td>O</td>
+<td>程序 RAM 读数据</td>
+</tr>
+<tr>
+<td><strong>LCPU 总线接口</strong></td>
+</tr>
+<tr>
+<td>req</td>
+<td>1</td>
+<td>O</td>
+<td>CPU 总线请求</td>
+</tr>
+<tr>
+<td>rhwl</td>
+<td>1</td>
+<td>O</td>
+<td>读写控制（0:写, 1:读）</td>
+</tr>
+<tr>
+<td>wdata</td>
+<td>32</td>
+<td>O</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>address</td>
+<td>32</td>
+<td>O</td>
+<td>访问地址</td>
+</tr>
+<tr>
+<td>ack</td>
+<td>1</td>
+<td>I</td>
+<td>总线应答</td>
+</tr>
+<tr>
+<td>rdata</td>
+<td>32</td>
+<td>I</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td><strong>模块控制参数</strong></td>
+</tr>
+<tr>
+<td>sim_mod</td>
+<td>parameter</td>
+<td>integer</td>
+<td>0：综合模式；≠0：使能 BFM</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.4.3 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>子模块实例</td>
+<td>4 个：lcpu_top / lcpu_bfm / riscv32_top / lcpu_merge</td>
+</tr>
+<tr>
+<td>CPU 仲裁</td>
+<td>lcpu_merge 集中仲裁 3 路 LCPU 总线请求</td>
+</tr>
+<tr>
+<td>仿真模式</td>
+<td>sim_mod ≠ 0 时例化 lcpu_bfm 替代 UART 调试 CPU</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.4.4 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.4.5 RAM 使用情况（RAM Resource）</h5>
+
+<p>程序指令 RAM 由 riscv32_top 内部管理：instr_addr_depth = 1024×5 = 5120 word → ~20KB Block RAM。</p>
+
+<hr>
+
+<p>###### 3.6.4.1 lcpu_top — UART 调试 CPU</p>
+
+<strong>模块标识：</strong> <code>lcpu_top</code> | <strong>文件路径：</strong> <code>ip_lcpu/rtl/lcpu_top.v</code>
+
+<strong>功能描述：</strong>
+
+<ul>
+<li>通过 UART 接口接收程序二进制数据并写入 RISC-V 程序 RAM</li>
+<li>作为 RISC-V CPU 的编程通道：UART → LCPU 总线 → 写程序 RAM</li>
+<li>也提供独立的 LCPU 总线调试访问能力</li>
+</ul>
+
+<strong>图18 lcpu_top 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    UART_RX[uart_rx] --&gt; UART_RX_MOD[UART接收器\n115200 8N1]
+    UART_RX_MOD --&gt; PARSER[指令解析器\nLCPU协议解码]
+    PARSER --&gt; BUS[LCPU总线驱动\njtag_req/rhwl/wdata/address]
+    BUS --&gt; BUS_OUT[jtag_req/rhwl\nwdata/address]
+    BUS_OUT --&gt;|读响应| PARSER
+    PARSER --&gt; UART_TX_MOD[UART发送器]
+    UART_TX_MOD --&gt; uart_tx[uart_tx]
+    clk[clk] --&gt; UART_RX_MOD
+    clk --&gt; PARSER
+    clk --&gt; BUS
+    clk --&gt; UART_TX_MOD
+
+</pre>
+
+<strong>表12 lcpu_top 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>uart_rx</td>
+<td>1</td>
+<td>I</td>
+<td>UART 接收</td>
+</tr>
+<tr>
+<td>uart_tx</td>
+<td>1</td>
+<td>O</td>
+<td>UART 发送</td>
+</tr>
+<tr>
+<td>jtag_req</td>
+<td>1</td>
+<td>O</td>
+<td>总线请求</td>
+</tr>
+<tr>
+<td>jtag_rhwl</td>
+<td>1</td>
+<td>O</td>
+<td>读写控制</td>
+</tr>
+<tr>
+<td>jtag_wdata</td>
+<td>32</td>
+<td>O</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>jtag_address</td>
+<td>32</td>
+<td>O</td>
+<td>访问地址</td>
+</tr>
+<tr>
+<td>jtag_rdata</td>
+<td>32</td>
+<td>I</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>jtag_ack</td>
+<td>1</td>
+<td>I</td>
+<td>总线应答</td>
+</tr>
+</tbody></table>
+
+<strong>实现说明：</strong> UART 115200 8N1 ↔ LCPU 总线协议转换，用于程序下载和在线调试。
+
+<hr>
+
+<p>###### 3.6.4.2 lcpu_bfm — 仿真 Bus Functional Model</p>
+
+<strong>模块标识：</strong> <code>lcpu_bfm</code> | <strong>文件路径：</strong> <code>ip_common/sim/bfm/lcpu_bfm.sv</code>
+
+<strong>功能描述：</strong>
+
+<ul>
+<li>LCPU 总线仿真 BFM，仅在仿真模式（sim_mod ≠ 0）综合</li>
+<li>从 TCL 脚本文件读取操作指令，模拟 CPU 端对 LCPU 总线的读写</li>
+<li>用于仿真验证寄存器组和总线的读写功能</li>
+</ul>
+
+<strong>图19 lcpu_bfm 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    SCRIPT[TCL脚本文件\nscript_file] --&gt; FOPEN[$fopen 打开]
+    FOPEN --&gt; PARSER[指令解析器\nread_time_out超时控制]
+    PARSER --&gt; EXEC[总线操作执行\nADDRESS/WR_DATA/RH_WL/EXEC]
+    EXEC --&gt; BUS[LCPU总线输出]
+    BUS --&gt;|OP_DONE/RD_DATA| EXEC
+    clk[clk] --&gt; EXEC
+    reset_l[reset_l] --&gt; EXEC
+    delay_time[delay_time初始延迟] --&gt; EXEC
+
+</pre>
+
+<strong>表13 lcpu_bfm 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>OP_DONE</td>
+<td>1</td>
+<td>I</td>
+<td>操作完成指示</td>
+</tr>
+<tr>
+<td>RD_DATA</td>
+<td>32</td>
+<td>I</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>ADDRESS</td>
+<td>32</td>
+<td>O</td>
+<td>访问地址</td>
+</tr>
+<tr>
+<td>WR_DATA</td>
+<td>32</td>
+<td>O</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>RH_WL</td>
+<td>1</td>
+<td>O</td>
+<td>读写控制</td>
+</tr>
+<tr>
+<td>EXEC</td>
+<td>1</td>
+<td>O</td>
+<td>执行操作</td>
+</tr>
+<tr>
+<td>read_time_out</td>
+<td>parameter</td>
+<td>integer</td>
+<td>读超时周期数</td>
+</tr>
+<tr>
+<td>delay_time</td>
+<td>parameter</td>
+<td>integer</td>
+<td>初始化延迟</td>
+</tr>
+<tr>
+<td>script_file</td>
+<td>parameter</td>
+<td>string</td>
+<td>TCL 脚本文件路径</td>
+</tr>
+</tbody></table>
+
+<strong>实现说明：</strong> 综合条件 <code>sim_mod ≠ 0</code> 控制例化。<code>$fopen(script_file)</code> 读取 TCL 命令序列。仿真模型，不消耗 FPGA 资源。
+
+<hr>
+
+<p>###### 3.6.4.3 riscv32_top — RISC-V RV32IC 处理器核心</p>
+
+<strong>模块标识：</strong> <code>riscv32_top</code> | <strong>文件路径：</strong> <code>ip_riscv/rtl/riscv32_top.v</code>
+
+<strong>功能描述：</strong>
+
+<ul>
+<li>RISC-V RV32IC 处理器核心（顶层）：RV32I 基础整数指令集 + "C" 压缩指令扩展</li>
+<li>哈佛架构：独立的指令存储器和数据访问总线</li>
+<li>程序 RAM 在线编程接口 + 外部中断输入 irq[31:0]</li>
+<li>LCPU 总线主设备接口</li>
+</ul>
+
+<strong>图20 riscv32_top 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph RV32_TOP[riscv32_top]
+        direction TB
+
+<p>subgraph CORE[RISC-V Core Pipeline]<br>
+            IF[取指阶段\nInstruction Fetch]<br>
+            ID[译码阶段\nDecode]<br>
+            EX[执行阶段\nExecute]<br>
+            MEM[访存阶段\nMemory Access]<br>
+            WB[写回阶段\nWrite Back]<br>
+            IF --&gt; ID --&gt; EX --&gt; MEM --&gt; WB<br>
+        end</p>
+
+<p>REGFILE[riscv_reg\n寄存器文件\n32×32bit\nx0=0硬连线]</p>
+
+<p>subgraph LOCALBUS[riscv32_localbus]<br>
+            IBUS[指令总线]<br>
+            DBUS[数据总线]<br>
+        end</p>
+
+<p>IRAM[single_clock_true_dual_port_ram\n指令RAM 双端口\nPortA:CPU取指 PortB:在线编程]<br>
+    end</p>
+
+<p>IF --&gt; IBUS --&gt; IRAM<br>
+    MEM --&gt; DBUS --&gt; LCPU[LCPU总线输出]<br>
+    ID --&gt; REGFILE<br>
+    WB --&gt; REGFILE<br>
+    PROG[program_wr/waddr/wdata] --&gt; IRAM<br>
+    IRQ[irq[31:0]] --&gt; CORE</p>
+
+</pre>
+
+<strong>表14 riscv32_top 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>req</td>
+<td>1</td>
+<td>O</td>
+<td>总线请求</td>
+</tr>
+<tr>
+<td>rhwl</td>
+<td>1</td>
+<td>O</td>
+<td>读写控制</td>
+</tr>
+<tr>
+<td>wr_byte_en</td>
+<td>4</td>
+<td>O</td>
+<td>字节写使能</td>
+</tr>
+<tr>
+<td>wdata</td>
+<td>32</td>
+<td>O</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>address</td>
+<td>32</td>
+<td>O</td>
+<td>访问地址</td>
+</tr>
+<tr>
+<td>rdata</td>
+<td>32</td>
+<td>I</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>ack</td>
+<td>1</td>
+<td>I</td>
+<td>总线应答</td>
+</tr>
+<tr>
+<td>program_wr</td>
+<td>1</td>
+<td>I</td>
+<td>程序写使能</td>
+</tr>
+<tr>
+<td>program_waddr</td>
+<td>init_addr_width</td>
+<td>I</td>
+<td>程序写地址</td>
+</tr>
+<tr>
+<td>program_wdata</td>
+<td>instr_databits</td>
+<td>I</td>
+<td>程序写数据</td>
+</tr>
+<tr>
+<td>program_rdata</td>
+<td>instr_databits</td>
+<td>O</td>
+<td>程序读数据</td>
+</tr>
+<tr>
+<td>irq</td>
+<td>32</td>
+<td>I</td>
+<td>外部中断请求</td>
+</tr>
+</tbody></table>
+
+<strong>实现说明：</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>子模块</td>
+<td>3 个：riscv32_localbus / riscv_reg / single_clock_true_dual_port_ram</td>
+</tr>
+<tr>
+<td>ISA</td>
+<td>RV32IC（基础整数 + 压缩指令扩展）</td>
+</tr>
+<tr>
+<td>指令 RAM</td>
+<td>双端口 Block RAM：Port A = CPU 取指，Port B = 在线编程</td>
+</tr>
+<tr>
+<td>中断</td>
+<td>32 路外部中断输入</td>
+</tr>
+<tr>
+<td>流水线</td>
+<td>五级经典流水线（IF→ID→EX→MEM→WB）</td>
+</tr>
+</tbody></table>
+
+<strong>RAM 使用：</strong> 1 块 <code>single_clock_true_dual_port_ram</code>，5120×32bit ≈ 10 块 36Kb BRAM。
+
+<hr>
+
+<em>（riscv32_localbus、riscv_reg、single_clock_true_dual_port_ram 为 riscv32_top 内部子模块，以下简述）</em>
+
+<strong>riscv32_localbus</strong>（<code>ip_riscv/rtl/riscv32_localbus.v</code>）：哈佛架构本地总线，分离指令和数据访问路径。
+
+<strong>图21 riscv32_localbus 内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    IF[取指请求] --&gt; ARB[总线仲裁器]
+    MEM[数据访存请求] --&gt; ARB
+    ARB --&gt; IRAM[指令RAM端口\n取指32bit读]
+    ARB --&gt; LCPU[LCPU总线端口\n数据load/store]
+    IRAM --&gt; IF
+    LCPU --&gt; MEM
+
+</pre>
+
+<strong>riscv_reg</strong>（<code>ip_riscv/rtl/riscv_reg.v</code>）：32×32bit 通用寄存器文件（x0~x31），x0 硬连线为 0。双端口读 + 单端口写。分布式 RAM 或 Block RAM 实现，约 1024 个 LUT-FF。
+
+<strong>图22 riscv_reg 寄存器文件结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    RS1_ADDR[rs1_addr[4:0]] --&gt; DP_RAM[双端口RAM\n32×32bit]
+    RS2_ADDR[rs2_addr[4:0]] --&gt; DP_RAM
+    RD_ADDR[rd_addr[4:0]] --&gt; DP_RAM
+    DP_RAM --&gt; RS1_DATA[rs1_data[31:0]]
+    DP_RAM --&gt; RS2_DATA[rs2_data[31:0]]
+    RD_DATA[rd_data[31:0]] --&gt; DP_RAM
+    RD_WEN[rd_wen] --&gt; DP_RAM
+    Note over DP_RAM: x0=0硬连线\n写x0无效
+
+</pre>
+
+<strong>single_clock_true_dual_port_ram</strong>（<code>ip_common/rtl/single_clock_true_dual_port_ram.v</code>）：单时钟真双端口 RAM，A 端口用于 CPU 取指（只读），B 端口用于在线编程（可读可写）。5120×32bit，约 10 块 36Kb BRAM（Xilinx 7 系列）。
+
+<hr>
+
+<p>###### 3.6.4.4 lcpu_merge — CPU 总线仲裁器</p>
+
+<strong>模块标识：</strong> <code>lcpu_merge</code> | <strong>文件路径：</strong> <code>ip_common/rtl/lcpu_merge.v</code>
+
+<strong>功能描述：</strong>
+
+<ul>
+<li>多路 LCPU 总线主设备仲裁器（N:1 合并）</li>
+<li>输入 3 路：UART 调试 CPU + 仿真 BFM + RISC-V CPU</li>
+<li>输出 1 路统一 LCPU 总线，固定优先级仲裁</li>
+</ul>
+
+<strong>图23 lcpu_merge 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    PORT1[Port1: lcpu_top\nUART调试CPU] --&gt;|op_req_1| ARB[优先级仲裁器\n固定优先级\n1 &gt; 2 &gt; 3]
+    PORT2[Port2: lcpu_bfm\n仿真BFM] --&gt;|op_req_2| ARB
+    PORT3[Port3: riscv32_top\nRISC-V CPU] --&gt;|op_req_3| ARB
+
+<p>ARB --&gt;|op_req| BUS[统一LCPU总线]<br>
+    ARB --&gt;|wrl_rdh| BUS<br>
+    ARB --&gt;|wdata| BUS<br>
+    ARB --&gt;|address| BUS</p>
+
+<p>BUS --&gt;|op_ack| DEMUX[应答分发]<br>
+    BUS --&gt;|rddata| DEMUX<br>
+    DEMUX --&gt;|op_ack_1/rddata_1| PORT1<br>
+    DEMUX --&gt;|op_ack_2/rddata_2| PORT2<br>
+    DEMUX --&gt;|op_ack_3/rddata_3| PORT3</p>
+
+</pre>
+
+<strong>表15 lcpu_merge 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td><strong>Port 1~3 输入（以 Port1 为例）</strong></td>
+</tr>
+<tr>
+<td>op_req_1</td>
+<td>1</td>
+<td>I</td>
+<td>端口1 请求</td>
+</tr>
+<tr>
+<td>wrl_rdh_1</td>
+<td>1</td>
+<td>I</td>
+<td>端口1 读写</td>
+</tr>
+<tr>
+<td>wrdata_1</td>
+<td>data_width</td>
+<td>I</td>
+<td>端口1 写数据</td>
+</tr>
+<tr>
+<td>address_1</td>
+<td>addr_width</td>
+<td>I</td>
+<td>端口1 地址</td>
+</tr>
+<tr>
+<td>op_ack_1</td>
+<td>1</td>
+<td>O</td>
+<td>端口1 应答</td>
+</tr>
+<tr>
+<td>rddata_1</td>
+<td>data_width</td>
+<td>O</td>
+<td>端口1 读数据</td>
+</tr>
+<tr>
+<td><strong>统一总线输出</strong></td>
+</tr>
+<tr>
+<td>op_req</td>
+<td>1</td>
+<td>O</td>
+<td>仲裁后请求</td>
+</tr>
+<tr>
+<td>wrl_rdh</td>
+<td>1</td>
+<td>O</td>
+<td>仲裁后读写</td>
+</tr>
+<tr>
+<td>wrdata</td>
+<td>data_width</td>
+<td>O</td>
+<td>仲裁后写数据</td>
+</tr>
+<tr>
+<td>address</td>
+<td>addr_width</td>
+<td>O</td>
+<td>仲裁后地址</td>
+</tr>
+<tr>
+<td>op_ack</td>
+<td>1</td>
+<td>I</td>
+<td>设备应答</td>
+</tr>
+<tr>
+<td>rddata</td>
+<td>data_width</td>
+<td>I</td>
+<td>设备读数据</td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+</tr>
+<tr>
+<td>data_width</td>
+<td>parameter</td>
+<td>integer</td>
+<td>数据位宽（默认 32）</td>
+</tr>
+<tr>
+<td>addr_width</td>
+<td>parameter</td>
+<td>integer</td>
+<td>地址位宽（默认 32）</td>
+</tr>
+</tbody></table>
+
+<strong>实现说明：</strong> 3 路固定优先级仲裁（1 > 2 > 3），无轮询。应答信号按当前授权端口分发。
+
+<hr>
+
+<h4>3.6.5 cpu_channel — CPU 数据通道</h4>
+
+<h5>3.6.5.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>cpu_channel</code> | <strong>文件路径：</strong> <code>fpga_webserver/rtl/cpu_channel.v</code>
+
+<ul>
+<li>CPU 与 GMII 以太网接口之间的数据通道</li>
+<li><strong>接收方向</strong>：GMII MAC 帧 → package_fifo_v2（组包） → pktfifo2ram_int_v2（写 RAM） → CPU 读取</li>
+<li><strong>发送方向</strong>：CPU 写包 → ram2pktfifo_int（读 RAM）→ sop_eop_gen（SOP/EOP 生成）→ MAC 发送</li>
+<li>支持 MAC 地址过滤、收发包统计</li>
+</ul>
+
+<strong>图24 cpu_channel 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph CHAN[cpu_channel]
+        subgraph RX_PATH[接收通路 GMII→CPU]
+            PKG[package_fifo_v2\n组包FIFO\n↓ 3.6.5.1]
+            WR[pktfifo2ram_int_v2\nFIFO→RAM桥\n↓ 3.6.5.2]
+            PKG --&gt;|包FIFO写| WR
+        end
+
+<p>subgraph TX_PATH[发送通路 CPU→GMII]<br>
+            RD[ram2pktfifo_int\nRAM→FIFO桥\n↓ 3.6.5.3]<br>
+            SOP[sop_eop_gen\nSOP/EOP生成\n↓ 3.6.5.4]<br>
+            RD --&gt;|流式数据| SOP<br>
+        end<br>
+    end</p>
+
+<p>GMII_RX[mac_rx_sop/en/data/eop/err] --&gt; PKG<br>
+    WR --&gt;|cpu_rd_empty/rpkt_len/rdata| CPU_RD[CPU读包FIFO接口]</p>
+
+<p>CPU_WR[CPU写包FIFO接口] --&gt;|cpu_wr_wen/wdata/wpkt_push| RD<br>
+    SOP --&gt;|mac_tx_sop/en/data/eop/err| GMII_TX[MAC TX接口]</p>
+
+<p>FILTER[filter_data/offset\nMAC过滤] --&gt; CHAN<br>
+    CHAN --&gt; STAT[recv_pkt_drop_cnt\n丢包统计]</p>
+
+</pre>
+
+<h5>3.6.5.2 接口说明（Interface）</h5>
+
+<strong>表16 cpu_channel 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>系统接口</strong></td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟（50MHz）</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>cpu_clk</td>
+<td>1</td>
+<td>I</td>
+<td>CPU 时钟</td>
+</tr>
+<tr>
+<td><strong>MAC 接收接口</strong></td>
+</tr>
+<tr>
+<td>mac_rx_sop</td>
+<td>1</td>
+<td>I</td>
+<td>MAC 接收帧起始</td>
+</tr>
+<tr>
+<td>mac_rx_en</td>
+<td>1</td>
+<td>I</td>
+<td>MAC 接收数据使能</td>
+</tr>
+<tr>
+<td>mac_rx_data</td>
+<td>cpu_buf_data_width</td>
+<td>I</td>
+<td>MAC 接收数据</td>
+</tr>
+<tr>
+<td>mac_rx_eop</td>
+<td>1</td>
+<td>I</td>
+<td>MAC 接收帧结束</td>
+</tr>
+<tr>
+<td>mac_rx_err</td>
+<td>1</td>
+<td>I</td>
+<td>MAC 接收错误</td>
+</tr>
+<tr>
+<td><strong>MAC 发送接口</strong></td>
+</tr>
+<tr>
+<td>mac_tx_sop</td>
+<td>1</td>
+<td>O</td>
+<td>MAC 发送帧起始</td>
+</tr>
+<tr>
+<td>mac_tx_en</td>
+<td>1</td>
+<td>O</td>
+<td>MAC 发送数据使能</td>
+</tr>
+<tr>
+<td>mac_tx_data</td>
+<td>cpu_buf_data_width</td>
+<td>O</td>
+<td>MAC 发送数据</td>
+</tr>
+<tr>
+<td>mac_tx_eop</td>
+<td>1</td>
+<td>O</td>
+<td>MAC 发送帧结束</td>
+</tr>
+<tr>
+<td>mac_tx_err</td>
+<td>1</td>
+<td>O</td>
+<td>MAC 发送错误</td>
+</tr>
+<tr>
+<td><strong>过滤接口</strong></td>
+</tr>
+<tr>
+<td>filter_data</td>
+<td>16</td>
+<td>I</td>
+<td>MAC 过滤数据</td>
+</tr>
+<tr>
+<td>filter_offset</td>
+<td>16</td>
+<td>I</td>
+<td>MAC 过滤偏移</td>
+</tr>
+<tr>
+<td><strong>CPU 读包 FIFO 接口</strong></td>
+</tr>
+<tr>
+<td>cpu_rd_empty</td>
+<td>1</td>
+<td>O</td>
+<td>读 FIFO 空</td>
+</tr>
+<tr>
+<td>cpu_rd_rpkt_pop</td>
+<td>1</td>
+<td>I</td>
+<td>读包弹出</td>
+</tr>
+<tr>
+<td>cpu_rd_rpkt_len</td>
+<td>cpu_buf_addr_width+1</td>
+<td>O</td>
+<td>读包长度</td>
+</tr>
+<tr>
+<td>cpu_rd_rpkt_para</td>
+<td>cpu_buf_para_width</td>
+<td>O</td>
+<td>读包参数</td>
+</tr>
+<tr>
+<td>cpu_rd_ren</td>
+<td>1</td>
+<td>I</td>
+<td>读使能</td>
+</tr>
+<tr>
+<td>cpu_rd_raddr</td>
+<td>cpu_buf_addr_width</td>
+<td>I</td>
+<td>读地址</td>
+</tr>
+<tr>
+<td>cpu_rd_rdata</td>
+<td>cpu_buf_data_width</td>
+<td>O</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>cpu_rd_reop_pre</td>
+<td>1</td>
+<td>O</td>
+<td>包结束前指示</td>
+</tr>
+<tr>
+<td><strong>CPU 写包 FIFO 接口</strong></td>
+</tr>
+<tr>
+<td>cpu_wr_full</td>
+<td>1</td>
+<td>O</td>
+<td>写 FIFO 满</td>
+</tr>
+<tr>
+<td>cpu_wr_wen</td>
+<td>1</td>
+<td>I</td>
+<td>写使能</td>
+</tr>
+<tr>
+<td>cpu_wr_waddr</td>
+<td>cpu_buf_addr_width</td>
+<td>I</td>
+<td>写地址</td>
+</tr>
+<tr>
+<td>cpu_wr_wdata</td>
+<td>cpu_buf_data_width</td>
+<td>I</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>cpu_wr_wpkt_push</td>
+<td>1</td>
+<td>I</td>
+<td>写包完成</td>
+</tr>
+<tr>
+<td>cpu_wr_wpkt_len</td>
+<td>cpu_buf_addr_width+1</td>
+<td>I</td>
+<td>写包长度</td>
+</tr>
+<tr>
+<td>cpu_wr_wpkt_para</td>
+<td>cpu_buf_para_width</td>
+<td>I</td>
+<td>写包参数</td>
+</tr>
+<tr>
+<td><strong>统计输出</strong></td>
+</tr>
+<tr>
+<td>recv_pkt_drop_cnt</td>
+<td>8</td>
+<td>O</td>
+<td>接收丢包计数</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.5.3 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>子模块实例</td>
+<td>4 个：package_fifo_v2 / pktfifo2ram_int_v2 / ram2pktfifo_int / sop_eop_gen</td>
+</tr>
+<tr>
+<td>包 FIFO 接口</td>
+<td>标准 LCPU 包 FIFO 读写时序</td>
+</tr>
+<tr>
+<td>MAC 接口</td>
+<td>带 SOP/EOP 边带信号的流式接口</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.5.4 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.5.5 RAM 使用情况（RAM Resource）</h5>
+
+<p>子模块 pktfifo2ram_int_v2 和 ram2pktfifo_int 各使用 Block RAM 作为包数据缓冲区。</p>
+
+<hr>
+
+<p>###### 3.6.5.1 package_fifo_v2 — 通用包 FIFO</p>
+
+<strong>模块标识：</strong> <code>package_fifo_v2</code> | <strong>文件路径：</strong> <code>ip_common/rtl/package_fifo_v2.v</code>
+
+<strong>功能描述：</strong> 通用双时钟包 FIFO，支持块模式/非块变长模式。内部集成数据 RAM + 参数 FIFO，提供完整包级读写接口。
+
+<strong>图25 package_fifo_v2 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph PKG_FIFO[package_fifo_v2]
+        subgraph WCLK_DOMAIN[wclk 写时钟域]
+            WCTRL[写控制器\nwaddr管理/wpkt_push检测] --&gt; DATA_RAM[数据 RAM\nSimple Dual Port\nPort A: 写]
+            WCTRL --&gt; PARA_FIFO[参数 FIFO\n包长/参数/块指针]
+        end
+
+<p>subgraph RCLK_DOMAIN[rclk 读时钟域]<br>
+            RCTRL[读控制器\nrpkt_pop/rpkt_len管理] --&gt; DATA_RAM<br>
+            RCTRL --&gt; PARA_FIFO<br>
+            RCTRL --&gt; ROUT[读数据输出\nrdata/raddr/reop_pre]<br>
+        end</p>
+
+<p>CDC[pulse_clock_region_pass\n写→读包推送脉冲跨域] --&gt; RCTRL<br>
+        WCTRL --&gt; CDC<br>
+    end</p>
+
+<p>WIF[wen/waddr/wdata\nwpkt_push/wpkt_len/wpkt_para] --&gt; WCTRL<br>
+    RCTRL --&gt; RIF[rpkt_len/rpkt_para\nrdata/raddr/reop_pre\nempty/rpkt_pop/ren]<br>
+    WCTRL --&gt; full[full]</p>
+
+</pre>
+
+<strong>表17 package_fifo_v2 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>异步复位（低有效）</td>
+</tr>
+<tr>
+<td><strong>写端口（wclk 时钟域）</strong></td>
+</tr>
+<tr>
+<td>wclk</td>
+<td>1</td>
+<td>I</td>
+<td>写侧时钟</td>
+</tr>
+<tr>
+<td>wclk_en</td>
+<td>1</td>
+<td>I</td>
+<td>写时钟使能</td>
+</tr>
+<tr>
+<td>full</td>
+<td>1</td>
+<td>O</td>
+<td>包 FIFO 满标志</td>
+</tr>
+<tr>
+<td>wen</td>
+<td>1</td>
+<td>I</td>
+<td>写数据使能</td>
+</tr>
+<tr>
+<td>waddr</td>
+<td>addr_width</td>
+<td>I</td>
+<td>写地址（包内偏移）</td>
+</tr>
+<tr>
+<td>wdata</td>
+<td>data_width</td>
+<td>I</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>wpkt_push</td>
+<td>1</td>
+<td>I</td>
+<td>写包完成（单周期脉冲）</td>
+</tr>
+<tr>
+<td>wpkt_len</td>
+<td>addr_width+1</td>
+<td>I</td>
+<td>写包数据长度</td>
+</tr>
+<tr>
+<td>wpkt_para</td>
+<td>para_width</td>
+<td>I</td>
+<td>写包带外参数</td>
+</tr>
+<tr>
+<td><strong>读端口（rclk 时钟域）</strong></td>
+</tr>
+<tr>
+<td>rclk</td>
+<td>1</td>
+<td>I</td>
+<td>读侧时钟</td>
+</tr>
+<tr>
+<td>rclk_en</td>
+<td>1</td>
+<td>I</td>
+<td>读时钟使能</td>
+</tr>
+<tr>
+<td>empty</td>
+<td>1</td>
+<td>O</td>
+<td>包 FIFO 空标志</td>
+</tr>
+<tr>
+<td>rpkt_pop</td>
+<td>1</td>
+<td>I</td>
+<td>读包弹出</td>
+</tr>
+<tr>
+<td>rpkt_len</td>
+<td>addr_width+1</td>
+<td>O</td>
+<td>读包数据长度</td>
+</tr>
+<tr>
+<td>rpkt_para</td>
+<td>para_width</td>
+<td>O</td>
+<td>读包带外参数</td>
+</tr>
+<tr>
+<td>ren</td>
+<td>1</td>
+<td>I</td>
+<td>读数据使能</td>
+</tr>
+<tr>
+<td>raddr</td>
+<td>addr_width</td>
+<td>I</td>
+<td>读地址</td>
+</tr>
+<tr>
+<td>rdata</td>
+<td>data_width</td>
+<td>O</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>reop_pre</td>
+<td>1</td>
+<td>O</td>
+<td>包结束前指示</td>
+</tr>
+<tr>
+<td>overflow</td>
+<td>1</td>
+<td>O</td>
+<td>溢出标志</td>
+</tr>
+<tr>
+<td>underflow</td>
+<td>1</td>
+<td>O</td>
+<td>下溢标志</td>
+</tr>
+</tbody></table>
+
+<strong>接口时序：</strong> 参考 <code>ip_common/doc/常用LRIP接口时序.md</code> — 包FIFO读写时序。
+
+<strong>实现说明：</strong> 双时钟模式通过 pulse_clock_region_pass 实现跨域包推送。块模式（block_mode="true"）每块固定 block_ram_size Kbit。
+
+<strong>RAM 使用：</strong> 数据 RAM + 参数 FIFO，根据 block_mode 和参数配置不同，典型使用若干块 M9K/BRAM。
+
+<hr>
+
+<p>###### 3.6.5.2 pktfifo2ram_int_v2 — FIFO 到 RAM 桥接</p>
+
+<strong>模块标识：</strong> <code>pktfifo2ram_int_v2</code> | <strong>文件路径：</strong> <code>ip_common/rtl/pktfifo2ram_int_v2.v</code>
+
+<strong>功能描述：</strong> 从包 FIFO 读取数据并写入内部 Block RAM。支持 IPG 调节控制读取速率。
+
+<strong>图26 pktfifo2ram_int_v2 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    FIFO_IF[包FIFO读接口\nempty/rpkt_len/rdata\nrpkt_pop/ren/raddr] --&gt; CTRL[读取控制器\nIPG调节\nipg_adjust]
+    CTRL --&gt; RAM_IF[内部RAM写接口\nram_wen/ram_wdata\nram_waddr/ram_wpara]
+    clk[clk] --&gt; CTRL
+    clk_en[clk_en] --&gt; CTRL
+
+</pre>
+
+<strong>表18 pktfifo2ram_int_v2 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>clk_en</td>
+<td>1</td>
+<td>I</td>
+<td>时钟使能</td>
+</tr>
+<tr>
+<td>ipg_adjust</td>
+<td>32</td>
+<td>I</td>
+<td>IPG 调节值</td>
+</tr>
+<tr>
+<td><strong>内部 RAM 写接口</strong></td>
+</tr>
+<tr>
+<td>ram_wen</td>
+<td>1</td>
+<td>O</td>
+<td>RAM 写使能</td>
+</tr>
+<tr>
+<td>ram_wdata</td>
+<td>data_width</td>
+<td>O</td>
+<td>RAM 写数据</td>
+</tr>
+<tr>
+<td>ram_waddr</td>
+<td>addr_width</td>
+<td>O</td>
+<td>RAM 写地址</td>
+</tr>
+<tr>
+<td>ram_wpara</td>
+<td>para_width</td>
+<td>O</td>
+<td>RAM 写参数</td>
+</tr>
+<tr>
+<td><strong>包 FIFO 读接口</strong></td>
+</tr>
+<tr>
+<td>empty</td>
+<td>1</td>
+<td>I</td>
+<td>包 FIFO 空标志</td>
+</tr>
+<tr>
+<td>rpkt_pop</td>
+<td>1</td>
+<td>O</td>
+<td>读包弹出</td>
+</tr>
+<tr>
+<td>rpkt_len</td>
+<td>addr_width+1</td>
+<td>I</td>
+<td>读包数据长度</td>
+</tr>
+<tr>
+<td>rpkt_para</td>
+<td>para_width</td>
+<td>I</td>
+<td>读包参数</td>
+</tr>
+<tr>
+<td>ren</td>
+<td>1</td>
+<td>O</td>
+<td>读数据使能</td>
+</tr>
+<tr>
+<td>raddr</td>
+<td>addr_width</td>
+<td>O</td>
+<td>读地址</td>
+</tr>
+<tr>
+<td>rdata</td>
+<td>data_width</td>
+<td>I</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>reop_pre</td>
+<td>1</td>
+<td>I</td>
+<td>包结束前指示</td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+</tr>
+<tr>
+<td>addr_width</td>
+<td>parameter</td>
+<td>integer</td>
+<td>地址位宽（默认 8）</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<p>###### 3.6.5.3 ram2pktfifo_int — RAM 到 FIFO 桥接</p>
+
+<strong>模块标识：</strong> <code>ram2pktfifo_int</code> | <strong>文件路径：</strong> <code>ip_common/rtl/ram2pktfifo_int.v</code>
+
+<strong>功能描述：</strong> 从内部 Block RAM 读出数据并写入包 FIFO。含流控反馈 ram_wen_permit。
+
+<strong>图27 ram2pktfifo_int 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    RAM_IF[内部RAM接口\nram_wen/ram_wdata\nram_waddr/ram_wpara] --&gt; CTRL[写入控制器\n流控:ram_wen_permit]
+    CTRL --&gt; FIFO_IF[包FIFO写接口\nfull/wen/waddr/wdata\nwpkt_push/wpkt_len/wpkt_para]
+    clk[clk] --&gt; CTRL
+    clk_en[clk_en] --&gt; CTRL
+    FIFO_IF --&gt;|full反馈| CTRL
+
+</pre>
+
+<strong>表19 ram2pktfifo_int 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>clk_en</td>
+<td>1</td>
+<td>I</td>
+<td>时钟使能</td>
+</tr>
+<tr>
+<td>ram_wen</td>
+<td>1</td>
+<td>I</td>
+<td>RAM 写使能输入</td>
+</tr>
+<tr>
+<td>ram_wdata</td>
+<td>data_width</td>
+<td>I</td>
+<td>RAM 写数据</td>
+</tr>
+<tr>
+<td>ram_waddr</td>
+<td>addr_width</td>
+<td>I</td>
+<td>RAM 写地址</td>
+</tr>
+<tr>
+<td>ram_wpara</td>
+<td>para_width</td>
+<td>I</td>
+<td>RAM 写参数</td>
+</tr>
+<tr>
+<td>ram_wen_permit</td>
+<td>1</td>
+<td>O</td>
+<td>RAM 写允许（流控）</td>
+</tr>
+<tr>
+<td>full</td>
+<td>1</td>
+<td>I</td>
+<td>包 FIFO 满标志</td>
+</tr>
+<tr>
+<td>wen</td>
+<td>1</td>
+<td>O</td>
+<td>写数据使能</td>
+</tr>
+<tr>
+<td>waddr</td>
+<td>addr_width</td>
+<td>O</td>
+<td>写地址</td>
+</tr>
+<tr>
+<td>wdata</td>
+<td>data_width</td>
+<td>O</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>wpkt_push</td>
+<td>1</td>
+<td>O</td>
+<td>写包完成</td>
+</tr>
+<tr>
+<td>wpkt_len</td>
+<td>addr_width+1</td>
+<td>O</td>
+<td>写包长度</td>
+</tr>
+<tr>
+<td>wpkt_para</td>
+<td>para_width</td>
+<td>O</td>
+<td>写包参数</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<p>###### 3.6.5.4 sop_eop_gen — SOP/EOP 边带信号生成</p>
+
+<strong>模块标识：</strong> <code>sop_eop_gen</code> | <strong>文件路径：</strong> <code>ip_common/rtl/sop_eop_gen.v</code>
+
+<strong>功能描述：</strong> 将流式数据转换为带帧边界（SOP/EOP）的 MAC 发送格式。内部字节计数器追踪包内位置。
+
+<strong>图28 sop_eop_gen 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    I_DATA[i_en/i_data/i_err] --&gt; REG[输入寄存器]
+    REG --&gt; CTRL[字节计数器\ncnt==0→SOP\ncnt==len-1→EOP]
+    REG --&gt; O_DATA[o_data/o_en/o_err]
+    CTRL --&gt; SOP[o_sop]
+    CTRL --&gt; EOP[o_eop]
+    clk[clk] --&gt; REG
+    clk --&gt; CTRL
+    clk_en[clk_en] --&gt; REG
+    clk_en --&gt; CTRL
+
+</pre>
+
+<strong>表20 sop_eop_gen 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>clk_en</td>
+<td>1</td>
+<td>I</td>
+<td>时钟使能</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>i_en</td>
+<td>1</td>
+<td>I</td>
+<td>输入数据使能</td>
+</tr>
+<tr>
+<td>i_err</td>
+<td>1</td>
+<td>I</td>
+<td>输入错误指示</td>
+</tr>
+<tr>
+<td>i_data</td>
+<td>data_width</td>
+<td>I</td>
+<td>输入数据</td>
+</tr>
+<tr>
+<td>o_sop</td>
+<td>1</td>
+<td>O</td>
+<td>输出包起始（首字节=1）</td>
+</tr>
+<tr>
+<td>o_en</td>
+<td>1</td>
+<td>O</td>
+<td>输出数据使能</td>
+</tr>
+<tr>
+<td>o_data</td>
+<td>data_width</td>
+<td>O</td>
+<td>输出数据</td>
+</tr>
+<tr>
+<td>o_eop</td>
+<td>1</td>
+<td>O</td>
+<td>输出包结束（末字节=1）</td>
+</tr>
+<tr>
+<td>o_err</td>
+<td>1</td>
+<td>O</td>
+<td>输出错误指示</td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+</tr>
+<tr>
+<td>data_width</td>
+<td>parameter</td>
+<td>integer</td>
+<td>数据位宽（默认 8）</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h4>3.6.6 reg_webserver — 寄存器组</h4>
+
+<h5>3.6.6.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>reg_webserver</code> | <strong>文件路径：</strong> <code>fpga_webserver/rtl/reg_webserver.v</code>
+
+<ul>
+<li>WebServer 寄存器组，提供 CPU ↔ FPGA 硬件寄存器接口</li>
+<li>寄存器分类：RW（读写）、RO（只读）、WC（写清零）、RC（读清零）</li>
+<li>管理信号：FPGA/软件构建时间戳、PHY 复位、MDIO 请求</li>
+<li>统计输入：以太网收发包统计、错误统计</li>
+<li>Debug 寄存器：8 个 debug 寄存器（4 RW + 4 RO）</li>
+</ul>
+
+<strong>图29 reg_webserver 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    LCPU[LCPU总线\nreq/rhwl/wdata/address] --&gt; DEC[地址译码器]
+    DEC --&gt; RW_REG[RW寄存器组\ndebug_rw_0..3\nfilter_data/offset\ncpu_wr_reg_rw_*]
+    DEC --&gt; RO_MUX[RO多路选择器]
+    DEC --&gt; WC_REG[WC寄存器组\ncpu_wr_reg_wc_0]
+    DEC --&gt; RC_REG[RC寄存器组\ncpu_wr_reg_rc_*]
+
+<p>RO_INPUT[eth_rx/tx统计\ndebug_ro_*\nfpga_build_date/time\nlocal_time] --&gt; RO_MUX<br>
+    RO_MUX --&gt; RDATA[rdata[31:0]]</p>
+
+<p>RW_REG --&gt; OUTPUT[debug_rw/filter/eth_greset\nSUBBUS_mdio_*/get_local_time]<br>
+    ack[ack] --&gt; LCPU</p>
+
+<p>clk[clk] --&gt; DEC<br>
+    rst_n[rst_n] --&gt; DEC</p>
+
+</pre>
+
+<strong>表21 reg_webserver 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><strong>LCPU 总线接口</strong></td>
+</tr>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>rst_n</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>req</td>
+<td>1</td>
+<td>I</td>
+<td>总线请求</td>
+</tr>
+<tr>
+<td>rhwl</td>
+<td>1</td>
+<td>I</td>
+<td>读写控制</td>
+</tr>
+<tr>
+<td>wdata</td>
+<td>32</td>
+<td>I</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>address</td>
+<td>16</td>
+<td>I</td>
+<td>寄存器地址</td>
+</tr>
+<tr>
+<td>rdata</td>
+<td>32</td>
+<td>O</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>ack</td>
+<td>1</td>
+<td>O</td>
+<td>总线应答</td>
+</tr>
+<tr>
+<td><strong>时间戳接口</strong></td>
+</tr>
+<tr>
+<td>fpga_build_date</td>
+<td>32</td>
+<td>I</td>
+<td>FPGA 综合日期</td>
+</tr>
+<tr>
+<td>fpga_build_time</td>
+<td>32</td>
+<td>I</td>
+<td>FPGA 综合时间</td>
+</tr>
+<tr>
+<td>sw_build_date</td>
+<td>32</td>
+<td>O</td>
+<td>软件编译日期</td>
+</tr>
+<tr>
+<td>sw_build_time</td>
+<td>32</td>
+<td>O</td>
+<td>软件编译时间</td>
+</tr>
+<tr>
+<td><strong>PHY 控制</strong></td>
+</tr>
+<tr>
+<td>eth_greset</td>
+<td>4</td>
+<td>O</td>
+<td>以太网 PHY 复位</td>
+</tr>
+<tr>
+<td><strong>定时器接口</strong></td>
+</tr>
+<tr>
+<td>second_event</td>
+<td>1</td>
+<td>I</td>
+<td>秒脉冲事件</td>
+</tr>
+<tr>
+<td>get_local_time</td>
+<td>1</td>
+<td>O</td>
+<td>获取本地时间</td>
+</tr>
+<tr>
+<td>get_local_time_ind</td>
+<td>1</td>
+<td>O</td>
+<td>本地时间有效</td>
+</tr>
+<tr>
+<td>local_time_l</td>
+<td>32</td>
+<td>I</td>
+<td>本地时间低32bit</td>
+</tr>
+<tr>
+<td>local_time_h</td>
+<td>32</td>
+<td>I</td>
+<td>本地时间高32bit</td>
+</tr>
+<tr>
+<td><strong>Debug 寄存器</strong></td>
+</tr>
+<tr>
+<td>debug_rw_0..3</td>
+<td>32×4</td>
+<td>O</td>
+<td>Debug 读写寄存器</td>
+</tr>
+<tr>
+<td>debug_ro_0..3</td>
+<td>32×4</td>
+<td>I</td>
+<td>Debug 只读寄存器</td>
+</tr>
+<tr>
+<td><strong>以太网统计</strong></td>
+</tr>
+<tr>
+<td>eth_rx_correct_pkt_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>正确接收包计数</td>
+</tr>
+<tr>
+<td>eth_rx_crc_err_pkt_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>CRC 错误包计数</td>
+</tr>
+<tr>
+<td>eth_tx_correct_pkt_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>正确发送包计数</td>
+</tr>
+<tr>
+<td>eth_tx_error_pkt_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>发送错误包计数</td>
+</tr>
+<tr>
+<td>eth_rx_afifo_full_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>接收 FIFO 满计数</td>
+</tr>
+<tr>
+<td>eth_rx_afifo_empty_cnt</td>
+<td>32</td>
+<td>I</td>
+<td>接收 FIFO 空计数</td>
+</tr>
+<tr>
+<td>eth_rx_data_err_line</td>
+<td>32</td>
+<td>I</td>
+<td>接收数据错误行号</td>
+</tr>
+<tr>
+<td><strong>过滤控制</strong></td>
+</tr>
+<tr>
+<td>filter_data</td>
+<td>16</td>
+<td>O</td>
+<td>MAC 过滤数据</td>
+</tr>
+<tr>
+<td>filter_offset</td>
+<td>16</td>
+<td>O</td>
+<td>MAC 过滤偏移</td>
+</tr>
+<tr>
+<td><strong>MDIO 请求</strong></td>
+</tr>
+<tr>
+<td>SUBBUS_eth_mdio_Req</td>
+<td>1</td>
+<td>O</td>
+<td>MDIO 操作请求</td>
+</tr>
+<tr>
+<td>SUBBUS_eth_mdio_RhWl</td>
+<td>1</td>
+<td>O</td>
+<td>MDIO 读写控制</td>
+</tr>
+<tr>
+<td>SUBBUS_eth_mdio_ReqAddr</td>
+<td>12</td>
+<td>O</td>
+<td>MDIO 寄存器地址</td>
+</tr>
+<tr>
+<td><strong>CPU 写寄存器</strong></td>
+</tr>
+<tr>
+<td>cpu_wr_reg_rw_0..3</td>
+<td>32×4</td>
+<td>O</td>
+<td>CPU→HW 读写寄存器</td>
+</tr>
+<tr>
+<td>cpu_wr_reg_ro_0..1</td>
+<td>32×2</td>
+<td>I</td>
+<td>HW→CPU 只读寄存器</td>
+</tr>
+<tr>
+<td>cpu_wr_reg_wc_0</td>
+<td>32</td>
+<td>O</td>
+<td>写清零寄存器</td>
+</tr>
+<tr>
+<td>cpu_wr_reg_rc_0..1</td>
+<td>32×2</td>
+<td>I</td>
+<td>读清零寄存器</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.6.2 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>寄存器类型</td>
+<td>RW / RO / WC / RC 四种</td>
+</tr>
+<tr>
+<td>总线协议</td>
+<td>LCPU 寄存器总线（req + ack 握手）</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.6.3 内部表项（Table）</h5>
+
+<p>【待补充】— 寄存器地址映射表。</p>
+
+<h5>3.6.6.4 RAM 使用情况（RAM Resource）</h5>
+
+<p>无（寄存器实现）。</p>
+
+<hr>
+
+<h4>3.6.7 lcpu_mdio — MDIO 控制器</h4>
+
+<h5>3.6.7.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>lcpu_mdio</code> | <strong>文件路径：</strong> <code>ip_common/rtl/lcpu_mdio.v</code>
+
+<ul>
+<li>MDIO 控制器，LCPU 总线接口 ↔ MDIO Clause 22 协议转换</li>
+<li>支持 MDIO 读写 PHY 寄存器</li>
+<li>内部集成 lcpu_access_mdio_reg 子模块完成时序转换</li>
+</ul>
+
+<strong>图30 lcpu_mdio 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    LCPU[LCPU总线\nop_req/wrl_rdh\nwrdata/address] --&gt; ACCESS[lcpu_access_mdio_reg\nClause 22 帧组装/解析]
+    ACCESS --&gt; MDIO_IF[MDIO接口\nMDC生成 + MDIO双向驱动]
+    MDIO_IF --&gt; mdc[mdc]
+    MDIO_IF &lt;--&gt; mdio[mdio]
+    ACCESS --&gt; LCPU_RESP[op_ack/rddata]
+
+<p>clk[clk] --&gt; ACCESS<br>
+    clk --&gt; MDIO_IF<br>
+    reset_l[reset_l] --&gt; ACCESS</p>
+
+</pre>
+
+<strong>表22 lcpu_mdio 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>clk</td>
+<td>1</td>
+<td>I</td>
+<td>系统时钟</td>
+</tr>
+<tr>
+<td>reset_l</td>
+<td>1</td>
+<td>I</td>
+<td>复位（低有效）</td>
+</tr>
+<tr>
+<td>op_req</td>
+<td>1</td>
+<td>I</td>
+<td>操作请求</td>
+</tr>
+<tr>
+<td>wrl_rdh</td>
+<td>1</td>
+<td>I</td>
+<td>读写控制（0:写, 1:读）</td>
+</tr>
+<tr>
+<td>wrdata</td>
+<td>32</td>
+<td>I</td>
+<td>写数据</td>
+</tr>
+<tr>
+<td>address</td>
+<td>32</td>
+<td>I</td>
+<td>寄存器地址</td>
+</tr>
+<tr>
+<td>op_ack</td>
+<td>1</td>
+<td>O</td>
+<td>操作应答</td>
+</tr>
+<tr>
+<td>rddata</td>
+<td>32</td>
+<td>O</td>
+<td>读数据</td>
+</tr>
+<tr>
+<td>mdc</td>
+<td>1</td>
+<td>O</td>
+<td>MDIO 时钟</td>
+</tr>
+<tr>
+<td>mdio</td>
+<td>1</td>
+<td>IO</td>
+<td>MDIO 数据（双向）</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.7.2 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>协议</td>
+<td>IEEE 802.3 Clause 22</td>
+</tr>
+<tr>
+<td>MDC 频率</td>
+<td>内部计数器分频产生（≤2.5MHz）</td>
+</tr>
+<tr>
+<td>帧格式</td>
+<td>PREAMBLE(32×1) + ST(01) + OP(2) + PHYAD(5) + REGAD(5) + TA(2) + DATA(16)</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.7.3 内部表项（Table）</h5>
+
+<p>无。</p>
+
+<h5>3.6.7.4 RAM 使用情况（RAM Resource）</h5>
+
+<p>无。</p>
+
+<hr>
+
+<h4>3.6.8 cdc_bus_sync — CDC 单路同步</h4>
+
+<h5>3.6.8.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>cdc_bus_sync</code> | <strong>文件路径：</strong> <code>ip_common/rtl/cdc_bus_sync.sv</code>
+
+<ul>
+<li>跨时钟域单路数据同步器</li>
+<li>通过握手协议实现源时钟域 → 目标时钟域安全传输</li>
+<li>本设计中使用 3 个实例，用于不同 CDC 通道</li>
+</ul>
+
+<strong>图31 cdc_bus_sync 模块内部结构</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant SRC as src_clk 域
+    participant CDC as 同步逻辑
+    participant DST as dst_clk 域
+
+<p>SRC-&gt;&gt;CDC: src_valid=1, src_data=DATA<br>
+    Note over CDC: src域翻转toggle信号</p>
+
+<p>CDC-&gt;&gt;DST: toggle经2级同步器到dst域<br>
+    Note over DST: 边沿检测→dst_valid=1</p>
+
+<p>DST-&gt;&gt;CDC: dst_valid=1, dst_data=DATA<br>
+    Note over DST: dst域翻转ack toggle</p>
+
+<p>CDC-&gt;&gt;SRC: ack toggle经2级同步器回src域<br>
+    Note over SRC: 边沿检测→src_ready=1</p>
+
+<p>Note over SRC,DST: 一轮握手完成,可发下一笔数据</p>
+
+</pre>
+
+<strong>表23 cdc_bus_sync 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>src_clk</td>
+<td>1</td>
+<td>I</td>
+<td>源时钟</td>
+</tr>
+<tr>
+<td>src_rst_l</td>
+<td>1</td>
+<td>I</td>
+<td>源时钟域复位</td>
+</tr>
+<tr>
+<td>src_data</td>
+<td>DATA_WIDTH</td>
+<td>I</td>
+<td>源数据</td>
+</tr>
+<tr>
+<td>src_valid</td>
+<td>1</td>
+<td>I</td>
+<td>源数据有效</td>
+</tr>
+<tr>
+<td>dst_clk</td>
+<td>1</td>
+<td>I</td>
+<td>目标时钟</td>
+</tr>
+<tr>
+<td>dst_rst_l</td>
+<td>1</td>
+<td>I</td>
+<td>目标时钟域复位</td>
+</tr>
+<tr>
+<td>dst_data</td>
+<td>DATA_WIDTH</td>
+<td>O</td>
+<td>目标数据</td>
+</tr>
+<tr>
+<td>dst_valid</td>
+<td>1</td>
+<td>O</td>
+<td>目标数据有效</td>
+</tr>
+<tr>
+<td>src_ready</td>
+<td>1</td>
+<td>O</td>
+<td>握手完成（MODE=1）</td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+</tr>
+<tr>
+<td>DATA_WIDTH</td>
+<td>parameter</td>
+<td>integer</td>
+<td>数据位宽</td>
+</tr>
+<tr>
+<td>MODE</td>
+<td>parameter</td>
+<td>integer</td>
+<td>同步模式</td>
+</tr>
+</tbody></table>
+
+<h5>3.6.8.2 实现说明（Implementation）</h5>
+
+<table class="md-table">
+<thead><tr>
+<th>特征</th>
+<th>内容</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>同步方式</td>
+<td>握手协议（toggle+2级同步器+边沿检测）</td>
+</tr>
+<tr>
+<td>约束</td>
+<td>源端两次 valid 间隔 > 4~5 个目标时钟周期</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h4>3.6.9 cdc_bus_sync_vec — CDC 向量同步</h4>
+
+<h5>3.6.9.1 功能描述（Feature）</h5>
+
+<strong>模块标识：</strong> <code>cdc_bus_sync_vec</code> | <strong>文件路径：</strong> <code>ip_common/rtl/cdc_bus_sync_vec.sv</code>
+
+<ul>
+<li>多通道跨时钟域向量同步器</li>
+<li>本质为 CHANNELS 路 cdc_bus_sync 的并行封装</li>
+</ul>
+
+<strong>图32 cdc_bus_sync_vec 模块内部结构</strong>
+
+<pre class="mermaid">
+flowchart LR
+    subgraph VEC[cdc_bus_sync_vec]
+        CH0[cdc_bus_sync\nChannel 0]
+        CH1[cdc_bus_sync\nChannel 1]
+        CHN[cdc_bus_sync\nChannel N-1]
+    end
+
+<p>SRC[src_data[D×C-1:0]\nsrc_valid[C-1:0]] --&gt; CH0<br>
+    SRC --&gt; CH1<br>
+    SRC --&gt; CHN</p>
+
+<p>CH0 --&gt; DST[dst_data[D×C-1:0]\ndst_valid[C-1:0]]<br>
+    CH1 --&gt; DST<br>
+    CHN --&gt; DST</p>
+
+<p>CH0 --&gt; READY[src_ready[C-1:0]]<br>
+    CH1 --&gt; READY<br>
+    CHN --&gt; READY</p>
+
+</pre>
+
+<strong>表24 cdc_bus_sync_vec 模块接口信号表</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>信号名</th>
+<th>位宽（Bits）</th>
+<th>IO</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>src_clk</td>
+<td>1</td>
+<td>I</td>
+<td>源时钟</td>
+</tr>
+<tr>
+<td>src_rst_l</td>
+<td>1</td>
+<td>I</td>
+<td>源时钟域复位</td>
+</tr>
+<tr>
+<td>src_data</td>
+<td>DATA_WIDTH×CHANNELS</td>
+<td>I</td>
+<td>多通道源数据</td>
+</tr>
+<tr>
+<td>src_valid</td>
+<td>CHANNELS</td>
+<td>I</td>
+<td>逐通道有效指示</td>
+</tr>
+<tr>
+<td>dst_clk</td>
+<td>1</td>
+<td>I</td>
+<td>目标时钟</td>
+</tr>
+<tr>
+<td>dst_rst_l</td>
+<td>1</td>
+<td>I</td>
+<td>目标时钟域复位</td>
+</tr>
+<tr>
+<td>dst_data</td>
+<td>DATA_WIDTH×CHANNELS</td>
+<td>O</td>
+<td>多通道目标数据</td>
+</tr>
+<tr>
+<td>dst_valid</td>
+<td>CHANNELS</td>
+<td>O</td>
+<td>逐通道有效指示</td>
+</tr>
+<tr>
+<td>src_ready</td>
+<td>CHANNELS</td>
+<td>O</td>
+<td>逐通道握手完成</td>
+</tr>
+<tr>
+<td><strong>参数</strong></td>
+</tr>
+<tr>
+<td>DATA_WIDTH</td>
+<td>parameter</td>
+<td>integer</td>
+<td>单通道数据位宽</td>
+</tr>
+<tr>
+<td>CHANNELS</td>
+<td>parameter</td>
+<td>integer</td>
+<td>并行通道数</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h3>3.7 RISC-V 固件与编译环境</h3>
+
+<h4>3.7.1 固件 C 代码结构</h4>
+
+<strong>表25 RISC-V 固件源文件清单</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>文件</th>
+<th>功能说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>c/main.c</code></td>
+<td>程序入口：<code>reset_entry</code> → <code>program_main()</code> → <code>designApp()</code></td>
+</tr>
+<tr>
+<td><code>c/designApp.c</code></td>
+<td>应用主循环，初始化协议栈并启动 WebServer</td>
+</tr>
+<tr>
+<td><code>c/eth.c</code></td>
+<td>以太网 MAC 层帧收发，GMII 接口数据读写</td>
+</tr>
+<tr>
+<td><code>c/arp.c</code></td>
+<td>ARP 协议：ARP 请求响应、ARP 表维护</td>
+</tr>
+<tr>
+<td><code>c/ip.c</code></td>
+<td>IPv4 协议：IP 包解析、校验和验证、分片重组</td>
+</tr>
+<tr>
+<td><code>c/icmp.c</code></td>
+<td>ICMP Echo Reply（Ping 响应）</td>
+</tr>
+<tr>
+<td><code>c/tcp.c</code></td>
+<td>TCP 协议状态机（34KB）：三次握手、数据收发、四次挥手、重传定时器</td>
+</tr>
+<tr>
+<td><code>c/udp.c</code></td>
+<td>UDP 协议：端口解复用</td>
+</tr>
+<tr>
+<td><code>c/http.c</code></td>
+<td>HTTP 服务器：解析 HTTP GET 请求，返回 HTML 页面</td>
+</tr>
+<tr>
+<td><code>c/comlib.c</code></td>
+<td>通用库：checksum（IP/TCP 校验和）、memcpy、内存操作</td>
+</tr>
+<tr>
+<td><code>c/inc/lcpu_general.h</code></td>
+<td>LCPU 硬件寄存器地址定义（7KB），地址映射宏</td>
+</tr>
+<tr>
+<td><code>c/inc/system.h</code></td>
+<td>系统配置头文件，CPU 模式选择（RISC-V/MicroBlaze/Nios II）</td>
+</tr>
+</tbody></table>
+
+<strong>图33 RISC-V 固件协议栈架构</strong>
+
+<pre class="mermaid">
+flowchart TB
+    subgraph APP[应用层]
+        HTTP[HTTP 服务器\nhttp.c]
+    end
+
+<p>subgraph TRANS[传输层]<br>
+        TCP[TCP 协议\n状态机 34KB\ntcp.c]<br>
+        UDP[UDP 协议\nudp.c]<br>
+    end</p>
+
+<p>subgraph NET[网络层]<br>
+        IP[IP 协议\n校验和验证\nip.c]<br>
+        ICMP[ICMP Echo\nPing响应\nicmp.c]<br>
+    end</p>
+
+<p>subgraph LINK[链路层]<br>
+        ARP[ARP 协议\narp.c]<br>
+        ETH[MAC 帧收发\neth.c]<br>
+        COMLIB[通用库\nchecksum/memcpy\ncomlib.c]<br>
+    end</p>
+
+<p>subgraph HW[硬件抽象层]<br>
+        LCPU_H[lcp_general.h\n寄存器地址宏\n7KB]<br>
+    end</p>
+
+<p>HTTP --&gt; TCP<br>
+    TCP --&gt; IP<br>
+    UDP --&gt; IP<br>
+    IP --&gt; ETH<br>
+    ICMP --&gt; IP<br>
+    ARP --&gt; ETH<br>
+    ETH --&gt; LCPU_H<br>
+    COMLIB --&gt; IP<br>
+    COMLIB --&gt; TCP</p>
+
+</pre>
+
+<h4>3.7.2 RISC-V 编译环境</h4>
+
+<strong>表26 RISC-V 编译环境参数</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>参数</th>
+<th>值</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>工具链</td>
+<td><code>riscv64-unknown-elf-gcc</code> 14.2.0</td>
+<td>RISC-V GCC 交叉编译器</td>
+</tr>
+<tr>
+<td>目标架构</td>
+<td>RV32IC</td>
+<td>RV32I 基础整数 + "C" 压缩指令扩展</td>
+</tr>
+<tr>
+<td>ABI</td>
+<td>ilp32</td>
+<td>32bit int/long/pointer</td>
+</tr>
+<tr>
+<td>标准库</td>
+<td>picolibc</td>
+<td>轻量级嵌入式 C 库</td>
+</tr>
+<tr>
+<td>优化等级</td>
+<td>-O2</td>
+<td>空间和速度平衡优化</td>
+</tr>
+<tr>
+<td>ROM 起始地址</td>
+<td>0x00000000</td>
+<td>程序入口点</td>
+</tr>
+<tr>
+<td>ROM 空间限制</td>
+<td>16KB（16384 bytes）</td>
+<td>由 linker.ld 定义</td>
+</tr>
+<tr>
+<td>编译产物</td>
+<td>firmware.elf → firmware.bin → firmware_pads.bin</td>
+<td>最终生成 InstructRAM.v/.tcl/.hex</td>
+</tr>
+</tbody></table>
+
+<strong>图34 RISC-V 固件编译流程</strong>
+
+<pre class="mermaid">
+flowchart LR
+    C_SRC[c/*.c\nC 源码] --&gt;|riscv64-unknown-elf-gcc\n-march=rv32ic -mabi=ilp32 -O2| ELF[firmware.elf\n链接: linker.ld]
+    ELF --&gt;|objcopy -O binary| BIN[firmware.bin\n原始二进制]
+    BIN --&gt;|python3 pad\n填充至16KB| PADS[firmware_pads.bin]
+    PADS --&gt; VERILOG[bin_to_verilog_para.py\n→ InstructRAM.v]
+    PADS --&gt; TCL[bin_to_tcl.py\n→ InstructRAM.tcl]
+    PADS --&gt; HEX[bin_to_quartus_hex.py\n→ InstructRAM.hex]
+
+</pre>
+
+<strong>Linker Script 地址布局：</strong>
+
+<table class="md-table">
+<thead><tr>
+<th>段</th>
+<th>说明</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>.text.bootloader</code></td>
+<td>启动向量（reset_entry，地址 0x00000000）</td>
+</tr>
+<tr>
+<td><code>.text</code></td>
+<td>代码段</td>
+</tr>
+<tr>
+<td><code>.rodata</code></td>
+<td>只读数据段</td>
+</tr>
+<tr>
+<td><code>.data</code></td>
+<td>已初始化数据段</td>
+</tr>
+<tr>
+<td><code>.bss</code></td>
+<td>未初始化数据段（NOLOAD）</td>
+</tr>
+</tbody></table>
+
+<strong>构建命令：</strong>
+
+<pre><code class="language-bash">
+cd fpga_webserver/c_build &amp;&amp; make            # 全量构建（xilinx 平台）
+make PLATFORM=xilinx                          # 显式指定平台
+make clean                                     # 清理构建产物
+make disasm                                    # 反汇编查看
+make info                                      # 显示工具链信息
+
+</code></pre>
+
+<hr>
+
+<h2>LCPU 总线接口时序</h2>
+
+<p>以下时序为所有 LCPU 总线互联模块（reg_webserver、lcpu_mdio、lcpu_merge 等）的统一接口参考。</p>
+
+<strong>图35 LCPU 读寄存器时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant M as Master (CPU)
+    participant S as Slave (外设)
+
+<p>M-&gt;&gt;S: REQ=1, RH_WL=1(读), ADDR=Addr<br>
+    Note over M,S: Master 发起1周期读请求</p>
+
+<p>Note over S: Slave 处理读操作\n延迟不定(数周期~数百周期)</p>
+
+<p>S-&gt;&gt;M: ACK=1, RDATA=rdata<br>
+    Note over M,S: Master 锁存 RDATA</p>
+
+</pre>
+
+<strong>图36 LCPU 写寄存器时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant M as Master (CPU)
+    participant S as Slave (外设)
+
+<p>M-&gt;&gt;S: REQ=1, RH_WL=0(写), ADDR=Addr, WDATA=wdata<br>
+    Note over M,S: Master 发起1周期写请求</p>
+
+<p>Note over S: Slave 处理写操作\n延迟不定</p>
+
+<p>S-&gt;&gt;M: ACK=1<br>
+    Note over M,S: 写操作完成</p>
+
+</pre>
+
+<strong>图37 包 FIFO 写时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant W as Writer
+    participant F as 包FIFO
+
+<p>W-&gt;&gt;F: wen=1, waddr=0..n-1, wdata=D0..Dn-1<br>
+    Note over W,F: 逐字写入包数据</p>
+
+<p>W-&gt;&gt;F: wpkt_push=1, wpkt_len=n, wpkt_para=Para<br>
+    Note over W,F: 包写完,推送参数(与wen=0同周期)</p>
+
+<p>Note over F: 包入队,full/empty状态更新</p>
+
+</pre>
+
+<strong>图38 包 FIFO 读时序</strong>
+
+<pre class="mermaid">
+sequenceDiagram
+    participant R as Reader
+    participant F as 包FIFO
+
+<p>R-&gt;&gt;F: rpkt_pop=1 (empty=0时)<br>
+    Note over F: 弹出包,参数FIFO出队</p>
+
+<p>Note over R,F: 2个时钟周期后<br>
+    F-&gt;&gt;R: rpkt_len=n, rpkt_para=Para</p>
+
+<p>R-&gt;&gt;F: ren=1, raddr=0..n-1<br>
+    Note over R,F: 逐字读取数据<br>
+    F-&gt;&gt;R: rdata=D0..Dn-1 (延迟1周期)</p>
+
+</pre>
+
+<hr>
+
+<h2>术语一览</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>术语</th>
+<th>全称</th>
+<th>解释</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>RISC-V</td>
+<td>—</td>
+<td>开源精简指令集架构</td>
+</tr>
+<tr>
+<td>RV32IC</td>
+<td>RV32I + "C"</td>
+<td>32位基础整数 + 16位压缩指令扩展</td>
+</tr>
+<tr>
+<td>LCPU</td>
+<td>—</td>
+<td>自定义轻量级 CPU 总线协议</td>
+</tr>
+<tr>
+<td>GMII</td>
+<td>Gigabit Media Independent Interface</td>
+<td>千兆介质无关接口（8bit SDR）</td>
+</tr>
+<tr>
+<td>RGMII</td>
+<td>Reduced GMII</td>
+<td>精简千兆介质无关接口（4bit DDR）</td>
+</tr>
+<tr>
+<td>MDIO</td>
+<td>Management Data I/O</td>
+<td>管理数据接口（Clause 22）</td>
+</tr>
+<tr>
+<td>BFM</td>
+<td>Bus Functional Model</td>
+<td>总线功能模型（仿真用）</td>
+</tr>
+<tr>
+<td>CDC</td>
+<td>Clock Domain Crossing</td>
+<td>跨时钟域</td>
+</tr>
+<tr>
+<td>SOP/EOP</td>
+<td>Start/End of Packet</td>
+<td>帧起始/结束边带信号</td>
+</tr>
+<tr>
+<td>MMCM</td>
+<td>Mixed-Mode Clock Manager</td>
+<td>Xilinx 混合模式时钟管理器</td>
+</tr>
+<tr>
+<td>IDELAY</td>
+<td>Input Delay</td>
+<td>Xilinx 输入延迟单元</td>
+</tr>
+<tr>
+<td>ODDR</td>
+<td>Output DDR Register</td>
+<td>双边沿输出寄存器</td>
+</tr>
+<tr>
+<td>picolibc</td>
+<td>—</td>
+<td>轻量级嵌入式 C 标准库</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2>图目录</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>编号</th>
+<th>图名</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>图1</td>
+<td>XC7A35T 内部资源架构</td>
+</tr>
+<tr>
+<td>图2</td>
+<td>RGMII 发送时序（125MHz DDR）</td>
+</tr>
+<tr>
+<td>图3</td>
+<td>RGMII 接收时序（125MHz DDR）</td>
+</tr>
+<tr>
+<td>图4</td>
+<td>MDIO 接口时序（Clause 22）</td>
+</tr>
+<tr>
+<td>图5</td>
+<td>UART 异步串行时序（115200 8N1）</td>
+</tr>
+<tr>
+<td>图6</td>
+<td>xilinx_xc7a35tfgg484_webserver_top 内部结构</td>
+</tr>
+<tr>
+<td>图7</td>
+<td>clk_rst_ctrl 内部结构</td>
+</tr>
+<tr>
+<td>图8</td>
+<td>clk_rst_ctrl 上电复位时序</td>
+</tr>
+<tr>
+<td>图9</td>
+<td>pll_50m MMCM 内部结构</td>
+</tr>
+<tr>
+<td>图10</td>
+<td>MMCM 锁定与时钟输出时序</td>
+</tr>
+<tr>
+<td>图11</td>
+<td>rgmii2gmii 内部结构</td>
+</tr>
+<tr>
+<td>图12</td>
+<td>GMII 发送接口时序</td>
+</tr>
+<tr>
+<td>图13</td>
+<td>GMII 接收接口时序</td>
+</tr>
+<tr>
+<td>图14</td>
+<td>webserver_wrapper 内部结构</td>
+</tr>
+<tr>
+<td>图15</td>
+<td>tod 内部结构</td>
+</tr>
+<tr>
+<td>图16</td>
+<td>interval_timer 内部结构</td>
+</tr>
+<tr>
+<td>图17</td>
+<td>lcpu_riscv_wrapper 内部结构</td>
+</tr>
+<tr>
+<td>图18</td>
+<td>lcpu_top 内部结构</td>
+</tr>
+<tr>
+<td>图19</td>
+<td>lcpu_bfm 内部结构</td>
+</tr>
+<tr>
+<td>图20</td>
+<td>riscv32_top 内部结构</td>
+</tr>
+<tr>
+<td>图21</td>
+<td>riscv32_localbus 内部结构</td>
+</tr>
+<tr>
+<td>图22</td>
+<td>riscv_reg 寄存器文件结构</td>
+</tr>
+<tr>
+<td>图23</td>
+<td>lcpu_merge 内部结构</td>
+</tr>
+<tr>
+<td>图24</td>
+<td>cpu_channel 内部结构</td>
+</tr>
+<tr>
+<td>图25</td>
+<td>package_fifo_v2 内部结构</td>
+</tr>
+<tr>
+<td>图26</td>
+<td>pktfifo2ram_int_v2 内部结构</td>
+</tr>
+<tr>
+<td>图27</td>
+<td>ram2pktfifo_int 内部结构</td>
+</tr>
+<tr>
+<td>图28</td>
+<td>sop_eop_gen 内部结构</td>
+</tr>
+<tr>
+<td>图29</td>
+<td>reg_webserver 内部结构</td>
+</tr>
+<tr>
+<td>图30</td>
+<td>lcpu_mdio 内部结构</td>
+</tr>
+<tr>
+<td>图31</td>
+<td>cdc_bus_sync 握手 CDC 时序</td>
+</tr>
+<tr>
+<td>图32</td>
+<td>cdc_bus_sync_vec 内部结构</td>
+</tr>
+<tr>
+<td>图33</td>
+<td>RISC-V 固件协议栈架构</td>
+</tr>
+<tr>
+<td>图34</td>
+<td>RISC-V 固件编译流程</td>
+</tr>
+<tr>
+<td>图35</td>
+<td>LCPU 读寄存器时序</td>
+</tr>
+<tr>
+<td>图36</td>
+<td>LCPU 写寄存器时序</td>
+</tr>
+<tr>
+<td>图37</td>
+<td>包 FIFO 写时序</td>
+</tr>
+<tr>
+<td>图38</td>
+<td>包 FIFO 读时序</td>
+</tr>
+</tbody></table>
+
+<h2>表目录</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>编号</th>
+<th>表名</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>表1</td>
+<td>KSZ9031RNX RGMII 接口信号列表</td>
+</tr>
+<tr>
+<td>表2</td>
+<td>CP2102 UART 接口信号列表</td>
+</tr>
+<tr>
+<td>表3</td>
+<td>xilinx_xc7a35tfgg484_webserver_top 接口信号表</td>
+</tr>
+<tr>
+<td>表4</td>
+<td>clk_rst_ctrl 接口信号表</td>
+</tr>
+<tr>
+<td>表5</td>
+<td>pll_50m 接口信号表</td>
+</tr>
+<tr>
+<td>表6</td>
+<td>rgmii2gmii 接口信号表</td>
+</tr>
+<tr>
+<td>表7</td>
+<td>webserver_wrapper 接口信号表</td>
+</tr>
+<tr>
+<td>表8</td>
+<td>tod 接口信号表</td>
+</tr>
+<tr>
+<td>表9</td>
+<td>interval_timer 接口信号表</td>
+</tr>
+<tr>
+<td>表10</td>
+<td>fpga_build_time 接口信号表</td>
+</tr>
+<tr>
+<td>表11</td>
+<td>lcpu_riscv_wrapper 接口信号表</td>
+</tr>
+<tr>
+<td>表12</td>
+<td>lcpu_top 接口信号表</td>
+</tr>
+<tr>
+<td>表13</td>
+<td>lcpu_bfm 接口信号表</td>
+</tr>
+<tr>
+<td>表14</td>
+<td>riscv32_top 接口信号表</td>
+</tr>
+<tr>
+<td>表15</td>
+<td>lcpu_merge 接口信号表</td>
+</tr>
+<tr>
+<td>表16</td>
+<td>cpu_channel 接口信号表</td>
+</tr>
+<tr>
+<td>表17</td>
+<td>package_fifo_v2 接口信号表</td>
+</tr>
+<tr>
+<td>表18</td>
+<td>pktfifo2ram_int_v2 接口信号表</td>
+</tr>
+<tr>
+<td>表19</td>
+<td>ram2pktfifo_int 接口信号表</td>
+</tr>
+<tr>
+<td>表20</td>
+<td>sop_eop_gen 接口信号表</td>
+</tr>
+<tr>
+<td>表21</td>
+<td>reg_webserver 接口信号表</td>
+</tr>
+<tr>
+<td>表22</td>
+<td>lcpu_mdio 接口信号表</td>
+</tr>
+<tr>
+<td>表23</td>
+<td>cdc_bus_sync 接口信号表</td>
+</tr>
+<tr>
+<td>表24</td>
+<td>cdc_bus_sync_vec 接口信号表</td>
+</tr>
+<tr>
+<td>表25</td>
+<td>RISC-V 固件源文件清单</td>
+</tr>
+<tr>
+<td>表26</td>
+<td>RISC-V 编译环境参数</td>
+</tr>
+</tbody></table>
+</body>
+</html>

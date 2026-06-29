@@ -1,0 +1,11 @@
+{
+  "公司名称": "LinkReal",
+  "公司英文名称": "LinkReal",
+  "产品名称": "基于RiscV@FPGA的WebServer",
+  "文档编号": "ED001R01",
+  "密级": "内部",
+  "RTL代码路径": "fpga_webserver/rtl/xilinx_xc7a35tfgg484_webserver_top.v",
+  "顶层模块名": "xilinx_xc7a35tfgg484_webserver_top",
+  "生成日期": "2026-06-29",
+  "输出文档路径": "fpga_webserver/doc/基于RiscV@FPGA的WebServer逻辑设计方案(ED001R01).md"
+}

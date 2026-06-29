@@ -2,10 +2,10 @@
 // Copyright 2022-2024 Advanced Micro Devices, Inc. All Rights Reserved.
 // --------------------------------------------------------------------------------
 // Tool Version: Vivado v.2024.1 (lin64) Build 5076996 Wed May 22 18:36:09 MDT 2024
-// Date        : Sun Jun 21 13:06:17 2026
+// Date        : Mon Jun 29 10:23:43 2026
 // Host        : huamingh-XT12-Pro running 64-bit Ubuntu 26.04 LTS
 // Command     : write_verilog -force -mode funcsim
-//               /home/huamingh/work/fpga_cpu/ip_vendor/xilinx_xc7a35tfgg484/pll_50m_sim_netlist.v
+//               /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0001_20260629_095848/ip_vendor/xilinx_xc7a35tfgg484/PLL/pll_50m_sim_netlist.v
 // Design      : pll_50m
 // Purpose     : This verilog netlist is a functional simulation representation of the design and should not be modified
 //               or synthesized. This netlist cannot be used for SDF annotated simulation.
@@ -78,32 +78,32 @@ module pll_50m_clk_wiz
   wire NLW_mmcm_adv_inst_PSDONE_UNCONNECTED;
   wire [15:0]NLW_mmcm_adv_inst_DO_UNCONNECTED;
 
-  (* box_type = "PRIMITIVE" *) 
+  (* BOX_TYPE = "PRIMITIVE" *) 
   BUFG clkf_buf
        (.I(clkfbout_pll_50m),
         .O(clkfbout_buf_pll_50m));
+  (* BOX_TYPE = "PRIMITIVE" *) 
   (* CAPACITANCE = "DONT_CARE" *) 
   (* IBUF_DELAY_VALUE = "0" *) 
   (* IFD_DELAY_VALUE = "AUTO" *) 
-  (* box_type = "PRIMITIVE" *) 
   IBUF #(
     .IOSTANDARD("DEFAULT")) 
     clkin1_ibufg
        (.I(inclk0),
         .O(inclk0_pll_50m));
-  (* box_type = "PRIMITIVE" *) 
+  (* BOX_TYPE = "PRIMITIVE" *) 
   BUFG clkout1_buf
        (.I(c0_pll_50m),
         .O(c0));
-  (* box_type = "PRIMITIVE" *) 
+  (* BOX_TYPE = "PRIMITIVE" *) 
   BUFG clkout2_buf
        (.I(c1_pll_50m),
         .O(c1));
-  (* box_type = "PRIMITIVE" *) 
+  (* BOX_TYPE = "PRIMITIVE" *) 
   BUFG clkout3_buf
        (.I(c2_pll_50m),
         .O(c2));
-  (* box_type = "PRIMITIVE" *) 
+  (* BOX_TYPE = "PRIMITIVE" *) 
   MMCME2_ADV #(
     .BANDWIDTH("OPTIMIZED"),
     .CLKFBOUT_MULT_F(20.000000),
@@ -115,11 +115,11 @@ module pll_50m_clk_wiz
     .CLKOUT0_DUTY_CYCLE(0.500000),
     .CLKOUT0_PHASE(0.000000),
     .CLKOUT0_USE_FINE_PS("FALSE"),
-    .CLKOUT1_DIVIDE(10),
+    .CLKOUT1_DIVIDE(8),
     .CLKOUT1_DUTY_CYCLE(0.500000),
     .CLKOUT1_PHASE(0.000000),
     .CLKOUT1_USE_FINE_PS("FALSE"),
-    .CLKOUT2_DIVIDE(8),
+    .CLKOUT2_DIVIDE(5),
     .CLKOUT2_DUTY_CYCLE(0.500000),
     .CLKOUT2_PHASE(0.000000),
     .CLKOUT2_USE_FINE_PS("FALSE"),

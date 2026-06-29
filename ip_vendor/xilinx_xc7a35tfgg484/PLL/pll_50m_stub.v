@@ -2,10 +2,10 @@
 // Copyright 2022-2024 Advanced Micro Devices, Inc. All Rights Reserved.
 // --------------------------------------------------------------------------------
 // Tool Version: Vivado v.2024.1 (lin64) Build 5076996 Wed May 22 18:36:09 MDT 2024
-// Date        : Sun Jun 21 13:06:17 2026
+// Date        : Mon Jun 29 10:23:43 2026
 // Host        : huamingh-XT12-Pro running 64-bit Ubuntu 26.04 LTS
 // Command     : write_verilog -force -mode synth_stub
-//               /home/huamingh/work/fpga_cpu/ip_vendor/xilinx_xc7a35tfgg484/pll_50m_stub.v
+//               /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0001_20260629_095848/ip_vendor/xilinx_xc7a35tfgg484/PLL/pll_50m_stub.v
 // Design      : pll_50m
 // Purpose     : Stub declaration of top-level module interface
 // Device      : xc7a35tfgg484-2

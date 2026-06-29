@@ -101,6 +101,8 @@ NAMEDATABASE/
 usage_statistics_webtalk.*
 
 # Versioned build directories
+webserver_xilinx_xc7a35tfgg484_v*/
+webserver_altera_ep4ce10f17c6_v*/
 xilinx_xc7a35tfgg484_v*/
 altera_ep4ce10f17c6_v*/
 
