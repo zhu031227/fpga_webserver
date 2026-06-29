@@ -1,0 +1,19 @@
+flowchart TB
+    subgraph TOP["xilinx_xc7a35tfgg484_webserver_top"]
+        RST["clk_rst_ctrl\n复位同步"]
+        PLL["pll_50m\nMMCM PLL"]
+        RGMII["rgmii2gmii\nRGMII↔GMII"]
+        WRAP["webserver_wrapper\nWebServer核心"]
+    end
+
+    CLK_IN["clk_50m_in"] --> PLL
+    PLL -->|"50/125/200MHz"| TOP
+    RESET["reset_l"] --> RST
+    RST -->|"reset_l_synced"| TOP
+    PHY["88E1111"] <-->|"RGMII"| RGMII
+    RGMII <-->|"GMII"| WRAP
+    UART["UART"] <--> WRAP
+    MDIO["MDIO"] <--> WRAP
+    WRAP --> LED["led_o[3:0]"]
+
+    style TOP fill:#e3f2fd

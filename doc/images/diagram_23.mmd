@@ -1,0 +1,29 @@
+flowchart TB
+    subgraph REG["reg_webserver"]
+        DEC["地址译码器\n16bit address"]
+        REG_BANK["寄存器组"]
+        TIMEOUT["超时检测\nis_req_cnt"]
+        MDIO_SUB["MDIO子总线\n转发"]
+        ACK_MUX["ACK选择器"]
+    end
+
+    BUS["LCPU Bus\n(req/rhwl/wdata/address)"] --> DEC
+    DEC -->|"0x00-0x0F"| SYS["系统信息寄存器"]
+    DEC -->|"0x10-0x13"| DBG_W["debug_rw"]
+    DEC -->|"0x20-0x23"| DBG_R["debug_ro"]
+    DEC -->|"0x100-0x106"| ETH["以太网统计"]
+    DEC -->|"0x200-0x201"| FILT["包过滤器"]
+    DEC -->|"0x6000-0x600F"| CPU_RD["CPU读通道"]
+    DEC -->|"0x6100-0x610F"| CPU_WR["CPU写通道"]
+    DEC -->|"0x1000-0x1FFF"| MDIO_SUB --> MDIO["lcpu_mdio"]
+    BUS --> TIMEOUT
+    SYS --> ACK_MUX
+    DBG_W --> ACK_MUX
+    DBG_R --> ACK_MUX
+    ETH --> ACK_MUX
+    FILT --> ACK_MUX
+    CPU_RD --> ACK_MUX
+    CPU_WR --> ACK_MUX
+    TIMEOUT --> ACK_MUX
+    MDIO_SUB --> ACK_MUX
+    ACK_MUX -->|"rdata/ack"| BUS

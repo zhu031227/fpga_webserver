@@ -1,0 +1,17 @@
+flowchart TB
+    subgraph VEC["cdc_bus_sync_vec (CHANNELS=7)"]
+        CH0["cdc_bus_sync[0]\neth_rx_correct_pkt"]
+        CH1["cdc_bus_sync[1]\neth_rx_crc_err_pkt"]
+        CH2["cdc_bus_sync[2]\neth_tx_correct_pkt"]
+        CH3["cdc_bus_sync[3]\neth_tx_error_pkt"]
+        CH4["cdc_bus_sync[4]\neth_rx_afifo_full"]
+        CH5["cdc_bus_sync[5]\neth_rx_afifo_empty"]
+        CH6["cdc_bus_sync[6]\neth_rx_data_err"]
+    end
+
+    SRC_CLK["src_clk\n(125MHz)"] --> VEC
+    DST_CLK["dst_clk\n(50MHz)"] --> VEC
+    SRC_DATA["src_data\n32×7=224bit"] --> VEC
+    VEC -->|"dst_data\n224bit"| DST_DATA["dst_data"]
+
+    style VEC fill:#e1bee7

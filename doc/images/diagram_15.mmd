@@ -1,0 +1,10 @@
+sequenceDiagram
+    participant REG as reg_webserver
+    participant TOD as tod
+    participant BUS as LCPU Bus
+
+    REG->>TOD: get_local_time_ind (pulse)
+    Note over TOD: 锁存counter_live → time_out
+    TOD-->>REG: local_time_l[31:0]
+    TOD-->>REG: local_time_h[31:0]
+    REG-->>BUS: 寄存器读 (addr 0x7/0x8)

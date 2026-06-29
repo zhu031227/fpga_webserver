@@ -1,0 +1,13 @@
+flowchart LR
+    subgraph MDIO["lcpu_mdio"]
+        FSM["MDIO状态机\nClause 22帧格式"]
+        SHIFT["移位寄存器\n32-bit"]
+        MDIO_BUF["MDIO双向缓冲"]
+    end
+
+    BUS["SubBus\n(op_req/wrl_rdh/...)" ] --> FSM
+    FSM <--> SHIFT
+    SHIFT <--> MDIO_BUF
+    FSM -->|"MDC"| PHY["PHY MDIO"]
+    MDIO_BUF <-->|"MDIO"| PHY
+    FSM -->|"op_ack/rddata"| BUS

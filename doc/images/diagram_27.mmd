@@ -1,0 +1,24 @@
+flowchart TB
+    subgraph GMII2MAC["gmii2mac"]
+        subgraph RX_PATH["RX路径"]
+            AFIFO["dual_clock_fifo\n(3深度×10bit)"]
+            PRE_RX["eth_presemble\nRX预组装"]
+        end
+        subgraph TX_PATH["TX路径"]
+            PRE_TX["eth_presemble\nTX预组装"]
+        end
+        STATS["统计计数器"]
+    end
+
+    GMII_RX["GMII RX\n(RXC/RXDV/RXD/RXER)"] --> AFIFO
+    AFIFO -->|"rclk=clk"| PRE_RX
+    PRE_RX -->|"mac_rx_sop/en/data/eop/err"| MAC_RX["MAC内部接口"]
+    MAC_TX["MAC内部接口\n(mac_tx_sop/en/data/eop/err)"] --> PRE_TX
+    PRE_TX -->|"GMII TX\n(TXD/TXEN/TXER)"| GMII_TX["GMII TX"]
+    AFIFO -->|"full/empty events"| STATS
+    PRE_RX -->|"err events"| STATS
+    PRE_TX -->|"pkt events"| STATS
+    STATS -->|"7种统计计数器"| REG["reg_webserver"]
+
+    style RX_PATH fill:#e8f5e9
+    style TX_PATH fill:#fff3e0

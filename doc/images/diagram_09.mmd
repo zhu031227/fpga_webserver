@@ -1,0 +1,13 @@
+sequenceDiagram
+    participant RGMII as RGMII PHY
+    participant RX as rgmii_rx
+    participant GMII as GMII Internal
+
+    Note over RGMII,GMII: RGMII RX → GMII RX 转换
+    RGMII->>RX: RXC (125MHz DDR)
+    RGMII->>RX: RXD[3:0] (DDR data)
+    RGMII->>RX: RX_CTL (DDR control)
+    Note right of RX: 上升沿: RXD[3:0]=gmii_rxd[3:0]\n下降沿: RXD[3:0]=gmii_rxd[7:4]
+    RX->>GMII: gmii_rx_clk (125MHz)
+    RX->>GMII: gmii_rxd[7:0] (SDR)
+    RX->>GMII: gmii_rx_dv

@@ -1,0 +1,4 @@
+flowchart LR
+    JTAG["Port 1: JTAG\n(req/rhwl/...)\n高优先级"] --> ARB["仲裁器\nJTAG优先"]
+    RISCV_BUS["Port 2: RISC-V\n(req/rhwl/...)\n低优先级"] --> ARB
+    ARB -->|"统一LCPU Bus"| EXT["外部总线"]

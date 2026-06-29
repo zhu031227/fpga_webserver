@@ -1,0 +1,10 @@
+flowchart LR
+    subgraph RGMII2GMII["rgmii2gmii"]
+        RX["rgmii_rx\nRGMII→GMII\n(DDR→SDR + IDELAY)"]
+        TX["rgmii_tx\nGMII→RGMII\n(SDR→DDR + ODDR)"]
+    end
+
+    RGMII_IN["rgmii_rxc\nrgmii_rx_ctl\nrgmii_rxd"] --> RX
+    RX -->|"gmii_rx_clk\ngmii_rx_dv\ngmii_rxd"| GMII_RX["GMII RX (内部)"]
+    GMII_TX["GMII TX (内部)"] -->|"gmii_tx_clk\ngmii_tx_en\ngmii_txd"| TX
+    TX -->|"rgmii_txc\nrgmii_tx_ctl\nrgmii_txd"| RGMII_OUT["RGMII TX"]

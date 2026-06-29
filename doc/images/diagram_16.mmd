@@ -1,0 +1,5 @@
+flowchart LR
+    CLK["clk"] --> CNT["counter\n26-bit\n自增"]
+    CNT --> CMP["比较器\n== period_count"]
+    CMP --> OUT["event_out"]
+    CMP -->|"清零"| CNT

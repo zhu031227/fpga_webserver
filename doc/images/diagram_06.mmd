@@ -1,0 +1,8 @@
+sequenceDiagram
+    participant PHY as 88E1111 PHY
+    participant FPGA as FPGA (rgmii2gmii)
+
+    Note over PHY,FPGA: RGMII RX — 125MHz DDR
+    PHY->>FPGA: RXC (125MHz clock)
+    PHY->>FPGA: RXD[3:0] + RX_CTL (DDR)
+    Note right of FPGA: 上升沿采样 RXD[3:0] (低4bit)\n下降沿采样 RXD[3:0] (高4bit)\nRX_CTL: 上升沿=DV, 下降沿=DV xor ERR

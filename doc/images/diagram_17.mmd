@@ -1,0 +1,19 @@
+flowchart TB
+    subgraph CPU_SUB["lcpu_riscv_wrapper"]
+        LCPU["lcpu_top\n(LCPU JTAG主机)\n综合模式"]
+        BFM["lcpu_bfm\n(仿真BFM)\n仿真模式"]
+        RISCV["riscv32_top\nRISC-V RV32IC"]
+        MERGE["lcpu_merge\n双主机总线合并"]
+    end
+
+    UART["UART RX/TX"] <--> LCPU
+    LCPU -->|"JTAG Bus"| MERGE
+    RISCV -->|"RISC-V Bus"| MERGE
+    MERGE -->|"统一LCPU Bus"| EXT["外部总线\n(req/rhwl/...)"]
+    PRAM["Program RAM\n接口"] <--> RISCV
+    PRAM <--> MERGE
+
+    style LCPU fill:#c8e6c9
+    style BFM fill:#fff9c4
+    style RISCV fill:#b3e5fc
+    style MERGE fill:#e1bee7

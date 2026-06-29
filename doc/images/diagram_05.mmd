@@ -1,0 +1,10 @@
+flowchart LR
+    subgraph FPGA["FPGA"]
+        RGMII2GMII["rgmii2gmii"]
+    end
+    subgraph PHY["88E1111"]
+        PHY_CORE["RGMII PHY Core"]
+    end
+
+    FPGA -->|"TXC, TX_CTL, TXD[3:0]"| PHY
+    PHY -->|"RXC, RX_CTL, RXD[3:0]"| FPGA

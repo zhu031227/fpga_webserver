@@ -1,0 +1,39 @@
+flowchart TB
+    subgraph FPGA["FPGA — XC7A35T"]
+        subgraph Top["xilinx_xc7a35tfgg484_webserver_top"]
+            PLL["pll_50m\nMMCM PLL"]
+            RST["clk_rst_ctrl\n复位控制"]
+            RGMII["rgmii2gmii\nRGMII→GMII"]
+            MDIO_TOP["eth0_mdc/mdio"]
+        end
+        subgraph Wrapper["webserver_wrapper"]
+            direction TB
+            CPU["lcpu_riscv_wrapper\nRISC-V子系统"]
+            REG["reg_webserver\n寄存器文件"]
+            MAC["gmii2mac\nGMII MAC"]
+            CH["cpu_channel\nCPU-MAC数据通道"]
+            MDIO["lcpu_mdio\nMDIO控制器"]
+            TOD["tod\n时间计数器"]
+            TMR["interval_timer\n秒定时器"]
+        end
+    end
+
+    PHY["88E1111 PHY"] <-->|"RGMII"| RGMII
+    PHY <-->|"MDIO"| MDIO_TOP
+    UART["CP2102\nUSB-UART"] <--> CPU
+    Flash["W25Q128\nSPI Flash"] -.->|"配置"| FPGA
+
+    RGMII <-->|"GMII (内部)"| Wrapper
+    PLL -->|"50/125/200MHz"| Top
+    RST -->|"reset_l_synced"| Top
+
+    CPU <-->|"LCPU Bus"| REG
+    REG -->|"MDIO SubBus"| MDIO
+    MDIO <-->|"MDIO"| PHY
+    MAC <-->|"125MHz GMII"| RGMII
+    CH <-->|"125MHz MAC"| MAC
+    CH <-->|"50MHz CPU"| REG
+
+    style FPGA fill:#e8f5e9
+    style Top fill:#fff3e0
+    style Wrapper fill:#e3f2fd

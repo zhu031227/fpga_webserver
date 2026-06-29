@@ -1,0 +1,21 @@
+flowchart LR
+    subgraph CLK50["50MHz 域"]
+        CPU_SYS["RISC-V CPU子系统"]
+        REG50["reg_webserver"]
+        MDIO_C["lcpu_mdio"]
+        TOD_C["tod / interval_timer"]
+        UART_C["UART"]
+    end
+    subgraph CLK125["125MHz 域"]
+        MAC_C["gmii2mac"]
+        CH_C["cpu_channel"]
+    end
+    subgraph CLK200["200MHz 域"]
+        RGMII_RX["rgmii2gmii RX"]
+    end
+
+    PLL_C["pll_50m\n50MHz in"] -->|"50MHz"| CLK50
+    PLL_C -->|"125MHz"| CLK125
+    PLL_C -->|"200MHz"| CLK200
+
+    CLK125 <-->|"CDC (Gray/ReqAck)"| CLK50

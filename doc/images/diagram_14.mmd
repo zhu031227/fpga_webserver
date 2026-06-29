@@ -1,0 +1,5 @@
+flowchart LR
+    CLK["clk (50MHz)"] --> CNT["counter_live\n64-bit计数器\n每周期 +step"]
+    SNAP["snapshot"] --> REG["锁存寄存器"]
+    CNT --> REG
+    REG --> OUT["time_out"]
