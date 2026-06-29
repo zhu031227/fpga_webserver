@@ -52,7 +52,7 @@ ELF       = $(OUT_DIR)/firmware.elf
 BIN       = $(OUT_DIR)/firmware.bin
 PADS      = $(OUT_DIR)/firmware_pads.bin
 DISASM    = $(OUT_DIR)/firmware.disasm
-BUILD_TIME_H = $(OUT_DIR)/build_time.h
+BUILD_TIME_H = $(INC_DIR)/build_time.h
 TCL_OUT   = $(TCL_DIR)/InstructRAM.tcl
 VERILOG_OUT = $(RTL_DIR)/InstructRAM.v
 HEX_OUT   = $(RTL_DIR)/InstructRAM.hex
@@ -104,16 +104,18 @@ all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT)
 	@echo "  HEX  : $(HEX_OUT)"
 	@echo "  TCL  : $(TCL_OUT)"
 
-# ---- Generate build_time.h (no source stamp pollution) ----
+# ---- Generate build_time.h (stamp BUILD_DATE / BUILD_TIME) ----
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-$(BUILD_TIME_H): | $(OUT_DIR)
+FORCE:
+
+$(BUILD_TIME_H): FORCE | $(OUT_DIR)
 	@echo "  GEN  $@"
 	@echo "#ifndef _BUILD_TIME_H_" > $@
 	@echo "#define _BUILD_TIME_H_" >> $@
-	@echo "#define SW_BUILD_DATE 32'h$$(date +%Y)$$(date +%m)$$(date +%d)" >> $@
-	@echo "#define SW_BUILD_TIME 32'h$$(date +%H)$$(date +%M)0000" >> $@
+	@echo "#define BUILD_DATE      0x$$(date +%Y%m%d)" >> $@
+	@echo "#define BUILD_TIME      0x$$(date +%H%M%S)00" >> $@
 	@echo "#endif // _BUILD_TIME_H_" >> $@
 
 # ---- Compile ----

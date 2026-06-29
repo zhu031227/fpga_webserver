@@ -164,18 +164,60 @@ struct str_rd_pkt_fifo
 
 struct lcpu_registers
 {
-    uint32 reserve0[0x2];
-    uint32 second_event;
-    uint32 get_local_time;
-    uint32 local_time_l;
-    uint32 local_time_h;
-    uint32 reserve1[0x30-6];
-    uint32 Led;
-    uint32 reserve2[0x6000-0x31];
+    // ---- 0x00 - 0x08: General registers ----
+    uint32 fpga_build_date;          // 0x00 RO
+    uint32 fpga_build_time;          // 0x01 RO
+    uint32 sw_build_date;            // 0x02 RW
+    uint32 sw_build_time;            // 0x03 RW
+    uint32 eth_greset;               // 0x04 RW [3:0]
+    uint32 second_event;             // 0x05 RO [0]
+    uint32 get_local_time;           // 0x06 WC [0]
+    uint32 local_time_l;             // 0x07 RO
+    uint32 local_time_h;             // 0x08 RO
+    uint32 reserve0[0x10 - 0x09];   // 0x09..0x0F
+
+    // ---- 0x10 - 0x13: Debug RW ----
+    uint32 debug_rw_0;               // 0x10 RW
+    uint32 debug_rw_1;               // 0x11 RW
+    uint32 debug_rw_2;               // 0x12 RW
+    uint32 debug_rw_3;               // 0x13 RW
+    uint32 reserve1[0x20 - 0x14];   // 0x14..0x1F
+
+    // ---- 0x20 - 0x23: Debug RO ----
+    uint32 debug_ro_0;               // 0x20 RO
+    uint32 debug_ro_1;               // 0x21 RO
+    uint32 debug_ro_2;               // 0x22 RO
+    uint32 debug_ro_3;               // 0x23 RO
+    uint32 reserve2[0x30 - 0x24];   // 0x24..0x2F
+
+    // ---- 0x30: LED ----
+    uint32 Led;                      // 0x30 RW [3:0]
+    uint32 reserve3[0x100 - 0x31];  // 0x31..0xFF
+
+    // ---- 0x100 - 0x106: ETH statistics ----
+    uint32 eth_rx_correct_pkt_cnt;   // 0x100 RO
+    uint32 eth_rx_crc_err_pkt_cnt;   // 0x101 RO
+    uint32 eth_tx_correct_pkt_cnt;   // 0x102 RO
+    uint32 eth_tx_error_pkt_cnt;     // 0x103 RO
+    uint32 eth_rx_afifo_full_cnt;    // 0x104 RO
+    uint32 eth_rx_afifo_empty_cnt;   // 0x105 RO
+    uint32 eth_rx_data_err_line;     // 0x106 RO
+    uint32 reserve4[0x200 - 0x107]; // 0x107..0x1FF
+
+    // ---- 0x200 - 0x201: MAC filter ----
+    uint32 filter_data;              // 0x200 RW [15:0]
+    uint32 filter_offset;            // 0x201 RW [15:0]
+    uint32 reserve5[0x6000 - 0x202]; // 0x202..0x5FFF
+
+    // ---- 0x6000: Read packet FIFO (16 regs) ----
     struct str_rd_pkt_fifo rd_pkt_fifo;
-    uint32 reserve3[0x100-0x10];
+    uint32 reserve6[0x100 - 0x10];   // 0x6010..0x60FF
+
+    // ---- 0x6100: Write packet FIFO (15 regs) ----
     struct str_wr_pkt_fifo wr_pkt_fifo;
-    uint32 reserve4[0x1000-0x100-0x10];
+    uint32 reserve7[0x1000 - 0x100 - 0x10]; // pad to 0x7000
+
+    // ---- 0x7000: Debug RAM (legacy) ----
     uint32 dbg_ram_0[0x1000];
 }__attribute__((aligned(4)));
 

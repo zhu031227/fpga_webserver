@@ -6,17 +6,22 @@
 #include "inc/icmp.h"
 #include "inc/tcp.h"
 #include "inc/http.h"
+#include "build_time.h"
 
 void designApp() {
     uint32 rec_pkt_len = 0;
     uint32 eth_proc_result = 0;
     uint32 ip_proc_result = 0;
 
+    // write software build timestamp to registers
+    lcpu_baseaddr->sw_build_date = BUILD_DATE;
+    lcpu_baseaddr->sw_build_time = BUILD_TIME;
+
     tcp_connection_init();
 
     while (1) {
         //heart_beat_mod1();
-        //heart_beat_mod2();
+        heart_beat_mod2();
         //heart_beat_mod3();
 
         tcp_periodic_check();

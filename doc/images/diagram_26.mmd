@@ -1,9 +1,0 @@
-sequenceDiagram
-    participant BUS as LCPU Bus
-    participant MDIO as lcpu_mdio
-    participant PHY as 88E1111 PHY
-
-    BUS->>MDIO: op_req=1, wrl_rdh=0 (WRITE)
-    Note over MDIO: MDC时钟生成
-    MDIO->>PHY: PRE(32×1) + ST(01) + OP(01) + PHYAD(5bit) + REGAD(5bit) + TA(10) + DATA(16bit)
-    MDIO->>BUS: op_ack=1

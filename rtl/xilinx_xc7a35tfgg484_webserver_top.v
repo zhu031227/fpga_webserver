@@ -43,7 +43,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int second_event_period = 50000000;
   localparam int uart_baud_rate = 115200;
   localparam string cpu_vendor = "xilinx";  //"intel"; "xilinx"; "uart"
-  localparam int xilinx_idelay_value = 28;  // taps ~78ps @200MHz → ~2.2ns; compensate BUFG skew
+  localparam int xilinx_idelay_value = 16;
   localparam int riscv_inst_en = 1;
   localparam string instr_ram_type = "block";
   localparam int instr_addr_depth = 1024 * 5;

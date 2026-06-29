@@ -1,7 +1,0 @@
-flowchart LR
-    ASYNC["async_rst_l"] --> SYNC["同步器\n(2级FF)"]
-    PLL["pll_locked"] --> GATE["锁定门控"]
-    SYNC --> GATE
-    GATE --> OUT["rst_l (synced)"]
-    CLK["clk"] --> SYNC
-    CLK --> GATE

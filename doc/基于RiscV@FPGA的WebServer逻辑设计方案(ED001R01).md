@@ -56,14 +56,14 @@ LinkReal
      - 3.6.6 [reg_webserver 模块](#366-二级-reg_webserver-模块)
      - 3.6.7 [lcpu_mdio 模块](#367-二级-lcpu_mdio-模块)
      - 3.6.8 [gmii2mac 模块](#368-二级-gmii2mac-模块)
-     - 3.6.9 [cdc_bus_sync / cdc_bus_sync_vec 模块](#369-二级-cdc_bus_sync--cdc_bus_sync_vec-模块)
+     - 3.6.9 [cdc_bus_sync / cdc_bus_sync_vec 模块](#369-二级-cdc_bus_sync-cdc_bus_sync_vec-模块)
 5. [表目录](#表目录)
 6. [图目录](#图目录)
 7. [缩略语清单](#缩略语清单)
 
 ---
 
-## 参考资料清单 List of Reference
+## 参考资料清单
 
 1. 88E1111 Datasheet — Integrated 10/100/1000 Ultra Gigabit Ethernet Transceiver
 2. W25Q128JV Datasheet — 128M-Bit Serial Flash Memory
@@ -176,9 +176,6 @@ flowchart TB
     style Wrapper fill:#e3f2fd
 ```
 
-![图1](images/diagram_01.svg)
-
-
 **图2 数据流处理路径**
 
 ```mermaid
@@ -201,9 +198,6 @@ flowchart LR
     style CPU_RD fill:#c8e6c9
     style CPU_WR fill:#c8e6c9
 ```
-
-![图2](images/diagram_02.svg)
-
 
 **图3 FPGA内部模块层级树**
 
@@ -235,9 +229,6 @@ flowchart TD
     CH --> SOP["sop_eop_gen"]
 ```
 
-![图3](images/diagram_03.svg)
-
-
 ### 2.1.2 时钟域分析
 
 **图4 时钟域分布**
@@ -265,9 +256,6 @@ flowchart LR
 
     CLK125 <-->|"CDC (Gray/ReqAck)"| CLK50
 ```
-
-![图4](images/diagram_04.svg)
-
 
 ---
 
@@ -332,24 +320,21 @@ flowchart LR
     PHY -->|"RXC, RX_CTL, RXD[3:0]"| FPGA
 ```
 
-![图5](images/diagram_05.svg)
+**图6 RGMII 接收时序（RX，DDR）**
 
-
-**图6 RGMII接收时序**
-
-```mermaid
-sequenceDiagram
-    participant PHY as 88E1111 PHY
-    participant FPGA as FPGA (rgmii2gmii)
-
-    Note over PHY,FPGA: RGMII RX — 125MHz DDR
-    PHY->>FPGA: RXC (125MHz clock)
-    PHY->>FPGA: RXD[3:0] + RX_CTL (DDR)
-    Note right of FPGA: 上升沿采样 RXD[3:0] (低4bit)\n下降沿采样 RXD[3:0] (高4bit)\nRX_CTL: 上升沿=DV, 下降沿=DV xor ERR
+```wavedrom
+{ "signal": [
+    { "name": "RXC", "wave": "01.0.1.0.1.0.1." },
+    { "name": "RX_CTL", "wave": "01...........0.",
+    "data": ["RX_DV", "RX_DV^RX_ER"] },
+    { "name": "RXD[3:0]", "wave": "x4.4.4.4.4.4.x.",
+    "data": ["Q0[3:0]", "Q0[7:4]", "Q1[3:0]", "Q1[7:4]","Q2[3:0]", "Q2[7:4]",] }
+]}
 ```
-
-![图6](images/diagram_06.svg)
-
+> **RGMII接收时序说明**（来源：`ip_common/doc/常见标准接口时序.md`）：
+> - RXC 为 125MHz 接收时钟，上升沿采样低半字节 `byte[3:0]`，下降沿采样高半字节 `byte[7:4]`。
+> - RX_CTL 上升沿等价于 RX_DV，下降沿等价于 RX_DV^RX_ER。
+> - 每字节占 1 个 RXC 周期，低/高半字节成对拼接才形成完整字节。
 
 #### 2. UART 接口
 
@@ -423,9 +408,6 @@ flowchart TB
     style TOP fill:#e3f2fd
 ```
 
-![图7](images/diagram_07.svg)
-
-
 ### 3.2.2 顶层模块接口说明（Interface）
 
 #### 1. 接口信号
@@ -496,9 +478,6 @@ flowchart LR
     TX -->|"rgmii_txc\nrgmii_tx_ctl\nrgmii_txd"| RGMII_OUT["RGMII TX"]
 ```
 
-![图8](images/diagram_08.svg)
-
-
 ### 3.3.2 一级 rgmii2gmii 模块接口说明（Interface）
 
 #### 1. 接口信号
@@ -533,45 +512,31 @@ flowchart LR
 
 **图9 RGMII→GMII RX转换时序**
 
-```mermaid
-sequenceDiagram
-    participant RGMII as RGMII PHY
-    participant RX as rgmii_rx
-    participant GMII as GMII Internal
-
-    Note over RGMII,GMII: RGMII RX → GMII RX 转换
-    RGMII->>RX: RXC (125MHz DDR)
-    RGMII->>RX: RXD[3:0] (DDR data)
-    RGMII->>RX: RX_CTL (DDR control)
-    Note right of RX: 上升沿: RXD[3:0]=gmii_rxd[3:0]\n下降沿: RXD[3:0]=gmii_rxd[7:4]
-    RX->>GMII: gmii_rx_clk (125MHz)
-    RX->>GMII: gmii_rxd[7:0] (SDR)
-    RX->>GMII: gmii_rx_dv
+```wavedrom
+{ signal: [
+  { name: 'RXC (DDR)',       wave: 'p.........' },
+  { name: 'RXD[3:0] (DDR)',  wave: 'x3x4x5x6x7x', data: ['D0l', 'D0h', 'D1l', 'D1h', 'D2l', 'D2h'] },
+  { name: 'RX_CTL (DDR)',    wave: '1...................' },
+  {},
+  { name: 'gmii_rx_clk',     wave: 'p......' },
+  { name: 'gmii_rxd[7:0]',   wave: 'x3x4x5x', data: ['D0', 'D1', 'D2'] },
+  { name: 'gmii_rx_dv',      wave: '1.0....' },
+], head: { text: 'RGMII RX → GMII RX: rgmii_rx 模块转换时序' }, foot: { text: 'DDR→SDR: 上升沿RXD=gmii_rxd[3:0], 下降沿RXD=gmii_rxd[7:4]' } }
 ```
-
-![图9](images/diagram_09.svg)
-
 
 **图10 GMII→RGMII TX转换时序**
 
-```mermaid
-sequenceDiagram
-    participant GMII as GMII Internal
-    participant TX as rgmii_tx
-    participant RGMII as RGMII PHY
-
-    Note over GMII,RGMII: GMII TX → RGMII TX 转换
-    GMII->>TX: gmii_tx_clk (125MHz)
-    GMII->>TX: gmii_txd[7:0] (SDR)
-    GMII->>TX: gmii_tx_en
-    TX->>RGMII: TXC (125MHz DDR)
-    TX->>RGMII: TXD[3:0] (DDR data)
-    TX->>RGMII: TX_CTL (DDR control)
-    Note right of TX: 上升沿: TXD[3:0]=gmii_txd[3:0]\n下降沿: TXD[3:0]=gmii_txd[7:4]
+```wavedrom
+{ signal: [
+  { name: 'gmii_tx_clk',     wave: 'p......' },
+  { name: 'gmii_txd[7:0]',   wave: 'x3x4x5x', data: ['D0', 'D1', 'D2'] },
+  { name: 'gmii_tx_en',      wave: '1.0....' },
+  {},
+  { name: 'TXC (DDR)',       wave: 'p.........' },
+  { name: 'TXD[3:0] (DDR)',  wave: 'x3x4x5x6x7x', data: ['D0l', 'D0h', 'D1l', 'D1h', 'D2l', 'D2h'] },
+  { name: 'TX_CTL (DDR)',    wave: '1...................' },
+], head: { text: 'GMII TX → RGMII TX: rgmii_tx 模块转换时序' }, foot: { text: 'SDR→DDR: 上升沿TXD=gmii_txd[3:0], 下降沿TXD=gmii_txd[7:4]' } }
 ```
-
-![图10](images/diagram_10.svg)
-
 
 ### 3.3.3 一级 rgmii2gmii 模块实现说明（Implementation）
 
@@ -615,9 +580,6 @@ flowchart LR
     CLK --> GATE
 ```
 
-![图11](images/diagram_11.svg)
-
-
 ### 3.4.2 一级 clk_rst_ctrl 模块接口说明（Interface）
 
 #### 1. 接口信号
@@ -632,6 +594,19 @@ flowchart LR
 | rst_l | 1 | O | 同步释放复位输出（低有效） |
 | **模块控制参数** |
 | NUM_LOCK_INPUTS | parameter | integer | PLL锁定信号数量 |
+
+#### 2. 接口时序
+
+**图12 clk_rst_ctrl 复位释放时序**
+
+```wavedrom
+{ signal: [
+  { name: 'clk',          wave: 'p.......' },
+  { name: 'async_rst_l',  wave: '0.1......' },
+  { name: 'pll_locked',   wave: '0...1....' },
+  { name: 'rst_l (sync)', wave: '0.....1..' },
+], head: { text: 'clk_rst_ctrl: 异步复位同步释放 + PLL锁定门控' }, foot: { text: 'async_rst_l释放后需等待所有pll_locked=1，再经2级FF同步(2个clk周期)后释放rst_l' } }
+```
 
 ---
 
@@ -655,7 +630,7 @@ flowchart LR
 
 #### 3. 内部模块结构图
 
-**图12 pll_50m 模块内部结构**
+**图13 pll_50m 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -665,9 +640,6 @@ flowchart LR
     MMCM --> C2["c2: 200MHz"]
     MMCM --> LOCK["locked"]
 ```
-
-![图12](images/diagram_12.svg)
-
 
 ### 3.5.2 一级 pll_50m 模块接口说明（Interface）
 
@@ -682,6 +654,20 @@ flowchart LR
 | c1 | 1 | O | 输出时钟1（125MHz） |
 | c2 | 1 | O | 输出时钟2（200MHz） |
 | locked | 1 | O | PLL锁定指示（高有效） |
+
+#### 2. 接口时序
+
+**图14 pll_50m PLL锁定和时钟输出时序**
+
+```wavedrom
+{ signal: [
+  { name: 'inclk0 (50MHz)', wave: 'p..|..|..|..' },
+  { name: 'locked',         wave: '0...1.......' },
+  { name: 'c0 (50MHz)',     wave: 'x...p.......' },
+  { name: 'c1 (125MHz)',    wave: 'x...p.|.....' },
+  { name: 'c2 (200MHz)',    wave: 'x...p.|.|...' },
+], head: { text: 'pll_50m MMCM: inclk0→锁定→多路时钟输出' }, foot: { text: '锁定前c0/c1/c2输出不稳定(MMCM锁定需数百μs); locked=1后clk_rst_ctrl才释放系统复位' } }
+```
 
 ---
 
@@ -710,7 +696,7 @@ flowchart LR
 
 #### 3. 内部模块结构图
 
-**图13 webserver_wrapper 模块内部结构**
+**图15 webserver_wrapper 模块内部结构**
 
 ```mermaid
 flowchart TB
@@ -754,9 +740,6 @@ flowchart TB
     style ETH_GRP fill:#ffccbc
     style CDC_GRP fill:#e1bee7
 ```
-
-![图13](images/diagram_13.svg)
-
 
 ### 3.6.2 一级 webserver_wrapper 模块接口说明（Interface）
 
@@ -826,7 +809,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图14 tod 模块内部结构**
+**图16 tod 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -835,9 +818,6 @@ flowchart LR
     CNT --> REG
     REG --> OUT["time_out"]
 ```
-
-![图14](images/diagram_14.svg)
-
 
 #### 3.6.1.2 二级 tod 模块接口说明（Interface）
 
@@ -858,23 +838,17 @@ flowchart LR
 
 ##### 2. 接口时序
 
-**图15 tod 快照时序**
+**图17 tod 快照时序**
 
-```mermaid
-sequenceDiagram
-    participant REG as reg_webserver
-    participant TOD as tod
-    participant BUS as LCPU Bus
-
-    REG->>TOD: get_local_time_ind (pulse)
-    Note over TOD: 锁存counter_live → time_out
-    TOD-->>REG: local_time_l[31:0]
-    TOD-->>REG: local_time_h[31:0]
-    REG-->>BUS: 寄存器读 (addr 0x7/0x8)
+```wavedrom
+{ signal: [
+  { name: 'clk (50MHz)',     wave: 'p......' },
+  { name: 'counter_live',    wave: 'x34567x', data: ['N', 'N+20', 'N+40', 'N+60', 'N+80'] },
+  { name: 'snapshot',        wave: '0..10..' },
+  { name: 'time_out',        wave: 'x...4..x', data: ['N+40'] },
+], head: { text: 'tod 快照: snapshot脉冲触发后锁存当前counter_live值到time_out' } }
 ```
-
-![图15](images/diagram_15.svg)
-
+> snapshot信号由reg_webserver产生（get_local_time_ind），脉冲宽度1个clk周期。锁存后CPU通过0x07/0x08寄存器读取time_out。
 
 ---
 
@@ -898,7 +872,7 @@ sequenceDiagram
 
 ##### 3. 内部模块结构图
 
-**图16 interval_timer 模块内部结构**
+**图18 interval_timer 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -907,9 +881,6 @@ flowchart LR
     CMP --> OUT["event_out"]
     CMP -->|"清零"| CNT
 ```
-
-![图16](images/diagram_16.svg)
-
 
 #### 3.6.2.2 二级 interval_timer 模块接口说明（Interface）
 
@@ -926,6 +897,18 @@ flowchart LR
 | counter_width | parameter | integer | 计数器位宽（26） |
 | period_count | parameter | integer | 周期计数值（50000000） |
 | output_mode | parameter | integer | 输出模式（0=toggle） |
+
+##### 2. 接口时序
+
+**图19 interval_timer 定时事件时序**
+
+```wavedrom
+{ signal: [
+  { name: 'clk (50MHz)',  wave: 'p......' },
+  { name: 'counter',      wave: '2.2.2.2.2.2', data: ['0','1','...','N-1','N=50000000','0'] },
+  { name: 'event_out',    wave: '0.........1...' },
+], head: { text: 'interval_timer: Toggle模式 (output_mode=0)' }, foot: { text: 'counter == period_count-1时event_out翻转，实现周期=2×period_count=1s @ 50MHz' } }
+```
 
 ---
 
@@ -971,7 +954,7 @@ flowchart LR
 
 ##### 3. 内部模块结构图
 
-**图17 lcpu_riscv_wrapper 模块内部结构**
+**图20 lcpu_riscv_wrapper 模块内部结构**
 
 ```mermaid
 flowchart TB
@@ -994,9 +977,6 @@ flowchart TB
     style RISCV fill:#b3e5fc
     style MERGE fill:#e1bee7
 ```
-
-![图17](images/diagram_17.svg)
-
 
 ##### 4. RISC-V C代码及编译环境介绍
 
@@ -1145,7 +1125,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图18 riscv32_top 模块内部结构**
+**图21 riscv32_top 模块内部结构**
 
 ```mermaid
 flowchart TB
@@ -1168,9 +1148,6 @@ flowchart TB
     style CORE fill:#ffccbc
     style IRAM fill:#c8e6c9
 ```
-
-![图18](images/diagram_18.svg)
-
 
 ##### 4. 接口信号
 
@@ -1218,7 +1195,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图19 lcpu_merge 模块内部结构**
+**图22 lcpu_merge 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -1226,9 +1203,6 @@ flowchart LR
     RISCV_BUS["Port 2: RISC-V\n(req/rhwl/...)\n低优先级"] --> ARB
     ARB -->|"统一LCPU Bus"| EXT["外部总线"]
 ```
-
-![图19](images/diagram_19.svg)
-
 
 ##### 4. 接口信号
 
@@ -1260,6 +1234,21 @@ flowchart LR
 | op_ack | 1 | I | 合并后应答 |
 | rddata | 32 | I | 合并后读数据 |
 
+##### 4. 接口时序
+
+**图23 lcpu_merge 双主机仲裁时序**
+
+```wavedrom
+{ signal: [
+  { name: 'clk',               wave: 'p........' },
+  { name: 'op_req_1 (JTAG)',   wave: '0...10...0' },
+  { name: 'op_req_2 (RISC-V)', wave: '0..1......0' },
+  { name: 'op_req (merged)',   wave: '0...10...0' },
+  { name: 'op_ack_1 (JTAG)',   wave: '0.....10.0' },
+  { name: 'op_ack_2 (RISC-V)', wave: '0..........0' },
+], head: { text: 'lcpu_merge 仲裁: JTAG (Port1) 优先, RISC-V (Port2) 等待' }, foot: { text: 'JTAG优先级高于RISC-V; JTAG的op_req_1=1时合并输出选Port1; RISC-V仅在Port1空闲时获得总线' } }
+```
+
 ---
 
 ### 3.6.5 二级 cpu_channel 模块
@@ -1283,7 +1272,7 @@ flowchart LR
 
 ##### 3. 内部模块结构图
 
-**图20 cpu_channel 模块内部结构**
+**图24 cpu_channel 模块内部结构**
 
 ```mermaid
 flowchart TB
@@ -1315,9 +1304,6 @@ flowchart TB
     style RX_PATH fill:#e8f5e9
     style TX_PATH fill:#fff3e0
 ```
-
-![图20](images/diagram_20.svg)
-
 
 #### 3.6.5.2 二级 cpu_channel 模块接口说明（Interface）
 
@@ -1362,6 +1348,78 @@ flowchart TB
 | cpu_wr_wpkt_push | 1 | I | 写包推送 |
 | cpu_wr_wpkt_len | cpu_buf_addr_width+1 | I | 写包长度 |
 
+##### 2. 接口时序
+
+**图25 cpu_channel RX 数据通道（MAC→CPU）**
+
+MAC侧（125MHz clk，信号名来自 `ip_common/doc/常用LRIP接口时序.md` gmii2mac MAC侧包流接口）：
+```wavedrom
+{ "signal": [
+    { "name": "clk", "wave": "10P..........." },
+    { "name": "mac_rx_sop", "wave": "0.10.........." },
+    { "name": "mac_rx_en", "wave": "0.1..........0" },
+    { "name": "mac_rx_data", "wave": "x.3.4.5....6.x",
+      "data": ["DMAC...", "SMAC...", "...", "FSC..."]
+    },
+    { "name": "mac_rx_eop", "wave": "0...........10" },
+    { "name": "mac_rx_err", "wave": "0............." }
+]}
+```
+> RX数据在 mac_rx_en=1 期间有效，mac_rx_sop/eop 各持续1个clk周期。
+
+CPU侧（50MHz cpu_clk，参考包FIFO读时序，信号名调整为 cpu_channel 端口名）：
+```wavedrom
+{ "signal": [
+    { "name": "cpu_clk", "wave": "10P.........." },
+    { "name": "cpu_rd_empty", "wave": "10..........." },
+    { "name": "cpu_rd_rpkt_pop", "wave": "0.10........." },
+    { "name": "cpu_rd_rpkt_len", "wave": "x...4x.......",
+      "data": ["n"] },
+    { "name": "cpu_rd_ren", "wave": "0.....1....0." },
+    { "name": "cpu_rd_raddr", "wave": "x.....345..x.",
+      "data": ["0", "1", "n-1"] },
+    { "name": "cpu_rd_rdata", "wave": "x......345..x",
+      "data": ["D0", "D1", "Dn-1"] }
+]}
+```
+> cpu_rd_empty=0 时 CPU 通过 reg_webserver 发送 cpu_rd_rpkt_pop=1 弹出包；2周期后 cpu_rd_rpkt_len 有效；随后 cpu_rd_ren=1 逐字读取，cpu_rd_raddr 递增。
+
+**图26 cpu_channel TX 数据通道（CPU→MAC）**
+
+CPU侧（50MHz cpu_clk，参考包FIFO写时序，信号名调整为 cpu_channel 端口名）：
+```wavedrom
+{ "signal": [
+    { "name": "cpu_clk", "wave": "10P......." },
+    { "name": "cpu_wr_wen", "wave": "0.1....0." },
+    { "name": "cpu_wr_waddr", "wave": "x.345..x.",
+      "data": ["0", "1", "n-1"] },
+    { "name": "cpu_wr_wdata", "wave": "x.345..x.",
+      "data": ["D0", "D1", "Dn-1"] },
+    { "name": "cpu_wr_wpkt_push", "wave": "0......10" },
+    { "name": "cpu_wr_wpkt_len", "wave": "x......3x",
+      "data": ["n"] },
+    { "name": "cpu_wr_full", "wave": "0......." }
+]}
+```
+> CPU 通过 reg_webserver 逐字写入包数据（cpu_wr_wen=1），写入完成后发送 cpu_wr_wpkt_push=1 推送完整包。
+
+MAC侧（125MHz clk，TX方向与RX对称，来源同 MAC侧包流接口）：
+```wavedrom
+{ "signal": [
+    { "name": "clk", "wave": "10P..........." },
+    { "name": "mac_tx_sop", "wave": "0.10.........." },
+    { "name": "mac_tx_en", "wave": "0.1..........0" },
+    { "name": "mac_tx_data", "wave": "x.3.4.5....6.x",
+      "data": ["DMAC...", "SMAC...", "...", "FSC..."]
+    },
+    { "name": "mac_tx_eop", "wave": "0...........10" },
+    { "name": "mac_tx_err", "wave": "0............." }
+]}
+```
+> MAC TX 方向时序与 RX 对称：sop/eop 各1周期脉冲，en=1 期间 data 有效。err=1 时强制产生错误 FCS。
+
+> **数据流总述**：RX — MAC(125MHz)→ram2pktfifo_int→包FIFO写→CDC(125→50MHz)→包FIFO读→CPU读端口。TX — CPU写端口→包FIFO写→CDC(50→125MHz)→包FIFO读→pktfifo2ram_int_v2→sop_eop_gen→MAC TX(125MHz)。
+
 ---
 
 #### 3.6.5.1 三级 ram2pktfifo_int 模块
@@ -1396,6 +1454,25 @@ flowchart TB
 | wpkt_push | 1 | O | 包推送 |
 | wpkt_len | addr_width+1 | O | 包长度 |
 
+##### 3. 接口时序
+
+**图27 ram2pktfifo_int 字节流转包FIFO时序**
+
+```wavedrom
+{ signal: [
+  { name: 'clk',         wave: 'p..........' },
+  { name: 'ram_wen',     wave: '0.1.....0..' },
+  { name: 'ram_wdata',   wave: 'x.345678x..', data: ['D0','D1','D2','D3','D4','D5'] },
+  { name: 'ram_waddr',   wave: 'x.345678x..', data: ['0','1','2','3','4','5'] },
+  {},
+  { name: 'wen',         wave: '0..1.....0.' },
+  { name: 'wdata',       wave: 'x..345678x.', data: ['D0','D1','D2','D3','D4','D5'] },
+  { name: 'waddr',       wave: 'x..345678x.', data: ['0','1','2','3','4','5'] },
+  { name: 'wpkt_push',   wave: '0........10' },
+  { name: 'wpkt_len',    wave: 'x........9x', data: ['6'] },
+], head: { text: 'ram2pktfifo_int: 连续字节流 → 包FIFO写接口' }, foot: { text: 'EOP检测: ram_wen连续拉高后拉低, 自动生成wpkt_push脉冲和wpkt_len(累计字节数)' } }
+```
+
 ---
 
 #### 3.6.5.2 三级 package_fifo_v2 模块
@@ -1417,7 +1494,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图21 package_fifo_v2 模块内部结构**
+**图28 package_fifo_v2 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -1439,9 +1516,6 @@ flowchart LR
     WCLK["wclk"] --> CTRL
     RCLK["rclk"] --> CTRL
 ```
-
-![图21](images/diagram_21.svg)
-
 
 ##### 4. 接口信号
 
@@ -1469,7 +1543,61 @@ flowchart LR
 | raddr | addr_width | I | 读地址 |
 | rdata | data_width | O | 读数据 |
 
-##### 5. RAM 资源
+##### 4. 接口时序
+
+**图29 包FIFO写时序**
+
+```wavedrom
+{ "signal": [
+    { "name": "wclk", "wave": "10P......." },
+    { "name": "wen", "wave": "0.1....0." },
+    { "name": "waddr", "wave": "x.345..x.",
+      "data": ["0", "1", "n-1"]
+    },
+    { "name": "wdata", "wave": "x.345..x.",
+      "data": ["D0", "D1", "Dn-1"]
+    },
+    { "name": "wpkt_push", "wave": "0......10" },
+    { "name": "wpkt_len", "wave": "x......3x",
+      "data": ["n"]
+    },
+    { "name": "wpkt_para", "wave": "x......3x",
+      "data": ["Para"]
+    },
+    { "name": "full", "wave": "0......." }
+]}
+```
+> **包FIFO写时序说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - wclk 为写侧时钟，wen=1 时 waddr/wdata 有效，逐字写入包数据。
+> - 包数据写入完成后，紧接着发送 wpkt_push=1（与 wen=0 同一周期），wpkt_len 给出包总长度（word数），wpkt_para 为附带参数。
+> - full=1 时表示 FIFO 剩余空间不足以容纳最大包，此时不应再写入。
+
+**图30 包FIFO读时序**
+
+```wavedrom
+{ "signal": [
+    { "name": "rclk", "wave": "10P.........." },
+    { "name": "empty", "wave": "10..........." },
+    { "name": "rpkt_pop", "wave": "0.10........." },
+    { "name": "rpkt_len", "wave": "x...4x.......",
+      "data": ["n"]
+    },
+    { "name": "rpkt_para", "wave": "x...4x.......",
+      "data": ["Para"]
+    },
+    { "name": "ren", "wave": "0.....1....0." },
+    { "name": "raddr", "wave": "x.....345..x.",
+      "data": ["0", "1", "n-1"]
+    },
+    { "name": "rdata", "wave": "x......345..x",
+      "data": ["D0", "D1", "Dn-1"]
+    }
+]}
+```
+> **包FIFO读时序说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - rclk 为读侧时钟，empty=0 时发送 rpkt_pop=1 弹出一个包。
+> - rpkt_pop 发出后 2 个时钟周期 rpkt_len 和 rpkt_para 有效。
+> - 通过 ren=1 逐字读取，raddr 为偏移地址（0~rpkt_len-1），rdata 在下一个时钟周期返回。
 
 | RAM 类型 | 数量 | 配置 | 用途 |
 |----------|------|------|------|
@@ -1512,6 +1640,24 @@ flowchart LR
 | **模块控制参数** |
 | ipg | parameter | integer | IPG间隔（8周期） |
 
+##### 4. 接口时序
+
+**图31 pktfifo2ram_int_v2 包FIFO→字节流+IPG时序**
+
+```wavedrom
+{ signal: [
+  { name: 'clk',       wave: 'p.........' },
+  { name: 'empty',     wave: '1.0........' },
+  { name: 'rpkt_pop',  wave: '0.10.......' },
+  { name: 'rpkt_len',  wave: 'x.3........', data: ['2'] },
+  { name: 'ren',       wave: '0..1...0...' },
+  { name: 'rdata',     wave: 'x...3456x..', data: ['D0','D1','D2','D3'] },
+  {},
+  { name: 'ram_wen',   wave: '0...1...0..' },
+  { name: 'ram_wdata', wave: 'x...3456xxx', data: ['D0','D1','D2','D3'] },
+], head: { text: 'pktfifo2ram_int_v2: 包FIFO读取→字节流输出+IPG间隔插入' }, foot: { text: 'rpkt_pop弹出包→逐字节ren读取→ram_wen输出; 包间自动插入ipg=8个时钟周期的间隔' } }
+```
+
 ---
 
 #### 3.6.5.4 三级 sop_eop_gen 模块
@@ -1532,25 +1678,20 @@ flowchart LR
 
 ##### 3. 时序图
 
-**图22 sop_eop_gen 时序**
+**图32 sop_eop_gen 时序**
 
-```mermaid
-sequenceDiagram
-    participant F2R as pktfifo2ram_int_v2
-    participant SOP_GEN as sop_eop_gen
-    participant MAC as gmii2mac
-
-    F2R->>SOP_GEN: i_en (字节流使能)
-    F2R->>SOP_GEN: i_data (字节流数据)
-    Note over SOP_GEN: 检测 i_en 上升沿 → o_sop\n检测 i_en 下降沿 → o_eop
-    SOP_GEN->>MAC: o_sop (包起始)
-    SOP_GEN->>MAC: o_en (数据使能)
-    SOP_GEN->>MAC: o_data (数据)
-    SOP_GEN->>MAC: o_eop (包结束)
+```wavedrom
+{ signal: [
+  { name: 'clk',     wave: 'p........' },
+  { name: 'i_en',    wave: '0.1.....0' },
+  { name: 'i_data',  wave: 'x.345678x', data: ['D0', 'D1', 'D2', 'D3', 'D4', 'D5'] },
+  {},
+  { name: 'o_sop',   wave: '0.10.....' },
+  { name: 'o_en',    wave: '0.1.....0' },
+  { name: 'o_data',  wave: 'x.345678x', data: ['D0', 'D1', 'D2', 'D3', 'D4', 'D5'] },
+  { name: 'o_eop',   wave: '0......10' },
+], head: { text: 'sop_eop_gen: 连续字节流 → 带SOP/EOP边带的包流' }, foot: { text: 'i_en上升沿→o_sop=1; i_en下降沿→o_eop=1; o_en比i_en延迟1个clk' } }
 ```
-
-![图22](images/diagram_22.svg)
-
 
 ---
 
@@ -1579,45 +1720,6 @@ sequenceDiagram
   - CPU写通道控制（0x6100~0x610F）：cpu_wr_*寄存器
   - MDIO子总线（0x1000~0x1FFF）：自动转发到lcpu_mdio
 - 超时应答机制（is_req_cnt ≥ 0xF000时自动应答0xDEADDEAD）
-
-##### 3. 内部模块结构图
-
-**图23 reg_webserver 模块内部结构**
-
-```mermaid
-flowchart TB
-    subgraph REG["reg_webserver"]
-        DEC["地址译码器\n16bit address"]
-        REG_BANK["寄存器组"]
-        TIMEOUT["超时检测\nis_req_cnt"]
-        MDIO_SUB["MDIO子总线\n转发"]
-        ACK_MUX["ACK选择器"]
-    end
-
-    BUS["LCPU Bus\n(req/rhwl/wdata/address)"] --> DEC
-    DEC -->|"0x00-0x0F"| SYS["系统信息寄存器"]
-    DEC -->|"0x10-0x13"| DBG_W["debug_rw"]
-    DEC -->|"0x20-0x23"| DBG_R["debug_ro"]
-    DEC -->|"0x100-0x106"| ETH["以太网统计"]
-    DEC -->|"0x200-0x201"| FILT["包过滤器"]
-    DEC -->|"0x6000-0x600F"| CPU_RD["CPU读通道"]
-    DEC -->|"0x6100-0x610F"| CPU_WR["CPU写通道"]
-    DEC -->|"0x1000-0x1FFF"| MDIO_SUB --> MDIO["lcpu_mdio"]
-    BUS --> TIMEOUT
-    SYS --> ACK_MUX
-    DBG_W --> ACK_MUX
-    DBG_R --> ACK_MUX
-    ETH --> ACK_MUX
-    FILT --> ACK_MUX
-    CPU_RD --> ACK_MUX
-    CPU_WR --> ACK_MUX
-    TIMEOUT --> ACK_MUX
-    MDIO_SUB --> ACK_MUX
-    ACK_MUX -->|"rdata/ack"| BUS
-```
-
-![图23](images/diagram_23.svg)
-
 
 ### 3.6.6.2 二级 reg_webserver 模块接口说明（Interface）
 
@@ -1701,6 +1803,57 @@ flowchart TB
 | 0x6106 | cpu_wr_wpkt_push | 1 | RW | CPU写包推送 |
 | 0x1000-0x1FFF | MDIO子总线 | — | RW | 转发到lcpu_mdio |
 
+#### 3.6.6.3.1 LCPU Bus 接口时序
+
+**图33 LCPU 读寄存器时序（Master）**
+
+```wavedrom
+{ "signal": [
+    { "name": "CLK", "wave": "10P......" },
+    { "name": "RH_WL", "wave": "xx1x....." },
+    { "name": "REQ", "wave": "0.10....." },
+    { "name": "ACK", "wave": "0......10" },
+    { "name": "ADDR", "wave": "x.3x.....",
+        "data": ["Addr"]
+    },
+    { "name": "RDATA", "wave": "x......3x",
+        "data": ["rdata"]
+    },
+    { "name": "WDATA", "wave": "x........",
+        "data": ["wdata"]
+    }
+]}
+```
+> **LCPU读寄存器时序说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - CLK 为系统CPU操作时钟，默认 50MHz。
+> - 主设备发送一个时钟周期的 REQ=1 读请求，RH_WL=1（高电平）表示读操作。
+> - 在 REQ 有效的时钟周期，ADDR 为有效的读操作地址。
+> - 从设备操作完成后返回 ACK=1，同一周期 RDATA 有效。从 REQ 到 ACK 的延迟取决于从设备（几个到数百个周期不等）。
+
+**图34 LCPU 写寄存器时序（Master）**
+
+```wavedrom
+{ "signal": [
+    { "name": "CLK", "wave": "10P......" },
+    { "name": "RH_WL", "wave": "xx0x....." },
+    { "name": "REQ", "wave": "0.10....." },
+    { "name": "ACK", "wave": "0....10.." },
+    { "name": "ADDR", "wave": "x.3x.....",
+        "data": ["Addr"]
+    },
+    { "name": "WDATA", "wave": "x.3x.....",
+        "data": ["wdata"]
+    },
+    { "name": "RDATA", "wave": "x.......x",
+        "data": ["rdata"]
+    }
+]}
+```
+> **LCPU写寄存器时序说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - 主设备发送一个时钟周期的 REQ=1 写请求，RH_WL=0（低电平）表示写操作。
+> - ADDR 和 WDATA 在 REQ 有效周期同时给出。
+> - 从设备操作完成后返回 ACK=1。延迟取决于从设备。
+
 #### 3.6.6.4 二级 reg_webserver 模块实现说明（Implementation）
 
 | 特征 | 内容 |
@@ -1733,7 +1886,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图24 lcpu_mdio 模块内部结构**
+**图35 lcpu_mdio 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -1750,9 +1903,6 @@ flowchart LR
     MDIO_BUF <-->|"MDIO"| PHY
     FSM -->|"op_ack/rddata"| BUS
 ```
-
-![图24](images/diagram_24.svg)
-
 
 #### 3.6.7.2 二级 lcpu_mdio 模块接口说明（Interface）
 
@@ -1775,40 +1925,33 @@ flowchart LR
 
 ##### 2. 接口时序
 
-**图25 MDIO Clause 22 读时序**
+**图36 MDIO 读时序（Clause 22）**
 
-```mermaid
-sequenceDiagram
-    participant BUS as LCPU Bus
-    participant MDIO as lcpu_mdio
-    participant PHY as 88E1111 PHY
-
-    BUS->>MDIO: op_req=1, wrl_rdh=1 (READ)
-    Note over MDIO: MDC时钟生成
-    MDIO->>PHY: PRE(32×1) + ST(01) + OP(10) + PHYAD(5bit) + REGAD(5bit) + TA(ZZ)
-    PHY->>MDIO: TA + DATA(16bit)
-    MDIO->>BUS: op_ack=1, rddata[15:0]=寄存器值
+```wavedrom
+{ "signal": [
+    { "name": "MDC", "wave": "1..0.101010101010101010101." },
+    { "name": "MDIO(Master)", "wave": "1.3.3.3.3.3.3.3.3.3.z.z................", "data": ["PRE", "ST=01", "OP=10", "PHYAD", "REGAD", "TA=Z0"] },
+    { "name": "MDIO(Slave)",  "wave": "z.z.z.z.z.z.z.z.z.z.0.3.3.x", "data": ["TA0", "RDATA[15:0]"] }
+]}
 ```
+> **MDIO读时序说明**（来源：`ip_common/doc/常见标准接口时序.md`）：
+> - Clause 22 读帧：PRE(32×1) + ST(01) + OP(10) + PHYAD(5) + REGAD(5) + TA(Z0) + RDATA(16)。
+> - TA 阶段主设备释放 MDIO 为高阻（Z），从设备输出 TA0 作为应答，随后输出 16bit 读数据。
+> - CPU 通过 reg_webserver 写入地址 0x1000-0x1FFF 触发 MDIO 操作。
 
-![图25](images/diagram_25.svg)
+**图37 MDIO 写时序（Clause 22）**
 
-
-**图26 MDIO Clause 22 写时序**
-
-```mermaid
-sequenceDiagram
-    participant BUS as LCPU Bus
-    participant MDIO as lcpu_mdio
-    participant PHY as 88E1111 PHY
-
-    BUS->>MDIO: op_req=1, wrl_rdh=0 (WRITE)
-    Note over MDIO: MDC时钟生成
-    MDIO->>PHY: PRE(32×1) + ST(01) + OP(01) + PHYAD(5bit) + REGAD(5bit) + TA(10) + DATA(16bit)
-    MDIO->>BUS: op_ack=1
+```wavedrom
+{ "signal": [
+    { "name": "MDC", "wave": "1..0.101010101010" },
+    { "name": "MDIO", "wave": "1.3.3.3.3.3.3.3.x",
+        "data": ["PRE", "ST=01", "OP=01", "PHYAD", "REGAD", "TA=10", "WDATA[15:0]"]
+    }
+]}
 ```
-
-![图26](images/diagram_26.svg)
-
+> **MDIO写时序说明**（来源：`ip_common/doc/常见标准接口时序.md`）：
+> - Clause 22 写帧：PRE(32×1) + ST(01) + OP(01) + PHYAD(5) + REGAD(5) + TA(10) + WDATA(16)。
+> - TA 写事务为 10，由主设备继续驱动 MDIO。每 bit 在 MDC 下降沿后更新，上升沿被采样。
 
 ---
 
@@ -1833,7 +1976,7 @@ sequenceDiagram
 
 ##### 3. 内部模块结构图
 
-**图27 gmii2mac 模块内部结构**
+**图38 gmii2mac 模块内部结构**
 
 ```mermaid
 flowchart TB
@@ -1861,9 +2004,6 @@ flowchart TB
     style RX_PATH fill:#e8f5e9
     style TX_PATH fill:#fff3e0
 ```
-
-![图27](images/diagram_27.svg)
-
 
 #### 3.6.8.2 二级 gmii2mac 模块接口说明（Interface）
 
@@ -1895,6 +2035,61 @@ flowchart TB
 | rx_afifo_full_cnt | 32 | O | RX FIFO满计数 |
 | rx_afifo_empty_cnt | 32 | O | RX FIFO空计数 |
 | rx_data_err_line | 32 | O | RX数据错误行计数 |
+
+##### 2. 接口时序
+
+**图39 GMII RX 接口时序**
+
+```wavedrom
+{ "signal": [
+    { "name": "Eth_RXC", "wave": "10P..........." },
+    { "name": "Eth_RXDV", "wave": "0.1..........0" },
+    { "name": "Eth_RXD", "wave": "x.3.4.x....5.x",
+      "data": ["DMAC...","SMAC...", "FCS..."]
+    },
+    { "name": "Eth_RXER", "wave": "0.............." }
+]}
+```
+> **GMII RX说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - Eth_RXC 为 GMII 接收参考时钟（125MHz/25MHz/2.5MHz，由 PHY 提供）。
+> - Eth_RXDV=1 期间 Eth_RXD[7:0] 上的数据有效。Eth_RXER=1 时表示接收错误。
+> - RX 通路内部经 dual_clock_fifo（深度8）实现 Eth_RXC→clk 跨时钟域切换。
+
+**图40 GMII 发送时序（TX）**
+
+```wavedrom
+{ "signal": [
+    { "name": "GTX_CLK", "wave": "P........" },
+    { "name": "TX_EN", "wave": "01......0" },
+    { "name": "TX_ER", "wave": "0......x0" ,
+     "data": ["0/1"] },
+    { "name": "TXD[7:0]", "wave": "x4444444x",
+    "data": ["B0", "B1", "B2", "B3", "B4", "B5", "B6"] }
+]}
+```
+> **GMII发送时序说明**（来源：`ip_common/doc/常见标准接口时序.md`）：
+> - GTX_CLK 为 125MHz 发送时钟，每周期发送 1 字节。TX_EN=1 期间 TXD[7:0] 有效。
+> - TX_ER=1 表示对应周期存在发送错误。帧间插入 IFG（Inter-Frame Gap）空闲周期（≥12 字节时间）。
+
+**图41 MAC侧包流接口时序**
+
+```wavedrom
+{ "signal": [
+    { "name": "clk", "wave": "10P..........." },
+    { "name": "mac_rx_sop", "wave": "0.10.........." },
+    { "name": "mac_rx_en", "wave": "0.1..........0" },
+    { "name": "mac_rx_data", "wave": "x.3.4.5....6.x",
+      "data": ["DMAC...", "SMAC...", "...", "FSC..."]
+    },
+    { "name": "mac_rx_eop", "wave": "0...........10" },
+    { "name": "mac_rx_err", "wave": "0............." },
+    {}
+]}
+```
+> **MAC包流接口说明**（来源：`ip_common/doc/常用LRIP接口时序.md`）：
+> - mac_rx_sop 为包起始脉冲（1 周期），mac_rx_eop 为包结束脉冲（1 周期）。
+> - mac_rx_en=1 期间 mac_rx_data 有效。mac_rx_err 在 eop 时有效，表示包异常。
+> - TX 方向（mac_tx_*）时序与 RX 完全对称，不单独画图。
 
 #### 3.6.8.3 二级 gmii2mac 模块实现说明（Implementation）
 
@@ -1931,7 +2126,7 @@ flowchart TB
 
 ##### 3. 内部模块结构图
 
-**图28 cdc_bus_sync 模块内部结构**
+**图42 cdc_bus_sync 模块内部结构**
 
 ```mermaid
 flowchart LR
@@ -1955,10 +2150,7 @@ flowchart LR
     DST -->|"src_ready"| MODE1
 ```
 
-![图28](images/diagram_28.svg)
-
-
-**图29 cdc_bus_sync_vec 模块内部结构（CHANNELS=7）**
+**图43 cdc_bus_sync_vec 模块内部结构（CHANNELS=7）**
 
 ```mermaid
 flowchart TB
@@ -1979,9 +2171,6 @@ flowchart TB
 
     style VEC fill:#e1bee7
 ```
-
-![图29](images/diagram_29.svg)
-
 
 #### 3.6.9.2 二级 CDC 模块接口说明（Interface）
 
@@ -2021,6 +2210,37 @@ flowchart TB
 | CHANNELS | parameter | integer | 通道数 |
 | MODE | parameter | integer | 0=Gray, 1=REQACK |
 
+##### 2. 接口时序
+
+**图44 CDC Gray模式时序 (MODE=0)**
+
+```wavedrom
+{ signal: [
+  { name: 'src_clk',   wave: 'p......' },
+  { name: 'src_data',  wave: 'x34x...', data: ['N', 'N+1'] },
+  {},
+  { name: 'dst_clk',   wave: 'p......' },
+  { name: 'dst_data',  wave: 'x..34x.', data: ['N', 'N+1'] },
+], head: { text: 'cdc_bus_sync MODE=0: Gray计数器同步' }, foot: { text: 'dst_data落后src_data约2-3个dst_clk周期。Gray编码保证跨时钟域时只有1bit翻转。' } }
+```
+> MODE=0适用于单调递增计数器（如以太网统计），数据先在源域转Gray码，经过2级同步器后在目的域解Gray码。
+
+**图45 CDC REQACK模式时序 (MODE=1)**
+
+```wavedrom
+{ signal: [
+  { name: 'src_clk',   wave: 'p.......' },
+  { name: 'src_data',  wave: 'x.34....', data: ['0x12', '0x34'] },
+  { name: 'src_valid', wave: '0.10....' },
+  { name: 'src_ready', wave: '1..0...1' },
+  {},
+  { name: 'dst_clk',   wave: 'p.......' },
+  { name: 'dst_data',  wave: 'x..3.4..', data: ['0x12', '0x34'] },
+  { name: 'dst_valid', wave: '0..1.0..' },
+], head: { text: 'cdc_bus_sync MODE=1: REQACK全握手同步' }, foot: { text: 'src_valid置1→等待dst_ack→src_ready=0(锁存数据)→dst_data更新→ack返回→src_ready恢复1。' } }
+```
+> MODE=1适用于任意数据变化（如filter_data/offset），通过REQ/ACK握手保证数据在目的域被正确采样。
+
 #### 3.6.9.3 二级 CDC 模块实现说明（Implementation）
 
 | 特征 | 内容 |
@@ -2032,7 +2252,7 @@ flowchart TB
 
 ---
 
-## 表目录 List of Tables
+## 表目录
 
 | 表编号 | 表名 |
 |--------|------|
@@ -2062,43 +2282,59 @@ flowchart TB
 | 表24 | cdc_bus_sync 模块接口信号表 |
 | 表25 | cdc_bus_sync_vec 模块接口信号表 |
 
-## 图目录 List of Figures
+## 图目录
 
-| 图编号 | 图名 |
-|--------|------|
 | 图1 | 基于RiscV@FPGA的WebServer逻辑总体结构框图 |
 | 图2 | 数据流处理路径 |
 | 图3 | FPGA内部模块层级树 |
 | 图4 | 时钟域分布 |
 | 图5 | 88E1111 RGMII接口连接 |
-| 图6 | RGMII接收时序 |
+| 图6 | RGMII 接收时序（RX，DDR） |
 | 图7 | xilinx_xc7a35tfgg484_webserver_top 模块内部结构 |
 | 图8 | rgmii2gmii 模块内部结构 |
 | 图9 | RGMII→GMII RX转换时序 |
 | 图10 | GMII→RGMII TX转换时序 |
 | 图11 | clk_rst_ctrl 模块内部结构 |
-| 图12 | pll_50m 模块内部结构 |
-| 图13 | webserver_wrapper 模块内部结构 |
-| 图14 | tod 模块内部结构 |
-| 图15 | tod 快照时序 |
-| 图16 | interval_timer 模块内部结构 |
-| 图17 | lcpu_riscv_wrapper 模块内部结构 |
-| 图18 | riscv32_top 模块内部结构 |
-| 图19 | lcpu_merge 模块内部结构 |
-| 图20 | cpu_channel 模块内部结构 |
-| 图21 | package_fifo_v2 模块内部结构 |
-| 图22 | sop_eop_gen 时序 |
-| 图23 | reg_webserver 模块内部结构 |
-| 图24 | lcpu_mdio 模块内部结构 |
-| 图25 | MDIO Clause 22 读时序 |
-| 图26 | MDIO Clause 22 写时序 |
-| 图27 | gmii2mac 模块内部结构 |
-| 图28 | cdc_bus_sync 模块内部结构 |
-| 图29 | cdc_bus_sync_vec 模块内部结构 |
+| 图12 | clk_rst_ctrl 复位释放时序 |
+| 图13 | pll_50m 模块内部结构 |
+| 图14 | pll_50m PLL锁定和时钟输出时序 |
+| 图15 | webserver_wrapper 模块内部结构 |
+| 图16 | tod 模块内部结构 |
+| 图17 | tod 快照时序 |
+| 图18 | interval_timer 模块内部结构 |
+| 图19 | interval_timer 定时事件时序 |
+| 图20 | lcpu_riscv_wrapper 模块内部结构 |
+| 图21 | riscv32_top 模块内部结构 |
+| 图22 | lcpu_merge 模块内部结构 |
+| 图23 | lcpu_merge 双主机仲裁时序 |
+| 图24 | cpu_channel 模块内部结构 |
+| 图25 | cpu_channel RX 数据通道（MAC→CPU） |
+| 图26 | cpu_channel TX 数据通道（CPU→MAC） |
+| 图27 | ram2pktfifo_int 字节流转包FIFO时序 |
+| 图28 | package_fifo_v2 模块内部结构 |
+| 图29 | 包FIFO写时序 |
+| 图30 | 包FIFO读时序 |
+| 图31 | pktfifo2ram_int_v2 包FIFO→字节流+IPG时序 |
+| 图32 | sop_eop_gen 时序 |
+| 图33 | LCPU 读寄存器时序（Master） |
+| 图34 | LCPU 写寄存器时序（Master） |
+| 图35 | lcpu_mdio 模块内部结构 |
+| 图36 | MDIO 读时序（Clause 22） |
+| 图37 | MDIO 写时序（Clause 22） |
+| 图38 | gmii2mac 模块内部结构 |
+| 图39 | GMII RX 接口时序 |
+| 图40 | GMII 发送时序（TX） |
+| 图41 | MAC侧包流接口时序 |
+| 图42 | cdc_bus_sync 模块内部结构 |
+| 图43 | cdc_bus_sync_vec 模块内部结构（CHANNELS=7） |
+| 图44 | CDC Gray模式时序 (MODE=0) |
+| 图45 | CDC REQACK模式时序 (MODE=1) |
+
+
 
 ---
 
-## 缩略语清单 List of Abbreviations
+## 缩略语清单
 
 | 缩略语 | 英文全名 | 中文解释 |
 |--------|----------|----------|
