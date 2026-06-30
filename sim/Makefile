@@ -127,7 +127,7 @@ VERILATOR_INC = \
 VERILATOR_BASE = \
 	--timing \
 	--timescale-override 1ns/1ps \
-	--public-depth 2 \
+	--public-depth 8 \
 	-Wno-fatal \
 	-Wno-lint \
 	-Wno-style \
@@ -139,13 +139,18 @@ VERILATOR_BASE = \
 
 # ---- Output ----
 VCD = $(TOP)_verilator.vcd
+LOCAL_TCL = $(SIM)/InstructRAM_local.tcl
 
 # ============================================================================
 # Targets
 # ============================================================================
 .PHONY: all wave clean
 
-all: run
+all: $(LOCAL_TCL) run
+
+$(LOCAL_TCL): ../tcl/InstructRAM.tcl patch_tcl.py
+	@echo "== Patching TCL: BSS zeroing =="
+	@python3 patch_tcl.py
 
 # ---- Fast mode (no waveform) ----
 run: obj_dir/$(EXE)
@@ -168,7 +173,7 @@ obj_dir/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
 	@echo "== Verilog -> C++ done =="
 
 # ---- Wave mode (with VCD) ----
-wave: obj_dir_wave/$(EXE)
+wave: $(LOCAL_TCL) obj_dir_wave/$(EXE)
 	@echo "== Running simulation with waveform =="
 	./obj_dir_wave/$(EXE)
 	@echo "== Done: $(VCD) =="
@@ -189,5 +194,5 @@ obj_dir_wave/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
 
 # ---- Clean ----
 clean:
-	rm -rf obj_dir/ obj_dir_wave/ *.vcd
+	rm -rf obj_dir/ obj_dir_wave/ *.vcd $(LOCAL_TCL)
 	@echo "== Cleaned =="
