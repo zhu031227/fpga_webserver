@@ -14,15 +14,15 @@
 
 module webserver_wrapper #(
     parameter int sim_mod = 0,
-    parameter string script_file = "../tcl/InstructRAM.tcl",
+    parameter script_file = "../tcl/InstructRAM.tcl",
     parameter int second_event_period = 50000000,  // 1s at 50mhz
 
     // configuration (from platform top)
     parameter int    uart_baud_rate           = 115200,
-    parameter string cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
-    parameter string device_vendor            = "xilinx",                     // "Intel", "xilinx"
+    parameter cpu_vendor               = "xilinx",                     // "Intel", "xilinx", "UART"
+    parameter device_vendor            = "xilinx",                     // "Intel", "xilinx"
     parameter int    riscv_inst_en            = 1,
-    parameter string instr_ram_type           = "block",
+    parameter instr_ram_type           = "block",
     parameter int    instr_addr_depth         = 1024 * 5,
     parameter int    instr_addr_width         = $clog2(instr_addr_depth),
     parameter int    init_blockram_size       = 32,
@@ -30,12 +30,12 @@ module webserver_wrapper #(
     parameter int    amd_coe_init_instru      = 0,
     parameter int    intel_hex_init_instru    = 0,
     parameter int    cpu_buf_addr_width       = 12,
-    parameter string cpu_buf_block_mode       = "false",
+    parameter cpu_buf_block_mode       = "false",
     parameter int    cpu_buf_block_addr_width = 2,
     parameter int    cpu_buf_data_width       = 8,
     parameter int    cpu_buf_para_width       = 1,
-    parameter string cpu_buf_data_ram_type    = "M9K",
-    parameter string cpu_buf_para_ram_type    = "registers"
+    parameter cpu_buf_data_ram_type    = "M9K",
+    parameter cpu_buf_para_ram_type    = "registers"
 ) (
     input reset_l,
     input clk_50mhz,  // 50mhz clock from platform top
@@ -208,7 +208,7 @@ module webserver_wrapper #(
       .reset_l      (reset_l),
       .uart_rx      (uart_rx),
       .uart_tx      (uart_tx),
-      .riscv_reset_l(reset_l),
+      .riscv_reset_l(riscv_reset_l),
 
       .pram_wr   (pram_wr),
       .pram_addr (pram_addr),
@@ -235,6 +235,7 @@ module webserver_wrapper #(
       .get_local_time_ind     (get_local_time),
       .local_time_l           (local_time_l),
       .local_time_h           (local_time_h),
+      .riscv_reset_l          (riscv_reset_l),
       .debug_rw_0             (debug_rw_0),
       .debug_rw_1             (debug_rw_1),
       .debug_rw_2             (),
@@ -299,6 +300,10 @@ module webserver_wrapper #(
       .cpu_wr_reg_rc_0_ind    (),
       .cpu_wr_reg_rc_1        (),
       .cpu_wr_reg_rc_1_ind    (),
+      .RAMIF_program_ram_Ram_RlWh  (pram_wr),
+      .RAMIF_program_ram_Ram_Addr  (pram_addr),
+      .RAMIF_program_ram_Ram_WrData(pram_wdata),
+      .RAMIF_program_ram_Ram_RdData(pram_rdata),
       .clk                    (clk_50mhz),
       .rst_n                  (reset_l),
       .req                    (cpu_req),

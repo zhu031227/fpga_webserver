@@ -14,7 +14,6 @@ uint32 read_lcpu_register(uint32 addr);
 void str_hex_chk(char str_in[8], char str_hex[8]);
 void to_hex_string(unsigned int data, char hex_str[8]);
 uint8_t hex_char_to_val(char ch);
-unsigned int read_ascii_hex(uint16_t base_addr);
 char hex_to_ascii(uint8_t nibble);
 
 #endif // _COMLIB_H_

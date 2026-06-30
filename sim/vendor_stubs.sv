@@ -142,24 +142,31 @@ module rgmii_tx #(
     rgmii_tx_ctl,
     output [3:0] rgmii_txd
 );
-  reg [3:0] tx_d;
-  reg tx_c;
+  // SAME_EDGE DDR: posedge drives low nibble, negedge drives high nibble.
+  // Use separate regs to avoid MULTIDRIVEN on merged output.
+  reg [3:0] tx_d_pos;
+  reg       tx_c_pos;
+  reg [3:0] tx_d_neg;
+  reg       tx_c_neg;
   always @(posedge gmii_tx_clk) begin
-    tx_d <= gmii_txd[3:0];
-    tx_c <= gmii_tx_en;
+    tx_d_pos <= gmii_txd[3:0];
+    tx_c_pos <= gmii_tx_en;
   end
   always @(negedge gmii_tx_clk) begin
-    tx_d <= gmii_txd[7:4];
-    tx_c <= gmii_tx_en ^ gmii_tx_er;
+    tx_d_neg <= gmii_txd[7:4];
+    tx_c_neg <= gmii_tx_en ^ gmii_tx_er;
   end
-  assign rgmii_txc = ~gmii_tx_clk;
-  assign rgmii_txd = tx_d;
-  assign rgmii_tx_ctl = tx_c;
+  // Output the DDR state: at posedge phase, show neg_cap (previous negedge);
+  // at negedge phase, show pos_cap (previous posedge). For simplicity, use
+  // the last captured value.
+  assign rgmii_txc   = ~gmii_tx_clk;
+  assign rgmii_txd   = gmii_tx_clk ? tx_d_neg : tx_d_pos;
+  assign rgmii_tx_ctl = gmii_tx_clk ? tx_c_neg : tx_c_pos;
 endmodule
 
 module rgmii2gmii #(
-    parameter xilinx_idelay_value = 16,
-    vendor = "Pango"
+    parameter Xilinx_IDELAY_VALUE = 16,
+    parameter vendor = "Pango"
 ) (
     input reset_l,
     clk_200m,
@@ -178,7 +185,7 @@ module rgmii2gmii #(
 );
   wire dmy;
   rgmii_rx #(
-      .Xilinx_IDELAY_VALUE(xilinx_idelay_value),
+      .Xilinx_IDELAY_VALUE(Xilinx_IDELAY_VALUE),
       .vendor(vendor)
   ) u_rx (
       .reset_l,

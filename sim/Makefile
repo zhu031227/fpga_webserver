@@ -1,14 +1,13 @@
 # ============================================================================
-# Makefile — Verilator simulation for xilinx_xc7a35tfgg484_webserver_top
+# Makefile — Verilator simulation for FPGA WebServer
 # ============================================================================
 # Usage:
-#   make          — compile + run
-#   make wave     — open gtkwave
-#   make clean    — remove build artifacts
+#   make            — compile + run (fast, no waveform)
+#   make wave       — compile + run with waveform VCD
+#   make clean      — remove build artifacts
 # ============================================================================
 
 VERILATOR = verilator
-GTKWAVE   = gtkwave
 
 # ---- Paths ----
 IP_COMMON = /home/huamingh/work/ip_common
@@ -19,20 +18,20 @@ RTL       = /home/huamingh/work/fpga_webserver/rtl
 SIM       = /home/huamingh/work/fpga_webserver/sim
 
 # ---- Top module ----
-TOP  = xilinx_xc7a35tfgg484_webserver_top
-EXE  = V$(TOP)
+TOP = tb_webserver
+EXE = V$(TOP)
 
 # ---- FPGA Webserver RTL ----
 WEB_RTL = \
-	$(SIM)/xilinx_xc7a35tfgg484_webserver_top.v \
-	$(SIM)/webserver_wrapper.v \
+	$(RTL)/xilinx_xc7a35tfgg484_webserver_top.v \
+	$(RTL)/webserver_wrapper.v \
 	$(RTL)/reg_webserver.v \
 	$(RTL)/cpu_channel.v
 
 # ---- FPGA CPU shared ----
-FPGA_CPU_RTL = $(SIM)/lcpu_riscv_wrapper.v
+FPGA_CPU_RTL = $(FPGA_CPU)/rtl/lcpu_riscv_wrapper.v
 
-# ---- IP common RTL (exclude real rgmii* — use behavioral stubs instead) ----
+# ---- IP common RTL (exclude rgmii* — behavioral in vendor_stubs.sv) ----
 IP_COMMON_RTL = \
 	$(IP_COMMON)/rtl/async_signal_sync.v \
 	$(IP_COMMON)/rtl/cdc_bus_sync.sv \
@@ -42,6 +41,7 @@ IP_COMMON_RTL = \
 	$(IP_COMMON)/rtl/crc.v \
 	$(IP_COMMON)/rtl/dual_clock_fifo.v \
 	$(IP_COMMON)/rtl/dual_clock_simple_dual_port_ram.v \
+	$(IP_COMMON)/rtl/dual_clock_true_dual_port_ram.v \
 	$(IP_COMMON)/rtl/dynamic_delay.v \
 	$(IP_COMMON)/rtl/eth_presemble.v \
 	$(IP_COMMON)/rtl/fifo2pktfifo_int.v \
@@ -66,9 +66,13 @@ IP_COMMON_RTL = \
 	$(IP_COMMON)/rtl/ramintf.v \
 	$(IP_COMMON)/rtl/single_clock_fifo.v \
 	$(IP_COMMON)/rtl/single_clock_simple_dual_port_ram.v \
+	$(IP_COMMON)/rtl/single_clock_stack.v \
 	$(IP_COMMON)/rtl/single_clock_true_dual_port_ram.v \
 	$(IP_COMMON)/rtl/sop_eop_gen.v \
-	$(IP_COMMON)/rtl/tod.v
+	$(IP_COMMON)/rtl/tod.v \
+	$(IP_COMMON)/rtl/uart.v \
+	$(IP_COMMON)/rtl/uart_rx.v \
+	$(IP_COMMON)/rtl/uart_tx.v
 
 # ---- IP riscv RTL ----
 IP_RISCV_RTL = \
@@ -78,31 +82,51 @@ IP_RISCV_RTL = \
 	$(IP_RISCV)/rtl/riscv32_top.v \
 	$(IP_RISCV)/rtl/riscv_reg.v
 
-# ---- LCPU BFM (simulation-only, local copy with reduced string width) ----
+# ---- IP LCPU RTL ----
+IP_LCPU_RTL = \
+	$(IP_LCPU)/rtl/lcpu_top.v \
+	$(IP_LCPU)/rtl/uart_lcpu_top.v \
+	$(IP_LCPU)/rtl/uart_lcpu.v \
+	$(IP_LCPU)/rtl/jtag_cpu_xilinx.v
+
+# ---- LCPU BFM (local copy, Verilator-compatible $fgetc parser) ----
 LCPU_BFM = $(SIM)/lcpu_bfm.sv
 
-# ---- Simulation stubs (behavioral models) ----
-SIM_STUBS = \
+# ---- Simulation support ----
+SIM_SUPPORT = \
+	$(SIM)/vendor_stubs.sv \
 	$(SIM)/pll_50m_bypass.v \
 	$(SIM)/fpga_build_time_sim.v \
-	$(SIM)/vendor_stubs.sv
+	$(SIM)/stub_jtag_axi.sv \
+	$(SIM)/stub_xpm_memory.sv
 
-# ---- Testbench (C++) ----
+# ---- Testbench ----
+TB_SV  = $(SIM)/tb_webserver.sv
 TB_CPP = $(SIM)/tb_webserver.cpp
 
-# ---- All Verilog/SystemVerilog sources ----
+# ---- All Verilog sources ----
 VERILOG_SRCS = \
+	$(TB_SV) \
 	$(WEB_RTL) \
 	$(FPGA_CPU_RTL) \
 	$(IP_COMMON_RTL) \
 	$(IP_RISCV_RTL) \
+	$(IP_LCPU_RTL) \
 	$(LCPU_BFM) \
-	$(SIM_STUBS)
+	$(SIM_SUPPORT)
+
+# ---- Include paths ----
+VERILATOR_INC = \
+	+incdir+$(RTL) \
+	+incdir+$(FPGA_CPU)/rtl \
+	+incdir+$(IP_LCPU)/rtl \
+	+incdir+$(IP_COMMON)/rtl \
+	+incdir+$(IP_RISCV)/rtl
 
 # ---- Verilator flags ----
-VERILATOR_FLAGS = \
+VERILATOR_BASE = \
 	--timing \
-	--trace \
+	--timescale-override 1ns/1ps \
 	--public-depth 2 \
 	-Wno-fatal \
 	-Wno-lint \
@@ -110,42 +134,60 @@ VERILATOR_FLAGS = \
 	-Wno-COMBDLY \
 	-Wno-INITIALDLY \
 	-O3 \
-	-CFLAGS "-O2"
+	-CFLAGS "-O2" \
+	$(VERILATOR_INC)
 
-# ---- Targets ----
-.PHONY: all compile run wave clean
+# ---- Output ----
+VCD = $(TOP)_verilator.vcd
+
+# ============================================================================
+# Targets
+# ============================================================================
+.PHONY: all wave clean
 
 all: run
 
-compile: obj_dir/$(EXE)
-
-obj_dir/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
-	@echo "== Verilator: compiling $(TOP) =="
-	$(VERILATOR) $(VERILATOR_FLAGS) \
-		--cc --exe $(TB_CPP) \
-		--top-module $(TOP) \
-		$(VERILOG_SRCS)
-	@echo "== Verilog → C++ done =="
+# ---- Fast mode (no waveform) ----
+run: obj_dir/$(EXE)
+	@echo "== Running simulation (fast, no VCD) =="
+	./obj_dir/$(EXE)
+	@echo "== Done =="
 
 obj_dir/$(EXE): obj_dir/V$(TOP).mk
-	@echo "== Building C++ executable =="
+	@echo "== Building C++ executable (fast) =="
 	$(MAKE) -C obj_dir -f V$(TOP).mk $(EXE)
-	@echo "== Build done: $@ =="
+	@echo "== Build done =="
 
-run: obj_dir/$(EXE)
-	@echo "== Running simulation =="
-	./obj_dir/$(EXE)
-	@echo "== Simulation complete =="
+obj_dir/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
+	@echo "== Verilator: compiling $(TOP) (fast, no trace) =="
+	$(VERILATOR) $(VERILATOR_BASE) \
+		--cc --exe $(TB_CPP) \
+		--top-module $(TOP) \
+		-Mdir obj_dir \
+		$(VERILOG_SRCS)
+	@echo "== Verilog -> C++ done =="
 
-wave:
-	@if [ -f xilinx_xc7a35tfgg484_webserver_top_verilator.vcd ]; then \
-		echo "Opening gtkwave..."; \
-		$(GTKWAVE) xilinx_xc7a35tfgg484_webserver_top_verilator.vcd & \
-	else \
-		echo "No VCD found. Run 'make run' first."; \
-		exit 1; \
-	fi
+# ---- Wave mode (with VCD) ----
+wave: obj_dir_wave/$(EXE)
+	@echo "== Running simulation with waveform =="
+	./obj_dir_wave/$(EXE)
+	@echo "== Done: $(VCD) =="
 
+obj_dir_wave/$(EXE): obj_dir_wave/V$(TOP).mk
+	@echo "== Building C++ executable (wave) =="
+	$(MAKE) -C obj_dir_wave -f V$(TOP).mk $(EXE)
+	@echo "== Build done =="
+
+obj_dir_wave/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
+	@echo "== Verilator: compiling $(TOP) (trace enabled) =="
+	$(VERILATOR) $(VERILATOR_BASE) --trace \
+		--cc --exe $(TB_CPP) \
+		--top-module $(TOP) \
+		-Mdir obj_dir_wave \
+		$(VERILOG_SRCS)
+	@echo "== Verilog -> C++ done =="
+
+# ---- Clean ----
 clean:
-	rm -rf obj_dir/ *.vcd *.vvp
+	rm -rf obj_dir/ obj_dir_wave/ *.vcd
 	@echo "== Cleaned =="

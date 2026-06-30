@@ -217,8 +217,8 @@ struct lcpu_registers
     struct str_wr_pkt_fifo wr_pkt_fifo;
     uint32 reserve7[0x1000 - 0x100 - 0x10]; // pad to 0x7000
 
-    // ---- 0x7000: Debug RAM (legacy) ----
-    uint32 dbg_ram_0[0x1000];
+    // ---- 0x7000: program_ram ----
+    uint32 program_ram[0x1000];
 }__attribute__((aligned(4)));
 
 #define lcpu_baseaddr  ((volatile struct lcpu_registers *)(0x80000000))
@@ -240,9 +240,6 @@ struct lcpu_registers
 #define LCPU_WR_BYTE(addr, data) do { LCPU_WR_SET_ADDR(addr); LCPU_WR_SET_DATA(data); LCPU_WR_PULSE_WEN(); } while (0)
 #define LCPU_WR_PUSH_PACKET(pkt_len) do { lcpu_baseaddr->wr_pkt_fifo.wpkt_len = (uint32)(pkt_len); lcpu_baseaddr->wr_pkt_fifo.wpkt_push = 1u; } while (0)
 #define LCPU_WR_TEST_ENABLE()   ((lcpu_baseaddr->wr_pkt_fifo.reg_rw_0) != 0u)
-
-#define LCPU_DBG_WRITE(index, value)  do { lcpu_baseaddr->dbg_ram_0[(index)] = (uint32)(value); } while (0)
-#define LCPU_DBG_READ(index)          ((uint8)(lcpu_baseaddr->dbg_ram_0[(index)] & 0xFFu))
 
 #define LCPU_REG32_WRITE(word_addr, data) do { *((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))) = (uint32)(data); } while (0)
 #define LCPU_REG32_READ(word_addr)       (*((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))))

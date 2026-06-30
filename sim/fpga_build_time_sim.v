@@ -2,7 +2,7 @@
 // fpga_build_time_sim.v — Simulation stub for fpga_build_time
 //-------------------------------------------------------------------
 
-module fpga_build_time_sim (
+module fpga_build_time (
     output wire [31:0] build_date,
     output wire [31:0] build_time
 );

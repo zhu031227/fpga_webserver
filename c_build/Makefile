@@ -85,6 +85,14 @@ else
   INSTR_ADDR_DEPTH := $(shell echo $$(($(INSTR_ADDR_DEPTH))))
 endif
 
+# ---- RISC-V reset control address (JTAG RAM write enable) ----
+#   Prompt user; press Enter to accept default
+riscv_reset_addr ?= $(shell bash -c 'read -p "RISCV复位地址是多少（16进制地址），默认是0xf: " input; echo $${input:-0xf}')
+
+# ---- TCL base address (word address in instruction RAM) ----
+#   Prompt user; press Enter to accept default
+TCL_BASE ?= $(shell bash -c 'read -p "RISCV指令配置RAM的基地址是多少（16进制地址）,默认是0x8000: " input; echo $${input:-0x8000}')
+
 all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT)
 	@echo ""
 	@echo "============================================"
@@ -103,6 +111,7 @@ all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT)
 	@echo "  VERILOG: $(VERILOG_OUT)"
 	@echo "  HEX  : $(HEX_OUT)"
 	@echo "  TCL  : $(TCL_OUT)"
+	@echo "  COPY : $(TCL_COPY)"
 
 # ---- Generate build_time.h (stamp BUILD_DATE / BUILD_TIME) ----
 $(OUT_DIR):
@@ -150,11 +159,20 @@ pathlib.Path('$@').write_bytes(src + b'\x00' * (BIN_SIZE - src_len)); \
 print(f'  words: {(src_len+3)//4} used / {BIN_SIZE//4} total'); \
 "
 
+# ---- Build timestamp strings (for file naming) ----
+BUILD_DATE_STR := $(shell date +%Y%m%d)
+BUILD_TIME_STR := $(shell date +%H%M%S)
+
 # ---- TCL JTAG load script ----
+# Copy with timestamp: webserver_riscv_instruct_<DATE>_<TIME>.tcl
+TCL_COPY = $(TCL_DIR)/webserver_riscv_instruct_$(BUILD_DATE_STR)_$(BUILD_TIME_STR).tcl
+
 tcl: $(TCL_OUT)
 $(TCL_OUT): $(PADS) $(SCRIPTS)/bin_to_tcl.py
 	@echo "  TCL  $@"
-	$(PYTHON) $(SCRIPTS)/bin_to_tcl.py $< $@ 0x00010000
+	$(PYTHON) $(SCRIPTS)/bin_to_tcl.py $< $@ $(TCL_BASE) $(riscv_reset_addr)
+	@cp $@ $(TCL_COPY)
+	@echo "  COPY $(TCL_COPY)"
 
 # ---- Verilog RAM init ----
 verilog: $(VERILOG_OUT)

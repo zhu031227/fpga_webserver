@@ -240,34 +240,6 @@ uint8_t hex_char_to_val(char ch) {
 }
 
 /*
- * Inputs: base_addr in dbg RAM.
- * Outputs: Parsed unsigned value from up to 8 ASCII-hex chars.
- * Side effects: Reads dbg RAM window.
- */
-unsigned int read_ascii_hex(uint16_t base_addr) {
-    unsigned int value = 0;
-    uint8_t ch;
-    uint8_t val;
-
-    for (int i = 0; i < 8; i++) {
-        ch = LCPU_DBG_READ(base_addr + i);
-
-        if (ch == 0x20) {  // SPACE 作为终止符
-            break;
-        }
-
-        val = hex_char_to_val(ch);
-        if (val == 255) {
-            break;  // 非法字符跳出
-        }
-
-        value = (value << 4) | val;  // 左移4位拼接16进制数
-    }
-
-    return value;
-}
-
-/*
  * Inputs: nibble (0-15).
  * Outputs: ASCII hex character.
  * Side effects: None.

@@ -5,7 +5,7 @@
 // with zero delay. locked asserted after startup period.
 //-------------------------------------------------------------------
 
-module pll_50m_bypass (
+module pll_50m (
     input  inclk0,
     output c0,
     output c1,
