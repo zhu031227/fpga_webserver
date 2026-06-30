@@ -46,7 +46,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int xilinx_idelay_value = 16;
   localparam int riscv_inst_en = 1;
   localparam instr_ram_type = "block";
-  localparam int instr_addr_depth = 1024 * 5;
+  localparam int instr_addr_depth = 1024 * 3;
   localparam int instr_addr_width = $clog2(instr_addr_depth);
   localparam int init_blockram_size = 32;
   localparam int lcpu_init_instru = 1;
