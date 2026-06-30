@@ -74,14 +74,22 @@ module xpm_memory_tdpram #(
 
   always @(posedge clka) begin
     if (ena) begin
-      if (|wea) ram[addra] <= dina;
+      if (|wea) begin
+        integer bi;
+        for (bi = 0; bi < WRITE_DATA_WIDTH_A/8; bi = bi + 1)
+          if (wea[bi]) ram[addra][bi*8+:8] <= dina[bi*8+:8];
+      end
       douta_r <= ram[addra];
     end
   end
 
   always @(posedge clkb) begin
     if (enb) begin
-      if (|web) ram[addrb] <= dinb;
+      if (|web) begin
+        integer bi;
+        for (bi = 0; bi < WRITE_DATA_WIDTH_B/8; bi = bi + 1)
+          if (web[bi]) ram[addrb][bi*8+:8] <= dinb[bi*8+:8];
+      end
       doutb_r <= ram[addrb];
     end
   end
