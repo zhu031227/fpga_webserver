@@ -4,13 +4,13 @@
 // tx path: cpu write port → package_fifo (async) → pktfifo2ram_int → sop_eop_gen → mac
 
 module cpu_channel #(
-    parameter int    cpu_buf_addr_width       = 11,
-    parameter cpu_buf_block_mode       = "false",
-    parameter int    cpu_buf_block_addr_width = 3,
-    parameter int    cpu_buf_data_width       = 8,
-    parameter int    cpu_buf_para_width       = 3,
-    parameter cpu_buf_data_ram_type    = "M9K",
-    parameter cpu_buf_para_ram_type    = "registers"
+    parameter int cpu_buf_addr_width       = 11,
+    parameter     cpu_buf_block_mode       = "false",
+    parameter int cpu_buf_block_addr_width = 3,
+    parameter int cpu_buf_data_width       = 8,
+    parameter int cpu_buf_para_width       = 3,
+    parameter     cpu_buf_data_ram_type    = "M9K",
+    parameter     cpu_buf_para_ram_type    = "registers"
 ) (
     input clk,
     input reset_l,

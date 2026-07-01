@@ -61,8 +61,7 @@ module altera_ep4ce10f17c6_webserver_top #(
   localparam int cpu_buf_para_width = 1;
   localparam string cpu_buf_data_ram_type = `LARGER_RAM;
   localparam string cpu_buf_para_ram_type = `SMALL_RAM;
-
-  assign buzz = 1'b0;  //close buzz sound on board
+  localparam int stat_cnt_en = 0;
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;
 
@@ -81,6 +80,8 @@ module altera_ep4ce10f17c6_webserver_top #(
   reg  [7:0] gmii_txd_r;
   reg        gmii_tx_en_r;
   reg        gmii_tx_err_r;
+
+  assign buzz = 1'b0;  //close buzz sound on board
   clk_rst_ctrl #(
       .NUM_LOCK_INPUTS(1)
   ) u_clk_rst_ctrl (
@@ -144,11 +145,12 @@ module altera_ep4ce10f17c6_webserver_top #(
       .cpu_buf_data_width      (cpu_buf_data_width),
       .cpu_buf_para_width      (cpu_buf_para_width),
       .cpu_buf_data_ram_type   (cpu_buf_data_ram_type),
-      .cpu_buf_para_ram_type   (cpu_buf_para_ram_type)
+      .cpu_buf_para_ram_type   (cpu_buf_para_ram_type),
+      .stat_cnt_en             (stat_cnt_en)
   ) u_webserver (
-      .reset_l      (reset_l_synced),
-      .clk_50mhz    (clk_50m),
-      .clk_125mhz   (clk_125m),
+      .reset_l   (reset_l_synced),
+      .clk_50mhz (clk_50m),
+      .clk_125mhz(clk_125m),
 
       .uart_rx(uart_rx),
       .uart_tx(uart_tx),

@@ -60,6 +60,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int cpu_buf_para_width = 1;
   localparam cpu_buf_data_ram_type = `LARGER_RAM;
   localparam cpu_buf_para_ram_type = `SMALL_RAM;
+  localparam int stat_cnt_en = 1;
 
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;
@@ -151,7 +152,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .cpu_buf_data_width      (cpu_buf_data_width),
       .cpu_buf_para_width      (cpu_buf_para_width),
       .cpu_buf_data_ram_type   (cpu_buf_data_ram_type),
-      .cpu_buf_para_ram_type   (cpu_buf_para_ram_type)
+      .cpu_buf_para_ram_type   (cpu_buf_para_ram_type),
+      .stat_cnt_en             (stat_cnt_en)
   ) u_webserver (
       .reset_l   (reset_l_synced),
       .clk_50mhz (clk_50m),
