@@ -39,7 +39,7 @@ module altera_ep4ce10f17c6_webserver_top #(
     output [3:0] led_o
 );
 
-  localparam string device_vendor = (sim_mod == 0) ? "Intel" : "";
+  localparam string device_vendor = (sim_mod == 0) ? "intel" : "";
 
   // webserver_wrapper configuration
   localparam int second_event_period = 50000000;
