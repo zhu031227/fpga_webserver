@@ -365,37 +365,49 @@ module webserver_wrapper #(
   );
 
   // --- eth0 statistics CDC sync (125MHz → 50MHz) ---
-  cdc_bus_sync_vec #(
-      .DATA_WIDTH(32),
-      .CHANNELS  (7),
-      .MODE      (0)
-  ) u_sync_eth0_stats (
-      .src_clk(clk_125mhz),
-      .src_rst_l(reset_l),
-      .src_data({
-        eth0_rx_data_err_line_src,
-        eth0_rx_afifo_empty_cnt_src,
-        eth0_rx_afifo_full_cnt_src,
-        eth0_tx_error_pkt_cnt_src,
-        eth0_tx_correct_pkt_cnt_src,
-        eth0_rx_crc_err_pkt_cnt_src,
-        eth0_rx_correct_pkt_cnt_src
-      }),
-      .src_valid(7'b0),
-      .dst_clk(clk_50mhz),
-      .dst_rst_l(reset_l),
-      .dst_data({
-        eth0_rx_data_err_line,
-        eth0_rx_afifo_empty_cnt,
-        eth0_rx_afifo_full_cnt,
-        eth0_tx_error_pkt_cnt,
-        eth0_tx_correct_pkt_cnt,
-        eth0_rx_crc_err_pkt_cnt,
-        eth0_rx_correct_pkt_cnt
-      }),
-      .dst_valid(),
-      .src_ready()
-  );
+  generate
+      if (stat_cnt_en == 1) begin : g_sync_eth0_stats
+          cdc_bus_sync_vec #(
+              .DATA_WIDTH(32),
+              .CHANNELS  (7),
+              .MODE      (0)
+          ) u_sync_eth0_stats (
+              .src_clk(clk_125mhz),
+              .src_rst_l(reset_l),
+              .src_data({
+                eth0_rx_data_err_line_src,
+                eth0_rx_afifo_empty_cnt_src,
+                eth0_rx_afifo_full_cnt_src,
+                eth0_tx_error_pkt_cnt_src,
+                eth0_tx_correct_pkt_cnt_src,
+                eth0_rx_crc_err_pkt_cnt_src,
+                eth0_rx_correct_pkt_cnt_src
+              }),
+              .src_valid(7'b0),
+              .dst_clk(clk_50mhz),
+              .dst_rst_l(reset_l),
+              .dst_data({
+                eth0_rx_data_err_line,
+                eth0_rx_afifo_empty_cnt,
+                eth0_rx_afifo_full_cnt,
+                eth0_tx_error_pkt_cnt,
+                eth0_tx_correct_pkt_cnt,
+                eth0_rx_crc_err_pkt_cnt,
+                eth0_rx_correct_pkt_cnt
+              }),
+              .dst_valid(),
+              .src_ready()
+          );
+      end else begin : g_no_sync_eth0_stats
+          assign eth0_rx_correct_pkt_cnt  = 32'b0;
+          assign eth0_rx_crc_err_pkt_cnt  = 32'b0;
+          assign eth0_tx_correct_pkt_cnt  = 32'b0;
+          assign eth0_tx_error_pkt_cnt    = 32'b0;
+          assign eth0_rx_afifo_full_cnt   = 32'b0;
+          assign eth0_rx_afifo_empty_cnt  = 32'b0;
+          assign eth0_rx_data_err_line    = 32'b0;
+      end
+  endgenerate
 
   // filter_data change detector (50MHz)
   always @(posedge clk_50mhz or negedge reset_l) begin
