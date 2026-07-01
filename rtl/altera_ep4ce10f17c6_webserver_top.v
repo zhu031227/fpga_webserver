@@ -36,7 +36,8 @@ module altera_ep4ce10f17c6_webserver_top #(
     output eth0_mdc,
     inout  eth0_mdio,
 
-    output [3:0] led_o
+    output [3:0] led_o,
+    output buzz  //J1,0:no sound
 );
 
   localparam string device_vendor = (sim_mod == 0) ? "intel" : "";
@@ -61,6 +62,7 @@ module altera_ep4ce10f17c6_webserver_top #(
   localparam string cpu_buf_data_ram_type = `LARGER_RAM;
   localparam string cpu_buf_para_ram_type = `SMALL_RAM;
 
+  assign buzz = 1'b0;  //close buzz sound on board
   // --- reset synchronizer (async assert, sync deassert) ---
   wire       reset_l_synced;
 
