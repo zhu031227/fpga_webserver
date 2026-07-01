@@ -54,7 +54,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int intel_hex_init_instru = 0;
   localparam int cpu_buf_addr_width = 12;
   localparam cpu_buf_block_mode = "false";
-  localparam int cpu_buf_block_addr_width = 2;
+  localparam int cpu_buf_block_addr_width = 2;//按最大包长，可存储包的个数，2^2 = 4；
   localparam int cpu_buf_data_width = 8;
   localparam int cpu_buf_para_width = 1;
   localparam cpu_buf_data_ram_type = `LARGER_RAM;
