@@ -281,7 +281,7 @@ if {[llength \$sv_files] > 0} {
     set_property file_type SystemVerilog \$sv_files
     puts "Set [llength \$sv_files] .v file(s) to SystemVerilog"
 }
-set_property include_dirs [file normalize "\$proj_dir/ip_vendor/xilinx_xc7a35tfgg484"] [current_fileset]
+set_property include_dirs [file normalize "\$proj_dir/rtl"] [current_fileset]
 
 set_property top \$top_module [current_fileset]
 update_compile_order -fileset sources_1
