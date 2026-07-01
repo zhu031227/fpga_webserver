@@ -1,3 +1,4 @@
+`define FPGA_PLATFORM_ALTERA
 `include "define.sv"
 
 // altera_ep4ce10f17c6_webserver_top — altera cyclone iv e fpga webserver top module
@@ -11,7 +12,8 @@
 //   - gmii signals connected directly (no rgmii2gmii)
 
 module altera_ep4ce10f17c6_webserver_top #(
-    parameter int sim_mod = 0
+    parameter int sim_mod = 0,
+    parameter script_file = "../tcl/InstructRAM.tcl"
 ) (
     input clk_50m_in,
     input reset_l,
@@ -120,15 +122,31 @@ module altera_ep4ce10f17c6_webserver_top #(
 
   // --- webserver core wrapper ---
   webserver_wrapper #(
-      .sim_mod         (sim_mod),
-      .cpu_vendor      ("Intel"),
-      .device_vendor   (device_vendor),
-      .instr_addr_depth(1024 * 5)
+      .sim_mod                 (sim_mod),
+      .script_file             (script_file),
+      .second_event_period     (second_event_period),
+      .uart_baud_rate          (uart_baud_rate),
+      .cpu_vendor              (cpu_vendor),
+      .device_vendor           (device_vendor),
+      .riscv_inst_en           (riscv_inst_en),
+      .instr_ram_type          (instr_ram_type),
+      .instr_addr_depth        (instr_addr_depth),
+      .instr_addr_width        (instr_addr_width),
+      .init_blockram_size      (init_blockram_size),
+      .lcpu_init_instru        (lcpu_init_instru),
+      .amd_coe_init_instru     (amd_coe_init_instru),
+      .intel_hex_init_instru   (intel_hex_init_instru),
+      .cpu_buf_addr_width      (cpu_buf_addr_width),
+      .cpu_buf_block_mode      (cpu_buf_block_mode),
+      .cpu_buf_block_addr_width(cpu_buf_block_addr_width),
+      .cpu_buf_data_width      (cpu_buf_data_width),
+      .cpu_buf_para_width      (cpu_buf_para_width),
+      .cpu_buf_data_ram_type   (cpu_buf_data_ram_type),
+      .cpu_buf_para_ram_type   (cpu_buf_para_ram_type)
   ) u_webserver (
       .reset_l      (reset_l_synced),
-      .clk_50mhz_in (clk_50m),
-      .clk_125mhz_in(clk_125m),
-      .clk_200mhz_in(clk_200m),
+      .clk_50mhz    (clk_50m),
+      .clk_125mhz   (clk_125m),
 
       .uart_rx(uart_rx),
       .uart_tx(uart_tx),

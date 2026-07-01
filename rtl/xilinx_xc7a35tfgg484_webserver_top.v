@@ -1,3 +1,4 @@
+`define FPGA_PLATFORM_XILINX
 `include "define.sv"
 
 // xilinx_xc7a35tfgg484_webserver_top — xilinx artix-7 fpga webserver top module
