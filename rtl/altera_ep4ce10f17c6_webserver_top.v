@@ -81,6 +81,8 @@ module altera_ep4ce10f17c6_webserver_top #(
   reg        gmii_tx_en_r;
   reg        gmii_tx_err_r;
 
+  wire [3:0] eth_greset;
+
   assign buzz = 1'b0;  //close buzz sound on board
   clk_rst_ctrl #(
       .NUM_LOCK_INPUTS(1)
@@ -120,7 +122,7 @@ module altera_ep4ce10f17c6_webserver_top #(
     eth0_txer <= gmii_tx_err_r;
   end
 
-  assign eth0_greset  = reset_l_synced;
+  assign eth0_greset  = eth_greset[0];
   assign eth0_gtx_clk = clk_125m;
 
   // --- webserver core wrapper ---
@@ -167,7 +169,7 @@ module altera_ep4ce10f17c6_webserver_top #(
       .gmii_txd   (gmii_txd_r),
       .gmii_tx_en (gmii_tx_en_r),
       .gmii_tx_err(gmii_tx_err_r),
-
+      .eth_greset(eth_greset),
       .led(led_o)
   );
 endmodule

@@ -1,5 +1,5 @@
 #ifndef _BUILD_TIME_H_
 #define _BUILD_TIME_H_
-#define BUILD_DATE      0x20260630
-#define BUILD_TIME      0x19433400
+#define BUILD_DATE      0x20260704
+#define BUILD_TIME      0x10390000
 #endif // _BUILD_TIME_H_

@@ -59,7 +59,7 @@ module webserver_wrapper #(
     output [7:0] gmii_txd,
     output       gmii_tx_en,
     output       gmii_tx_err,
-
+    output [3:0] eth_greset,
     output [3:0] led
 );
 
@@ -103,7 +103,6 @@ module webserver_wrapper #(
   wire [                 7:0] recv_pkt_drop_cnt_src;  // 125MHz, from cpu_channel
   wire [                 7:0] recv_pkt_drop_cnt;  // 50MHz, GRAY synced → debug_ro_0
   wire [                31:0] debug_ro_1;
-  wire [                 3:0] eth_greset;
 
   // ethernet mdio sub-bus
   wire eth0_op_req, eth0_wrl_rdh;
@@ -366,47 +365,47 @@ module webserver_wrapper #(
 
   // --- eth0 statistics CDC sync (125MHz → 50MHz) ---
   generate
-      if (stat_cnt_en == 1) begin : g_sync_eth0_stats
-          cdc_bus_sync_vec #(
-              .DATA_WIDTH(32),
-              .CHANNELS  (7),
-              .MODE      (0)
-          ) u_sync_eth0_stats (
-              .src_clk(clk_125mhz),
-              .src_rst_l(reset_l),
-              .src_data({
-                eth0_rx_data_err_line_src,
-                eth0_rx_afifo_empty_cnt_src,
-                eth0_rx_afifo_full_cnt_src,
-                eth0_tx_error_pkt_cnt_src,
-                eth0_tx_correct_pkt_cnt_src,
-                eth0_rx_crc_err_pkt_cnt_src,
-                eth0_rx_correct_pkt_cnt_src
-              }),
-              .src_valid(7'b0),
-              .dst_clk(clk_50mhz),
-              .dst_rst_l(reset_l),
-              .dst_data({
-                eth0_rx_data_err_line,
-                eth0_rx_afifo_empty_cnt,
-                eth0_rx_afifo_full_cnt,
-                eth0_tx_error_pkt_cnt,
-                eth0_tx_correct_pkt_cnt,
-                eth0_rx_crc_err_pkt_cnt,
-                eth0_rx_correct_pkt_cnt
-              }),
-              .dst_valid(),
-              .src_ready()
-          );
-      end else begin : g_no_sync_eth0_stats
-          assign eth0_rx_correct_pkt_cnt  = 32'b0;
-          assign eth0_rx_crc_err_pkt_cnt  = 32'b0;
-          assign eth0_tx_correct_pkt_cnt  = 32'b0;
-          assign eth0_tx_error_pkt_cnt    = 32'b0;
-          assign eth0_rx_afifo_full_cnt   = 32'b0;
-          assign eth0_rx_afifo_empty_cnt  = 32'b0;
-          assign eth0_rx_data_err_line    = 32'b0;
-      end
+    if (stat_cnt_en == 1) begin : g_sync_eth0_stats
+      cdc_bus_sync_vec #(
+          .DATA_WIDTH(32),
+          .CHANNELS  (7),
+          .MODE      (0)
+      ) u_sync_eth0_stats (
+          .src_clk(clk_125mhz),
+          .src_rst_l(reset_l),
+          .src_data({
+            eth0_rx_data_err_line_src,
+            eth0_rx_afifo_empty_cnt_src,
+            eth0_rx_afifo_full_cnt_src,
+            eth0_tx_error_pkt_cnt_src,
+            eth0_tx_correct_pkt_cnt_src,
+            eth0_rx_crc_err_pkt_cnt_src,
+            eth0_rx_correct_pkt_cnt_src
+          }),
+          .src_valid(7'b0),
+          .dst_clk(clk_50mhz),
+          .dst_rst_l(reset_l),
+          .dst_data({
+            eth0_rx_data_err_line,
+            eth0_rx_afifo_empty_cnt,
+            eth0_rx_afifo_full_cnt,
+            eth0_tx_error_pkt_cnt,
+            eth0_tx_correct_pkt_cnt,
+            eth0_rx_crc_err_pkt_cnt,
+            eth0_rx_correct_pkt_cnt
+          }),
+          .dst_valid(),
+          .src_ready()
+      );
+    end else begin : g_no_sync_eth0_stats
+      assign eth0_rx_correct_pkt_cnt = 32'b0;
+      assign eth0_rx_crc_err_pkt_cnt = 32'b0;
+      assign eth0_tx_correct_pkt_cnt = 32'b0;
+      assign eth0_tx_error_pkt_cnt   = 32'b0;
+      assign eth0_rx_afifo_full_cnt  = 32'b0;
+      assign eth0_rx_afifo_empty_cnt = 32'b0;
+      assign eth0_rx_data_err_line   = 32'b0;
+    end
   endgenerate
 
   // filter_data change detector (50MHz)

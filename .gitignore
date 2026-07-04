@@ -122,3 +122,4 @@ sim/obj_dir/
 sim/obj_dir_wave/
 tcl/webserver_riscv_instruct_*.tcl
 *.pcapng
+.~lock.*
