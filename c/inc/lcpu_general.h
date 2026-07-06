@@ -23,8 +23,8 @@ typedef int             int32;
 // Local MAC address & IP address
 #define Local_MAC_HIGH   0x00000102
 #define Local_MAC_LOW    0x0406
-//#define Local_IP_ADDR    0xA9FE0058  //169.254.0.88
-#define Local_IP_ADDR    0xC0A80142  //192.168.1.66
+#define Local_IP_ADDR    0xA9FE0058  //169.254.0.88
+//#define Local_IP_ADDR    0xC0A80142  //192.168.1.66
 
 // Standard header lengths
 #define eth_header_len   14

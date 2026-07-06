@@ -5,6 +5,13 @@
 # --- Input clock 50 MHz (period 20 ns) ---
 create_clock -period 20.000 -name clk_50m_in [get_ports clk_50m_in]
 
+# --- PLL output clocks ---
+# PLL hierarchy: g_clk_pll.u_pll|altpll_component|auto_generated|pll1
+# NOTE: fit report shows clk[1] = 100.0 MHz, NOT 125 MHz.
+#       Check pll_50m megafunction config if 125 MHz is required.
+create_generated_clock -name clk_50m  -source [get_ports clk_50m_in] -multiply_by 1 -divide_by 1 [get_pins {g_clk_pll.u_pll|altpll_component|auto_generated|pll1|clk[0]}]
+create_generated_clock -name clk_125m -source [get_ports clk_50m_in] -multiply_by 5 -divide_by 2 [get_pins {g_clk_pll.u_pll|altpll_component|auto_generated|pll1|clk[1]}]
+
 # --- GMII RX clock 125 MHz (period 8 ns) ---
 create_clock -period 8.000 -name eth0_rxc [get_ports eth0_rxc]
 
