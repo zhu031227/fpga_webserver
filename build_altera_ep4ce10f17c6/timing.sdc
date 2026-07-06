@@ -21,6 +21,21 @@ create_generated_clock -name mdio_clk -source [get_ports clk_50m_in] -divide_by 
 # --- Clock uncertainty ---
 derive_clock_uncertainty
 
-set_false_path -from [get_clocks {eth0_rxc}] -to [get_clocks {clk_50m_in}]; set_false_path -from [get_clocks {eth0_rxc}] -to [get_clocks {clk_50m_in}]
+# --- CDC false paths (async FIFO / synchronizer handles these) ---
+# eth0_rxc ↔ clk_125m (gmii2mac dual_clock_fifo)
+set_false_path -from [get_clocks {eth0_rxc}] -to [get_clocks {clk_125m}]
+set_false_path -from [get_clocks {clk_125m}] -to [get_clocks {eth0_rxc}]
+# eth0_rxc ↔ clk_50m (GMII stats CDC)
+set_false_path -from [get_clocks {eth0_rxc}] -to [get_clocks {clk_50m}]
+set_false_path -from [get_clocks {clk_50m}] -to [get_clocks {eth0_rxc}]
+# clk_125m ↔ clk_50m (cpu_channel CDC)
+set_false_path -from [get_clocks {clk_125m}] -to [get_clocks {clk_50m}]
+set_false_path -from [get_clocks {clk_50m}] -to [get_clocks {clk_125m}]
+# clk_50m ↔ mdio_clk (MDIO CDC)
+set_false_path -from [get_clocks {clk_50m}] -to [get_clocks {mdio_clk}]
+set_false_path -from [get_clocks {mdio_clk}] -to [get_clocks {clk_50m}]
+# clk_50m_in ↔ clk_125m (PLL input vs internal, reset CDC)
+set_false_path -from [get_clocks {clk_50m_in}] -to [get_clocks {clk_125m}]
+set_false_path -from [get_clocks {clk_125m}] -to [get_clocks {clk_50m_in}]
 
 
