@@ -467,7 +467,7 @@ module tb_webserver;
   wire [7:0]  dbg_pre_din    = u_dut.u_webserver.i_eth0.u_eth_presemble.rx_data_in;
   wire        dbg_pre_valid  = u_dut.u_webserver.i_eth0.u_eth_presemble.rx_valid_header;
   wire [13:0] dbg_pre_cnt    = u_dut.u_webserver.i_eth0.u_eth_presemble.rx_eth_byte_cnt;
-  wire [6:0]  dbg_pre_premble = u_dut.u_webserver.i_eth0.u_eth_presemble.rx_premble;
+  wire        dbg_pre_premble = u_dut.u_webserver.i_eth0.u_eth_presemble.rx_preamble_seen;
 
   // Watch eth_presemble output
   reg dbg_pre_seen;
