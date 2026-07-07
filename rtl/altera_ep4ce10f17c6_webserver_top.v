@@ -22,15 +22,15 @@ module altera_ep4ce10f17c6_webserver_top #(
     output uart_tx,
 
     // gmii interface (direct)
-    output       eth0_greset,
-    output       eth0_gtx_clk,
-    input        eth0_rxc,
-    input        eth0_rxdv,
-    input        eth0_rxer,
-    input  [7:0] eth0_rxd,
-    output [7:0] eth0_txd,
-    output       eth0_txen,
-    output       eth0_txer,
+    output           eth0_greset,
+    output           eth0_gtx_clk,
+    input            eth0_rxc,
+    input            eth0_rxdv,
+    input            eth0_rxer,
+    input      [7:0] eth0_rxd,
+    output reg [7:0] eth0_txd,
+    output reg       eth0_txen,
+    output reg       eth0_txer,
 
     // mdio
     output eth0_mdc,
