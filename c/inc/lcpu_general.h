@@ -20,11 +20,9 @@ typedef int             int32;
 #define DEBUG_En_icmp    0
 #define DEBUG_En_tcp     0
 
-// Local MAC address & IP address
+// Local MAC address & IP address (defaults — overridden by local_config_init)
 #define Local_MAC_HIGH   0x00000102
 #define Local_MAC_LOW    0x0406
-//#define Local_IP_ADDR    0xA9FE0058  //169.254.0.88
-//#define Local_IP_ADDR    0xC0A80142  //192.168.1.66
 #define Local_IP_ADDR    0xC0A80158  //192.168.1.88
 
 // Standard header lengths
@@ -89,8 +87,6 @@ typedef int             int32;
 #define ICMP_REQUEST    0x08
 
 // TCP timing constants (in local_time ticks — scaled for 50MHz system clock)
-// Note: local_time is a 32-bit free-running counter. Max safe timeout is
-//       2^31 = 2,147,483,648 ticks ≈ 42.9s at 50MHz (modular arithmetic limit).
 #ifndef TCP_TIMEWAIT_TICKS
 #define TCP_TIMEWAIT_TICKS      100000000u  // TIME_WAIT duration (~2s at 50MHz)
 #endif
@@ -122,6 +118,10 @@ typedef int             int32;
 extern uint32 src_ip;
 extern uint16 src_port;
 extern uint16 ip_total_len;
+
+// SubBus access macros (for whitelist + flash)
+#define REG_SUBBUS_BASE(w, addr, data)  do { *((volatile uint32 *)(0x80000000 + ((w) * 4))) = (uint32)(data); } while (0)
+#define REG_SUBBUS_READ(w, addr)        (*((volatile uint32 *)(0x80000000 + ((w) * 4))))
 
 struct str_wr_pkt_fifo
 {
@@ -195,7 +195,7 @@ struct lcpu_registers
     uint32 Led;                      // 0x30 RW [3:0]
     uint32 reserve3[0x100 - 0x31];  // 0x31..0xFF
 
-    // ---- 0x100 - 0x106: ETH statistics ----
+    // ---- 0x100 - 0x106: eth0 statistics ----
     uint32 eth_rx_correct_pkt_cnt;   // 0x100 RO
     uint32 eth_rx_crc_err_pkt_cnt;   // 0x101 RO
     uint32 eth_tx_correct_pkt_cnt;   // 0x102 RO
@@ -203,20 +203,68 @@ struct lcpu_registers
     uint32 eth_rx_afifo_full_cnt;    // 0x104 RO
     uint32 eth_rx_afifo_empty_cnt;   // 0x105 RO
     uint32 eth_rx_data_err_line;     // 0x106 RO
-    uint32 reserve4[0x200 - 0x107]; // 0x107..0x1FF
+    uint32 reserve3b[0x110 - 0x107]; // 0x107..0x10F
+
+    // ---- 0x110 - 0x116: eth1 statistics (NEW) ----
+    uint32 eth1_rx_correct_pkt_cnt;  // 0x110 RO
+    uint32 eth1_rx_crc_err_pkt_cnt;  // 0x111 RO
+    uint32 eth1_tx_correct_pkt_cnt;  // 0x112 RO
+    uint32 eth1_tx_error_pkt_cnt;    // 0x113 RO
+    uint32 eth1_rx_afifo_full_cnt;   // 0x114 RO
+    uint32 eth1_rx_afifo_empty_cnt;  // 0x115 RO
+    uint32 eth1_rx_data_err_line;    // 0x116 RO
+    uint32 reserve3c;                // 0x117
+
+    // ---- 0x118 - 0x11E: eth2 statistics (NEW) ----
+    uint32 eth2_rx_correct_pkt_cnt;  // 0x118 RO
+    uint32 eth2_rx_crc_err_pkt_cnt;  // 0x119 RO
+    uint32 eth2_tx_correct_pkt_cnt;  // 0x11A RO
+    uint32 eth2_tx_error_pkt_cnt;    // 0x11B RO
+    uint32 eth2_rx_afifo_full_cnt;   // 0x11C RO
+    uint32 eth2_rx_afifo_empty_cnt;  // 0x11D RO
+    uint32 eth2_rx_data_err_line;    // 0x11E RO
+    uint32 reserve4[0x200 - 0x11F]; // 0x11F..0x1FF
 
     // ---- 0x200 - 0x201: MAC filter ----
     uint32 filter_data;              // 0x200 RW [15:0]
     uint32 filter_offset;            // 0x201 RW [15:0]
-    uint32 reserve5[0x6000 - 0x202]; // 0x202..0x5FFF
+
+    // ---- 0x202 - 0x209: Local config (NEW) ----
+    uint32 local_mac_h;              // 0x202 RW MAC[47:16]
+    uint32 local_mac_l;              // 0x203 RW MAC[15:0]
+    uint32 local_ip;                 // 0x204 RW
+    uint32 local_netmask;            // 0x205 RW
+    uint32 local_gateway;            // 0x206 RW
+    uint32 local_config_save;        // 0x207 WC
+    uint32 local_config_load;        // 0x208 WC
+    uint32 local_config_valid;       // 0x209 RO
+
+    uint32 reserve5[0x300 - 0x20A];  // 0x20A..0x2FF
+
+    // ---- 0x300 - 0x304: Whitelist global control (NEW) ----
+    uint32 wl_ctrl;                  // 0x300 RW [1:0] enable, default_pass
+    uint32 wl_status;                // 0x301 RO [7:0]lookup_mode, [15:8]used_cnt
+    uint32 wl_lat_match_mac_h;       // 0x302 RO MAC[47:16]
+    uint32 wl_lat_match_mac_l;       // 0x303 RO MAC[15:0]
+    uint32 cpu_tx_port_sel;          // 0x304 RW [1:0]
+
+    uint32 reserve5b[0x310 - 0x305]; // 0x305..0x30F
+
+    // ---- 0x310 - 0x313: Bootloader (NEW) ----
+    uint32 bootloader_trigger;        // 0x310 WC — triggers Flash→BRAM transfer
+    uint32 bootloader_status;         // 0x311 RO [2:0] busy/done/error
+    uint32 bootloader_flash_addr;     // 0x312 RW Flash source addr (default 0x400000)
+    uint32 bootloader_length;         // 0x313 RW Bytes to transfer (default 16384)
+
+    uint32 reserve6[0x6000 - 0x314]; // 0x314..0x5FFF
 
     // ---- 0x6000: Read packet FIFO (16 regs) ----
     struct str_rd_pkt_fifo rd_pkt_fifo;
-    uint32 reserve6[0x100 - 0x10];   // 0x6010..0x60FF
+    uint32 reserve7[0x100 - 0x10];   // 0x6010..0x60FF
 
     // ---- 0x6100: Write packet FIFO (15 regs) ----
     struct str_wr_pkt_fifo wr_pkt_fifo;
-    uint32 reserve7[0x1000 - 0x100 - 0x10]; // pad to 0x7000
+    uint32 reserve8[0x1000 - 0x100 - 0x10]; // pad to 0x7000
 
     // ---- 0x7000: program_ram ----
     uint32 program_ram[0x1000];
@@ -245,5 +293,13 @@ struct lcpu_registers
 #define LCPU_REG32_WRITE(word_addr, data) do { *((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))) = (uint32)(data); } while (0)
 #define LCPU_REG32_READ(word_addr)       (*((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))))
 
+// Runtime local config globals (cached from registers at init)
+extern uint32 g_local_ip;
+extern uint32 g_local_mac_high;
+extern uint32 g_local_mac_low;
+
+// Whitelist SubBus address base
+#define WL_SUBBUS_BASE    0x1500
+#define SFLASH_SUBBUS_BASE 0x1400
 
 #endif /* _LCPU_GEN_H_ */

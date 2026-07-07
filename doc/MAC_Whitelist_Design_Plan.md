@@ -1,6 +1,6 @@
-# FPGA WebServer MAC 白名单上网控制 — 设计方案 V3
+# FPGA WebServer MAC 白名单上网控制 — 设计方案 V4
 
-> 文档编号：ED002R03  
+> 文档编号：ED002R04  
 > 日期：2026-07-07  
 > 基于：fpga_webserver 现有架构  
 > 平台：Xilinx XC7A35T-FGG484-2（仅限 Xilinx 平台实现双 1000BASE-X）
@@ -31,10 +31,10 @@
                         │  └──────────────┘                         │
                         │                                            │
                         │  ┌──────────────────────────────────┐     │
-                        │  │         SPI Flash (W25Q32)        │     │
+                        │  │     SPI Flash (MX25L12845,16MB)   │     │
                         │  │  ┌──────────┐  ┌──────────────┐   │     │
-                        │  │  │ Web 页面  │  │ 白名单配置    │   │     │
-                        │  │  │ (HTML)   │  │ (MAC表+控制)  │   │     │
+                        │  │  │ Web 页面  │  │ 本机+白名单   │   │     │
+                        │  │  │ (HTML)   │  │ (IP/MAC/WL)  │   │     │
                         │  │  └──────────┘  └──────────────┘   │     │
                         │  └──────────────────────────────────┘     │
                         └────────────────────────────────────────────┘
@@ -53,8 +53,9 @@
 2. **千兆线速**：所有三个接口均为 1Gbps，内部 GMII 8-bit @125MHz
 3. **MAC 白名单过滤**：eth1→eth2 方向，源 MAC 不在白名单的报文硬件丢弃
 4. **eth2→eth1 回程透传**：不检查白名单，直接转发
-5. **Flash 持久化**：Web 页面和 MAC 白名单存储在 SPI Flash (W25Q32)，断电不丢失
+5. **Flash 持久化**：Web 页面、MAC 白名单、本机 IP/MAC 配置存储在 SPI Flash (MX25L12845, 16MB)，断电不丢失
 6. **默认"全断"**：白名单为空或关闭时，LAN→WAN 方向阻断所有流量
+7. **本机可配置**：Web 页面支持修改本机 IP/MAC 地址，修改后通过新地址访问管理页面
 
 ---
 
@@ -115,11 +116,44 @@ module mac_whitelist #(
     output                      lookup_done,     // 查找完成（脉冲，N 周期后）
     output                      lookup_busy,     // 1=正在查找中
 
+    // === LCPU 总线配置端口（50MHz cfg_clk，标准 LCPU bus 接口） ===
+    input                       cfg_clk,         // 50MHz CPU 时钟
+    input                       cfg_reset_l,
+    input                       cfg_req,         // LCPU bus req
+    input                       cfg_rhwl,        // 0=write, 1=read
+    input  [31:0]               cfg_wdata,       // 写数据
+    input  [15:0]               cfg_address,     // 寄存器地址
+    output [31:0]               cfg_rdata,       // 读数据
+    output                      cfg_ack,         // 操作应答
+
     // === 全局控制 ===
     input                       whitelist_en,    // 白名单总开关
     input                       default_pass     // 关闭时的策略: 0=全断, 1=全放
 );
 ```
+
+**LCPU 总线配置地址空间：**
+
+| 地址 | 名称 | 类型 | 描述 |
+|------|------|------|------|
+| 0x00 | `WL_ENTRY_INDEX` | RW | 操作目标条目索引 [3:0] |
+| 0x01 | `WL_ENTRY_MAC_H` | RW | MAC[47:16] |
+| 0x02 | `WL_ENTRY_MAC_L` | RW | MAC[15:0] |
+| 0x03 | `WL_ENTRY_WR` | WC | 写脉冲: 写入 index+MAC |
+| 0x04 | `WL_ENTRY_DEL` | WC | 删脉冲: 删除 index |
+| 0x05 | `WL_ENTRY_CLEAR` | WC | 清空全部 |
+| 0x06 | `WL_ENTRY_RD_MAC_H` | RO | 读回 MAC[47:16] |
+| 0x07 | `WL_ENTRY_RD_MAC_L` | RO | 读回 MAC[15:0] |
+| 0x08 | `WL_ENTRY_RD_VALID` | RO | 读回有效位 [0] |
+| 0x09 | `WL_ENTRY_FREE_IDX` | RO | 空闲索引 [7:0], FF=表满 |
+| 0x0A | `WL_MAX_ENTRIES` | RO | 最大条目数 |
+| 0x0B | `WL_USED_CNT` | RO | 已用条目数 |
+| 0x0C | `WL_MATCH_CNT_L` | RO | 命中计数[31:0] |
+| 0x0D | `WL_MATCH_CNT_H` | RO | 命中计数[63:32] |
+| 0x0E | `WL_DROP_CNT_L` | RO | 丢弃计数[31:0] |
+| 0x0F | `WL_DROP_CNT_H` | RO | 丢弃计数[63:32] |
+
+> **说明**：`mac_whitelist` 作为一个独立模块，自带 LCPU 总线从机接口。在 `webserver_wrapper` 中通过 `reg_webserver` 的 SubBus 机制接入（类似 `lcpu_mdio` 的方式），CPU 通过 SubBus 地址空间直接读写白名单寄存器。**白名单控制寄存器不再放入 reg_webserver.xls**，而是作为 mac_whitelist 模块内部寄存器，通过 SubBus 访问。
 
 ### 2.4 模式 0：BRAM 顺序查找（本次实现）
 
@@ -131,34 +165,35 @@ module mac_whitelist_seq #(
     input                       clk,             // 125MHz
     input                       reset_l,
 
-    // 查找端口
+    // 查找端口（不变）
     input                       lookup_req,
     input  [47:0]               lookup_mac,
     output reg                  lookup_match,
     output reg                  lookup_done,
     output                      lookup_busy,
 
-    // 全局控制
-    input                       whitelist_en,
-    input                       default_pass,
-
-    // === CPU 配置端口（50MHz cfg_clk） ===
+    // LCPU 总线配置端口（50MHz）
     input                       cfg_clk,
     input                       cfg_reset_l,
-    input                       cfg_wr_en,
-    input  [ADDR_WIDTH-1:0]     cfg_addr,
-    input  [47:0]               cfg_mac,
-    input                       cfg_valid,        // 1=写入有效条目, 0=删除此条目
-    output [47:0]               cfg_rd_mac,
-    output                      cfg_rd_valid,
-    output [ADDR_WIDTH-1:0]     cfg_free_index,
-    output                      cfg_full,
+    input                       cfg_req,
+    input                       cfg_rhwl,
+    input  [31:0]               cfg_wdata,
+    input  [15:0]               cfg_address,
+    output [31:0]               cfg_rdata,
+    output                      cfg_ack,
 
-    // 统计
-    output reg [63:0]           match_cnt,
-    output reg [63:0]           drop_cnt
+    // 全局控制
+    input                       whitelist_en,
+    input                       default_pass
 );
 ```
+
+**LCPU 总线配置实现要点：**
+- 模块内部维护一个简单的寄存器读写状态机（类似 reg_webserver 的模式）
+- `cfg_req` + `cfg_address` 选择目标寄存器
+- `cfg_rhwl=0` 时写寄存器，`cfg_rhwl=1` 时读寄存器
+- 写 MAC 条目流程：写 MAC_H → 写 MAC_L → 写 INDEX → 触发 WR 脉冲
+- BRAM 写端口使用 cfg_clk 域，读端口使用 clk(125MHz) 域（真双口 BRAM）
 
 **内部实现要点：**
 
@@ -286,31 +321,27 @@ eth1 (LAN)                           eth2 (WAN)
   │  纯二层透传                          │
 ```
 
-**桥接规则：**
+**桥接规则（简化后）：**
 
 | 方向 | 条件 | 动作 |
 |------|------|------|
-| eth1 → eth2 | 源 MAC 在白名单中 | 转发到 eth2 TX |
+| eth0 RX | 任意 | 送 CPU 协议栈（管理报文，独立管理网段） |
+| eth1 → eth2 | 源 MAC 在白名单中 | 转发到 eth2 TX（纯硬件） |
 | eth1 → eth2 | 源 MAC 不在白名单 | **丢弃**，累加 drop_cnt |
-| eth1 → eth2 | 目的 MAC = 本地 MAC | 送 CPU 协议栈（管理报文） |
 | eth1 → eth2 | 白名单关闭 | 默认策略决定（全断/全放） |
-| eth2 → eth1 | 任意 | **直接透传**到 eth1 TX（不查白名单） |
-| eth2 → eth1 | 目的 MAC = 本地 MAC | 送 CPU 协议栈 |
-| CPU → eth0 | 管理报文 | 发送到 eth0 TX（管理口） |
-| CPU → eth1/eth2 | ARP 应答等 | 发送到对应端口 TX |
+| eth2 → eth1 | 任意 | **直接透传**到 eth1 TX（纯硬件，不查白名单） |
+| CPU → eth0 | 管理应答 | 发送到 eth0 TX |
 
-### 3.2 硬件桥接数据通路
+### 3.2 硬件桥接数据通路（简化版）
+
+> **2026-07-07 简化**：eth1/eth2 为纯硬件 L2 桥接，不送报文到 CPU。
+> 管理功能全部通过 eth0（独立管理网段）完成。
 
 ```
 eth1 RX (LAN)
   │
-  ├─[ram2pktfifo_int]──► 缓冲前 14 字节（提取 SrcMAC/DstMAC）
+  ├─[ram2pktfifo_int]──► 缓冲前 14 字节（提取 SrcMAC）
   │                           │
-  │                     ┌─────┴──────┐
-  │                     │ DstMAC ==  │── yes ──► CPU RX FIFO（管理报文）
-  │                     │ local MAC? │
-  │                     └─────┬──────┘
-  │                           │ no
   │                     ┌─────┴──────┐
   │                     │ 白名单查找  │
   │                     │ lookup_req │──► mac_whitelist
@@ -321,19 +352,15 @@ eth1 RX (LAN)
   │           yes│                         │no
   │              ▼                         ▼
   │     eth2 TX 转发              丢弃 + drop_cnt++
-  │    (直通，不经CPU)
+  │    (纯硬件，不经CPU)
 
 eth2 RX (WAN)
   │
-  ├─[ram2pktfifo_int]──► 缓冲前 14 字节
-  │                           │
-  │                     ┌─────┴──────┐
-  │                     │ DstMAC ==  │── yes ──► CPU RX FIFO
-  │                     │ local MAC? │
-  │                     └─────┬──────┘
-  │                           │ no
-  │                           ▼
-  │                    eth1 TX 转发（无条件透传）
+  └─[ram2pktfifo_int]──► eth1 TX 转发（无条件透传，纯硬件）
+
+eth0 RX (Management)
+  │
+  └─[ram2pktfifo_int]──► CPU RX FIFO（全部报文，管理口独立网段）
 ```
 
 ### 3.3 转发实现要点
@@ -380,34 +407,34 @@ eth2 RX (WAN)
 ```
 ┌──────────────────────────────────────────────┐  0x000000
 │  FPGA Bitstream                               │
-│  ~4MB (XC7A35T bitstream size)               │
+│  ~4MB (XC7A35T SPI x4 配置数据)              │
 ├──────────────────────────────────────────────┤  0x400000
 │  RISC-V Firmware (InstructRAM BIN)           │
-│  ~16KB                                        │
-├──────────────────────────────────────────────┤  0x404000
+│  ~128KB                                       │
+├──────────────────────────────────────────────┤  0x420000
 │  Web 页面内容 (HTML/CSS/JS)                  │
-│  ~1MB (多页面 + 图片/Logo 预留)              │
-├──────────────────────────────────────────────┤  0x504000
-│  白名单配置数据                               │
-│  ~4KB (16条 MAC + 控制参数 + CRC校验)         │
+│  ~8MB (多页面 + Logo/图片/扩展预留)           │
+├──────────────────────────────────────────────┤  0xC20000
+│  本机配置 + 白名单配置                        │
+│  ~4KB (本机IP/MAC + 白名单表 + CRC校验)      │
 │  注：占用 1 个 4KB 扇区，独立擦除            │
-├──────────────────────────────────────────────┤  0x505000
+├──────────────────────────────────────────────┤  0xC21000
 │  预留空间                                     │
-│  ~11MB                                        │
+│  ~7.8MB                                       │
 └──────────────────────────────────────────────┘  0x1000000 (16MB)
 ```
 
 **Flash 扇区分配说明：**
 
-| 分区 | Flash 地址 | 大小 | 扇区类型 | 说明 |
-|------|-----------|------|---------|------|
-| FPGA Bitstream | 0x000000 | 4MB | 64KB Blocks | Vivado 生成 SPI x4 配置数据 |
-| Firmware | 0x400000 | 16KB | 4KB Sectors | RISC-V 可执行固件 |
-| Web 页面 | 0x404000 | 1MB | 4KB Sectors | HTML/CSS/JS 页面文件 |
-| 白名单配置 | 0x504000 | 4KB | 1 个 4KB Sector | MAC 表 + 控制信息 |
-| 预留 | 0x505000 | ~11MB | — | 日志 / 固件备份 / 扩展 |
+| 分区 | Flash 地址 | 大小 | 说明 |
+|------|-----------|------|------|
+| FPGA Bitstream | 0x000000 | 4MB | Vivado 生成 SPI x4 配置数据 |
+| Firmware | 0x400000 | 128KB | RISC-V 可执行固件 |
+| Web 页面 | 0x420000 | 8MB | HTML/CSS/JS/Logo 页面文件 |
+| 本机+白名单配置 | 0xC20000 | 4KB | 本机 IP/MAC + MAC 白名单表 + 控制参数 |
+| 预留 | 0xC21000 | ~7.8MB | 日志 / 固件备份 / 扩展 |
 
-> **白名单独占一个 4KB 扇区的原因**：Flash 擦除以扇区为单位。白名单修改只需擦除 1 个 4KB 扇区然后重新写入，不影响其他数据。
+> **配置扇区独占 4KB**：本机 IP/MAC 和白名单配置合并存储在同一个 4KB 扇区，擦除时一起操作，简化 Flash 管理。
 
 ### 4.4 Flash 访问架构
 
@@ -435,84 +462,148 @@ eth2 RX (WAN)
 - RISC-V 可以像读普通内存一样读取 Flash 内容
 - 启动时从 Flash 加载白名单，运行时根据需要读取 Web 页面发送给客户端
 
-### 4.5 白名单 Flash 存储格式
+### 4.5 配置数据 Flash 存储格式
+
+**Flash 地址: 0xC20000 (MX25L12845)，占用 1 个 4KB 扇区**
 
 ```
-Flash 地址: 0x504000 (MX25L12845)
-Size: 128 Bytes（1个4KB扇区内）
-
 Offset  Size    Field
-0x00    4B      Magic Number: 0x574C4442 ("WLDB")
+─────────────────────────────────────
+0x00    4B      本机配置 Magic: 0x4C434647 ("LCFG")
 0x04    2B      Version: 0x0001
-0x06    2B      CRC16 (覆盖 0x00-0x05 + 0x08-EOF)
-0x08    1B      whitelist_enable
-0x09    1B      default_pass
-0x0A    2B      entry_count
-0x0C    4B      Reserved
-0x10    16×7B   白名单条目（每条: 6B MAC + 1B valid）
-       --------
-       0x80    (128 bytes total, 扇区剩余空间填 0xFF)
+0x06    2B      CRC16 (覆盖本机配置区域)
+
+0x08    6B      本机 MAC 地址 (eth0 管理口)
+0x0E    4B      本机 IP 地址 (eth0)
+0x12    4B      本机子网掩码
+0x14    4B      本机网关地址
+
+0x18    4B      eth1 (LAN口) MAC 地址
+0x1C    4B      eth2 (WAN口) MAC 地址
+0x20    28B     Reserved (本机配置区共 64B)
+
+─────────────────────────────────────
+0x40    4B      白名单 Magic: 0x574C4442 ("WLDB")
+0x44    2B      Version: 0x0001
+0x46    2B      CRC16 (覆盖白名单区域)
+
+0x48    1B      whitelist_enable
+0x49    1B      default_pass
+0x4A    2B      entry_count
+0x4C    4B      Reserved
+
+0x50    16×7B   白名单条目（每条: 6B MAC + 1B valid）
+        = 112B
+─────────────────────────────────────
+        0xC0    (192 bytes total, 扇区剩余空间填 0xFF)
 ```
 
 **保存操作流程：**
-1. 修改硬件 BRAM 后触发保存
-2. 将当前白名单数据按上述格式序列化到临时 buffer（128 bytes）
-3. 计算 CRC16 写入 offset 0x06
-4. Flash 操作：发 Write Enable → Sector Erase(0x504000, 4KB) → 等待完成 → 逐页 Page Program(256B) → 等待完成
-5. 校验：回读 Flash 数据，比对 buffer，CRC 校验
+1. 修改本机配置或白名单后触发保存
+2. 将当前所有配置序列化到临时 buffer（192 bytes），计算两个 CRC16
+3. Flash 操作：Write Enable → Sector Erase(0xC20000) → 等待 → Page Program(256B) → 等待
+4. 校验：回读比对
 
 ### 4.6 Web 页面 Flash 存储
 
-**Flash 基地址: 0x404000，容量: 1MB**
+**Flash 基地址: 0x420000，容量: 8MB**
 
 **写入流程：**
 1. 开发者在 PC 上编写 HTML/CSS/JS 页面
 2. 将所有页面文件打包为一个 `web_pages.bin` 文件
-3. 通过 JTAG TCL 脚本，LCPU 将 `web_pages.bin` 写入 Flash 0x404000
+3. 通过 JTAG TCL 脚本，LCPU 将 `web_pages.bin` 写入 Flash 0x420000
 
 **运行时访问：**
-- `http.c` 收到 HTTP GET 请求后，根据 URL 路径计算 Flash 偏移地址 → 基地址 + 页面偏移
-- 通过 SubBus (lcpu_sflash) 从 Flash 读取 HTML 内容到临时 buffer
-- 将 HTML 内容作为 HTTP 响应体发送
+- `http.c` 收到 HTTP GET 请求后，根据 URL 路径计算 Flash 偏移 → 0x420000 + 页面偏移
+- 通过 SubBus (lcpu_sflash) 从 Flash 读取 HTML 内容
 
-**Web BIN 文件格式（写入到 Flash 0x404000）：**
+**Web BIN 文件格式（写入到 Flash 0x420000）：**
 
 ```
-Flash 0x404000:
 Offset   Size    Field
 0x0000   4B      Magic: 0x57454250 ("WEBP")
 0x0004   2B      Version
 0x0006   2B      Page Count (页面数量)
 0x0008   N×16B   页面索引表 (每条: 4B name_hash + 4B offset + 4B length + 4B content_length)
-...              Page 0 Content (主页 HTML)
-...              Page 1 Content (配置页 HTML)
+...              Page 0: 主页 (index.html)
+...              Page 1: 白名单配置页 (wlconfig.html)
+...              Page 2: 本机配置页 (localconfig.html)
 ...              ...
 ```
 
-> **初期简化方案**：固定 2 个页面在已知偏移量，C 代码中硬编码偏移和长度。
-> - `/` 主页：Flash 0x404000 + 0x0100，最大 16KB
-> - `/config` 配置页：Flash 0x404000 + 0x4100，最大 16KB
+> **固定偏移简化方案**：
+> - `/` 主页：Flash 0x420000 + 0x0100，最大 16KB
+> - `/wlconfig` 白名单配置：Flash 0x420000 + 0x4100，最大 16KB
+> - `/localconfig` 本机配置：Flash 0x420000 + 0x8100，最大 16KB
 
 ---
 
 ## 5. 寄存器映射修改（reg_webserver.xls）
 
-### 5.1 新增寄存器条目
+### 5.1 寄存器架构说明
 
-在 `reg_webserver.xls` 的 `RegistersList` sheet 中，在 `filter_offset`（0x201）之后插入以下条目：
+```
+reg_webserver (LCPU bus slave @ 50MHz)
+├── [0x000-0x0FF]  系统寄存器 (现有，不变)
+├── [0x100-0x1FF]  统计计数器 (扩展 eth1/eth2)
+├── [0x200-0x2FF]  本机网络配置寄存器 (新增)
+├── [0x300-0x3FF]  白名单全局控制寄存器 (精简)
+├── [0x1000-0x1FFF] eth0 MDIO SubBus (现有)
+├── [0x1200-0x12FF] eth1 MDIO SubBus (新增)
+├── [0x1300-0x13FF] eth2 MDIO SubBus (新增)
+├── [0x1400-0x14FF] SPI Flash SubBus (新增)
+├── [0x1500-0x15FF] mac_whitelist SubBus (新增) ← 白名单内部寄存器
+├── [0x6000-0x6FFF] CPU 读包 FIFO (现有)
+└── [0x6100-0x61FF] CPU 写包 FIFO (现有)
+```
 
-#### 5.1.1 eth1/eth2 统计计数器（0x110-0x11F）
+> **设计原则**：白名单 BRAM 条目的读写操作通过 `mac_whitelist` 模块的 LCPU 总线接口完成（SubBus 0x1500）。`reg_webserver.xls` 中只保留少量全局控制/状态寄存器。这样 `mac_whitelist` 模块是自包含的，未来替换查找算法时只需换模块，不影响 reg_webserver。
+
+### 5.2 本机网络配置寄存器（0x200-0x20F）
 
 | RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
 |---------|---------|---------|--------|---------|----------|-------|
-| eth1_rx_correct_pkt_cnt | RO | 0x110 | d'0 | d'31 | | |
+| local_mac_h | RW | 0x202 | d'0 | d'31 | 0x00000102 | 本机 MAC[47:16] (默认 00:00:01:02:04:06) |
+| local_mac_l | RW | 0x203 | d'0 | d'15 | 0x0406 | 本机 MAC[15:0] |
+| local_ip | RW | 0x204 | d'0 | d'31 | 0xC0A80158 | 本机 IP (默认 192.168.1.88) |
+| local_netmask | RW | 0x205 | d'0 | d'31 | 0xFFFFFF00 | 子网掩码 (默认 255.255.255.0) |
+| local_gateway | RW | 0x206 | d'0 | d'31 | 0xC0A80101 | 网关地址 (默认 192.168.1.1) |
+| local_config_save | WC | 0x207 | d'0 | d'0 | 0x0 | 写脉冲: 保存本机配置到 Flash |
+| local_config_load | WC | 0x208 | d'0 | d'0 | 0x0 | 写脉冲: 从 Flash 重新加载本机配置 |
+| local_config_valid | RO | 0x209 | d'0 | d'0 | | Flash 中配置数据 CRC 校验通过标志 |
+
+> **注意**：0x200(filter_data) 和 0x201(filter_offset) 保留不变（兼容现有代码），本机配置从 0x202 开始。
+
+### 5.3 白名单全局控制寄存器（0x300-0x303）
+
+| RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
+|---------|---------|---------|--------|---------|----------|-------|
+| wl_ctrl | RW | 0x300 | d'0 | d'1 | 0x0 | [0]:enable, [1]:default_pass, 默认全断 |
+| wl_status | RO | 0x301 | d'0 | d'15 | | [7:0]:lookup_mode, [15:8]:used_cnt |
+| wl_lat_match_mac_h | RO | 0x302 | d'0 | d'31 | | 最近命中 MAC[47:16] |
+| wl_lat_match_mac_l | RO | 0x303 | d'0 | d'15 | | 最近命中 MAC[15:0] |
+
+### 5.4 MDIO 及 SubBus 扩展
+
+| RegName | RegType | AddrLow | AddrHigh | Notes |
+|---------|---------|---------|----------|-------|
+| eth1_mdio | SubBus | 0x1200 | 0x12FF | eth1 LAN PHY MDIO |
+| eth2_mdio | SubBus | 0x1300 | 0x13FF | eth2 WAN PHY MDIO |
+| sflash | SubBus | 0x1400 | 0x14FF | SPI Flash 控制器 |
+| mac_whitelist | SubBus | 0x1500 | 0x15FF | MAC 白名单模块 LCPU 总线 (内部寄存器见 2.3 节) |
+
+### 5.5 eth1/eth2 统计计数器（0x110-0x11F）
+
+| RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
+|---------|---------|---------|--------|---------|----------|-------|
+| eth1_rx_correct_pkt_cnt | RO | 0x110 | d'0 | d'31 | | eth1 LAN |
 | eth1_rx_crc_err_pkt_cnt | RO | 0x111 | d'0 | d'31 | | |
 | eth1_tx_correct_pkt_cnt | RO | 0x112 | d'0 | d'31 | | |
 | eth1_tx_error_pkt_cnt | RO | 0x113 | d'0 | d'31 | | |
 | eth1_rx_afifo_full_cnt | RO | 0x114 | d'0 | d'31 | | |
 | eth1_rx_afifo_empty_cnt | RO | 0x115 | d'0 | d'31 | | |
 | eth1_rx_data_err_line | RO | 0x116 | d'0 | d'31 | | |
-| eth2_rx_correct_pkt_cnt | RO | 0x118 | d'0 | d'31 | | |
+| eth2_rx_correct_pkt_cnt | RO | 0x118 | d'0 | d'31 | | eth2 WAN |
 | eth2_rx_crc_err_pkt_cnt | RO | 0x119 | d'0 | d'31 | | |
 | eth2_tx_correct_pkt_cnt | RO | 0x11A | d'0 | d'31 | | |
 | eth2_tx_error_pkt_cnt | RO | 0x11B | d'0 | d'31 | | |
@@ -520,55 +611,7 @@ Offset   Size    Field
 | eth2_rx_afifo_empty_cnt | RO | 0x11D | d'0 | d'31 | | |
 | eth2_rx_data_err_line | RO | 0x11E | d'0 | d'31 | | |
 
-#### 5.1.2 白名单控制寄存器（0x300-0x30F）
-
-| RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
-|---------|---------|---------|--------|---------|----------|-------|
-| wl_ctrl | RW | 0x300 | d'0 | d'1 | 0x0 | [0]:enable(默认0=关闭), [1]:default_pass(默认0=全断) |
-| wl_max_entries | RO | 0x301 | d'0 | d'7 | | 最大条目数（parameter决定，默认16） |
-| wl_used_cnt | RO | 0x302 | d'0 | d'7 | | 当前已用条目数 |
-| wl_drop_cnt_l | RO | 0x303 | d'0 | d'31 | | 白名单拦截计数[31:0] |
-| wl_drop_cnt_h | RO | 0x304 | d'0 | d'31 | | 白名单拦截计数[63:32] |
-| wl_fwd_cnt_l | RO | 0x305 | d'0 | d'31 | | 放行转发计数[31:0] |
-| wl_fwd_cnt_h | RO | 0x306 | d'0 | d'31 | | 放行转发计数[63:32] |
-| wl_lookup_mode | RO | 0x307 | d'0 | d'1 | | 当前查找模式: 0=顺序, 1=二分, 2=Hash |
-| wl_lat_match_mac_h | RO | 0x308 | d'0 | d'31 | | 最近命中MAC[47:16] |
-| wl_lat_match_mac_l | RO | 0x309 | d'0 | d'15 | | 最近命中MAC[15:0] |
-
-#### 5.1.3 白名单表项操作寄存器（0x310-0x319）
-
-| RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
-|---------|---------|---------|--------|---------|----------|-------|
-| wl_entry_index | RW | 0x310 | d'0 | d'7 | 0x0 | 操作目标条目索引 |
-| wl_entry_mac_h | RW | 0x311 | d'0 | d'31 | 0x0 | MAC[47:16] |
-| wl_entry_mac_l | RW | 0x312 | d'0 | d'15 | 0x0 | MAC[15:0] |
-| wl_entry_wr | WC | 0x313 | d'0 | d'0 | 0x0 | 写脉冲: 写入 wl_entry_index + MAC |
-| wl_entry_del | WC | 0x314 | d'0 | d'0 | 0x0 | 删脉冲: 删除 wl_entry_index |
-| wl_entry_clear | WC | 0x315 | d'0 | d'0 | 0x0 | 清空全部 |
-| wl_entry_rd_mac_h | RO | 0x316 | d'0 | d'31 | | 读回MAC[47:16] |
-| wl_entry_rd_mac_l | RO | 0x317 | d'0 | d'15 | | 读回MAC[15:0] |
-| wl_entry_rd_valid | RO | 0x318 | d'0 | d'0 | | 读回有效位 |
-| wl_entry_free_idx | RO | 0x319 | d'0 | d'7 | | 空闲索引（FF=表满） |
-
-#### 5.1.4 Flash 相关寄存器（0x400-0x40F）
-
-| RegName | RegType | AddrLow | BitLow | BitHigh | ResetVal | Notes |
-|---------|---------|---------|--------|---------|----------|-------|
-| flash_wl_base | RO | 0x400 | d'0 | d'31 | | 白名单在 Flash 中的基地址 |
-| flash_web_base | RO | 0x401 | d'0 | d'31 | | Web 页面在 Flash 中的基地址 |
-| flash_wl_crc | RO | 0x402 | d'0 | d'15 | | 上次加载白名单的 CRC |
-| flash_wl_load | WC | 0x403 | d'0 | d'0 | 0x0 | 触发重新从 Flash 加载白名单 |
-| flash_wl_save | WC | 0x404 | d'0 | d'0 | 0x0 | 触发将当前白名单保存到 Flash |
-
-#### 5.1.5 MDIO 子总线（新增 eth1/eth2）
-
-| RegName | RegType | AddrLow | AddrHigh | Notes |
-|---------|---------|---------|----------|-------|
-| eth1_mdio | SubBus | 0x1200 | 0x12FF | eth1 LAN PHY MDIO |
-| eth2_mdio | SubBus | 0x1300 | 0x13FF | eth2 WAN PHY MDIO |
-| sflash | SubBus | 0x1400 | 0x14FF | SPI Flash 控制器（LCPU 写 Flash 用） |
-
-### 5.2 生成命令
+### 5.6 生成命令
 
 ```bash
 python3 /home/huamingh/wwwroot/python/regGenAll.py \
@@ -600,25 +643,25 @@ fpga_webserver/rtl/
 
 参见 2.4 节详细设计。
 
-### 6.3 cpu_channel_tri.v — 三端口 L2 桥接通道
+### 6.3 cpu_channel_tri.v — 三端口 L2 桥接通道（简化版）
+
+> **简化**：eth1/eth2 为纯硬件 L2 桥接，不送报文到 CPU。管理全部通过 eth0。
 
 ```
 端口:
   eth0 端口（管理口）
-    mac0_rx_* / mac0_tx_*         → cpu_channel_0 → CPU (纯管理)
-    
-  eth1 端口（LAN）
-    mac1_rx_* / mac1_tx_*         → 桥接逻辑 → eth2 TX (转发)
-                                → CPU (仅 dstMAC==local 的包)
-                                
-  eth2 端口（WAN）
-    mac2_rx_* / mac2_tx_*         → 桥接逻辑 → eth1 TX (透传)
-                                → CPU (仅 dstMAC==local 的包)
+    mac0_rx_* → CPU (全部报文，独立管理网段)
+    CPU → mac0_tx_* (管理应答)
 
-  CPU 读端口（不变）    rd_pkt_fifo 接口
-  CPU 写端口（不变）    wr_pkt_fifo 接口
-  
-  白名单接口             whitelist lookup_req/match/done/busy
+  eth1 端口（LAN）
+    mac1_rx_* → 提取 SrcMAC → 白名单查找 → eth2 TX (转发)
+                                     ↘ 丢弃 (白名单拦截)
+
+  eth2 端口（WAN）
+    mac2_rx_* → eth1 TX (无条件透传)
+
+  CPU 读端口（仅 eth0）    rd_pkt_fifo
+  CPU 写端口（仅 eth0）    wr_pkt_fifo
 ```
 
 ### 6.4 flash_mem_reader.v — Flash 内存映射读接口
@@ -690,102 +733,155 @@ lcpu_sflash u_lcpu_sflash (...);  // Flash 控制器
 
 ## 7. C 代码修改方案
 
-### 7.1 whitelist.c / whitelist.h（白名单 API + Flash 持久化）
+### 7.1 新增 local_config.c / local_config.h（本机配置管理）
+
+```c
+// local_config.h — 本机 IP/MAC 配置管理
+#ifndef _LOCAL_CONFIG_H
+#define _LOCAL_CONFIG_H
+
+// Flash 配置区基地址 (MX25L12845)
+#define FLASH_CONFIG_BASE   0x00C20000   // 本机+白名单配置扇区
+
+// 本机配置结构体
+typedef struct {
+    uint8_t  mac[6];        // eth0 管理口 MAC
+    uint32_t ip;            // eth0 IP 地址
+    uint32_t netmask;       // 子网掩码
+    uint32_t gateway;       // 网关地址
+    uint8_t  mac_eth1[6];   // eth1 LAN 口 MAC
+    uint8_t  mac_eth2[6];   // eth2 WAN 口 MAC
+} local_config_t;
+
+// 初始化和 Flash 加载
+void local_config_init(void);             // 上电: 从 Flash 加载本机配置
+void local_config_get(local_config_t *c);  // 获取当前配置
+int  local_config_set(local_config_t *c);  // 更新配置（写寄存器+保存Flash）
+int  local_config_save_to_flash(void);     // 手动保存
+int  local_config_load_from_flash(void);   // 手动重新加载
+
+#endif
+```
+
+### 7.2 whitelist.c / whitelist.h（白名单 API，通过 SubBus 0x1500 操作）
 
 ```c
 // whitelist.h
 #ifndef _WHITELIST_H
 #define _WHITELIST_H
 
-// Flash 中白名单配置的基地址和大小 (MX25L12845)
-#define FLASH_WL_BASE      0x00504000   // 白名单扇区基地址
-#define FLASH_WL_SIZE       0x80         // 128 bytes
-#define FLASH_WEB_BASE      0x00404000   // Web 页面基地址
+// mac_whitelist SubBus 基地址 → 通过 reg_webserver SubBus 0x1500 访问
+
+// 白名单内部寄存器偏移（对应 mac_whitelist LCPU 地址空间）
+#define WL_REG_ENTRY_INDEX      0x00
+#define WL_REG_ENTRY_MAC_H      0x01
+#define WL_REG_ENTRY_MAC_L      0x02
+#define WL_REG_ENTRY_WR         0x03
+#define WL_REG_ENTRY_DEL        0x04
+#define WL_REG_ENTRY_CLEAR      0x05
+#define WL_REG_ENTRY_RD_MAC_H   0x06
+#define WL_REG_ENTRY_RD_MAC_L   0x07
+#define WL_REG_ENTRY_RD_VALID   0x08
+#define WL_REG_ENTRY_FREE_IDX   0x09
+#define WL_REG_MAX_ENTRIES      0x0A
+#define WL_REG_USED_CNT         0x0B
+
+// 通过 SubBus 0x1500 读写 mac_whitelist 内部寄存器
+// SubBus 读写函数（利用现有 lcpu_reg_write/lcpu_reg_read 模式）
+#define WL_REG_WRITE(addr, data)  lcpu_subusb_write(0x1500, (addr), (data))
+#define WL_REG_READ(addr)         lcpu_subusb_read(0x1500, (addr))
 
 // 初始化和 Flash 加载
-void whitelist_init(void);           // 上电: 从 Flash 加载白名单
-int  whitelist_save_to_flash(void);  // 保存当前白名单到 Flash
-int  whitelist_load_from_flash(void);// 从 Flash 重新加载
-int  whitelist_verify_flash(void);   // 校验 Flash 中的白名单 CRC
+void whitelist_init(void);
+int  whitelist_save_to_flash(void);
+int  whitelist_load_from_flash(void);
 
 // 全局控制
 void whitelist_enable(uint8_t enable);
 uint8_t whitelist_is_enabled(void);
-void whitelist_set_default_pass(uint8_t pass);
-uint16_t whitelist_get_max_entries(void);
-uint16_t whitelist_get_used_count(void);
 
-// 条目操作（操作硬件 BRAM，成功后自动保存到 Flash）
+// 条目操作（操作 mac_whitelist BRAM，成功后写 Flash）
 int  whitelist_add(uint8_t mac[6]);
 int  whitelist_delete(uint8_t index);
 int  whitelist_get_entry(uint8_t index, uint8_t mac_out[6]);
 void whitelist_clear_all(void);
-
-// 统计
-uint64_t whitelist_get_drop_count(void);
-uint64_t whitelist_get_fwd_count(void);
+uint16_t whitelist_get_max_entries(void);
+uint16_t whitelist_get_used_count(void);
 
 #endif
 ```
 
-### 7.2 Flash 读写底层
+### 7.3 Flash 读写底层
 
 ```c
-// 通过 lcpu_sflash SubBus (0x1400) 访问 Flash
-// 参考 lcpu_sflash_core 的寄存器接口:
-//   addr=0: 写 SPI 高 4 字节
-//   addr=1: 写 SPI 低 4 字节  
-//   addr=2: 写 channel_len
-//   addr=5: 写 op_start 触发
-//   addr=3: 读 SPI 返回数据
-//   addr=4: 读 SPI idle 状态
-
+// 通过 lcpu_sflash SubBus (0x1400) 访问 MX25L12845 Flash
 void flash_read(uint32_t flash_addr, uint8_t *buf, uint32_t len);
 void flash_write_page(uint32_t flash_addr, uint8_t *buf, uint32_t len);
-void flash_erase_sector(uint32_t flash_addr);
+void flash_erase_sector_4k(uint32_t flash_addr);
+void flash_erase_block_64k(uint32_t flash_addr);
 ```
 
-### 7.3 http.c 修改 — Web 页面从 Flash 读取
+### 7.4 http.c 修改 — 多页面 + API 路由
 
 ```c
-// 不再内嵌 HTML 字符串，改为从 Flash 读取
-// 路由表:
-//   GET /         → 读 Flash offset WEB_HOME_OFFSET, 长度 WEB_HOME_LEN
-//   GET /config   → 读 Flash offset WEB_CONFIG_OFFSET, 长度 WEB_CONFIG_LEN
-//   POST /api/wl/* → JSON API 处理（代码中生成响应）
+// HTTP 路由表:
+//   GET  /              → Flash 0x420100 → 主页 HTML
+//   GET  /wlconfig      → Flash 0x424100 → 白名单配置页 HTML
+//   GET  /localconfig   → Flash 0x428100 → 本机配置页 HTML
 
-// Flash 中页面偏移量（编译时确定，与 web_pages.bin 内容对应）
-#define WEB_HOME_OFFSET     0x0000   // 主页在 Web 分区内的偏移
-#define WEB_HOME_LEN         0x0600   // 主页长度
-#define WEB_CONFIG_OFFSET   0x0800   // 配置页在 Web 分区内的偏移
-#define WEB_CONFIG_LEN       0x0C00   // 配置页长度
+// Flash 页面偏移
+#define WEB_BASE            0x00420000
+#define WEB_HOME_OFFSET     0x0100     // 主页
+#define WEB_HOME_MAXLEN      0x4000    // 16KB
+#define WEB_WLCFG_OFFSET    0x4100     // 白名单配置页
+#define WEB_WLCFG_MAXLEN     0x4000
+#define WEB_LOCCFG_OFFSET   0x8100     // 本机配置页
+#define WEB_LOCCFG_MAXLEN    0x4000
+
+// API 路由:
+//   白名单:
+//     POST /api/wl/add     → JSON
+//     POST /api/wl/delete   → JSON
+//     POST /api/wl/clear    → JSON
+//     POST /api/wl/toggle   → JSON
+//     GET  /api/wl/status   → JSON
+//     GET  /api/wl/list     → JSON
+//     POST /api/wl/save     → JSON
+//     POST /api/wl/reload   → JSON
+//   本机配置:
+//     GET  /api/local/status → JSON (当前IP/MAC/掩码/网关)
+//     POST /api/local/save   → JSON (保存新IP/MAC配置)
 ```
 
-### 7.4 完整 HTTP 路由
+### 7.5 完整 HTTP 路由表
 
 | 方法 | 路径 | 响应来源 |
 |------|------|----------|
 | GET | `/` | Flash 读取 → 主页 HTML |
-| GET | `/config` | Flash 读取 → 配置页 HTML |
-| POST | `/api/wl/add` | 代码生成 JSON（操作白名单+写Flash） |
-| POST | `/api/wl/delete` | 代码生成 JSON |
-| POST | `/api/wl/clear` | 代码生成 JSON |
-| POST | `/api/wl/toggle` | 代码生成 JSON |
-| GET | `/api/wl/status` | 代码生成 JSON |
-| GET | `/api/wl/list` | 代码生成 JSON |
-| POST | `/api/wl/save` | 代码生成 JSON（手动触发保存到Flash） |
-| POST | `/api/wl/reload` | 代码生成 JSON（从Flash重新加载） |
+| GET | `/wlconfig` | Flash 读取 → 白名单配置页 HTML |
+| GET | `/localconfig` | Flash 读取 → 本机配置页 HTML |
+| POST | `/api/wl/add` | JSON: 添加 MAC → 写 mac_whitelist BRAM + Flash |
+| POST | `/api/wl/delete` | JSON: 删除条目 |
+| POST | `/api/wl/clear` | JSON: 清空全部 |
+| POST | `/api/wl/toggle` | JSON: 开关白名单 |
+| GET | `/api/wl/status` | JSON: 白名单状态 |
+| GET | `/api/wl/list` | JSON: 条目列表 |
+| POST | `/api/wl/save` | JSON: 手动保存到 Flash |
+| POST | `/api/wl/reload` | JSON: 从 Flash 重新加载 |
+| GET | `/api/local/status` | JSON: 本机 IP/MAC/掩码/网关 |
+| POST | `/api/local/save` | JSON: 保存新本机配置 → 寄存器 + Flash |
 
-### 7.5 designApp.c 修改
+### 7.6 designApp.c 修改
 
 ```c
 void designApp() {
-    // 现有初始化
     lcpu_baseaddr->sw_build_date = BUILD_DATE;
     lcpu_baseaddr->sw_build_time = BUILD_TIME;
     tcp_connection_init();
     
-    // 新增: 从 Flash 加载白名单
+    // 从 Flash 加载本机配置 (IP/MAC)
+    local_config_init();
+    // 从 Flash 加载白名单
     whitelist_init();
 
     while (1) {
@@ -798,6 +894,7 @@ void designApp() {
             if (LCPU_WR_TEST_ENABLE()) {
                 cp_fifo_test(rec_pkt_len);
             } else {
+                eth_proc_result = eth_proc();
                 // ... 现有协议栈处理不变 ...
             }
         }
@@ -805,11 +902,35 @@ void designApp() {
 }
 ```
 
+### 7.7 lcpu_general.h 修改
+
+在本机 IP/MAC 不再硬编码为宏，改为从寄存器中读取：
+
+```c
+// 旧: #define Local_IP_ADDR 0xC0A80158
+// 新: 从 reg_webserver 0x204 读取
+#define GET_LOCAL_IP()      (lcpu_baseaddr->local_ip)
+#define GET_LOCAL_MAC_H()   (lcpu_baseaddr->local_mac_h)
+#define GET_LOCAL_MAC_L()   (lcpu_baseaddr->local_mac_l)
+```
+
+> **注意**：IP 地址运行时可变后，eth_proc()/ip_proc()/arp_reply() 中原来使用 `Local_IP_ADDR` / `Local_MAC_HIGH` / `Local_MAC_LOW` 宏的地方需要改为从寄存器读取。但这在每包处理时读寄存器略有开销，可在 `local_config_init()` 时缓存到全局变量 `g_local_ip` / `g_local_mac_high` / `g_local_mac_low`。
+
 ---
 
 ## 8. HTML 页面规划
 
-### 8.1 主页 `/` — 产品展示
+### 8.1 三个页面总览
+
+```
+主页 (/)
+  ├── [本机配置] ──► /localconfig   (配置本机 IP/MAC)
+  └── [白名单配置] ─► /wlconfig     (MAC 白名单管理)
+  
+两个配置页都有 [◀ 返回首页] 按钮
+```
+
+### 8.2 主页 `/` — 产品展示
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -829,9 +950,13 @@ void designApp() {
 │         ╚══════════════════════════════╝          │
 │                                                  │
 │         ┌────────────────────────────┐           │
-│         │      [ 进入配置 ]          │           │
+│         │      [ 本机配置 ]          │           │
+│         └────────────────────────────┘           │
+│         ┌────────────────────────────┐           │
+│         │      [ 白名单配置 ]         │           │
 │         └────────────────────────────┘           │
 │                                                  │
+│  本机: 192.168.1.88  │  MAC: 00:00:01:02:04:06  │
 │  系统: RISC-V RV32IC @ 50MHz                    │
 │  接口: 1×RGMII + 2×1000BASE-X (全部千兆)        │
 │  FPGA: Xilinx XC7A35T-FGG484-2                  │
@@ -840,7 +965,37 @@ void designApp() {
 └──────────────────────────────────────────────────┘
 ```
 
-### 8.2 配置页 `/config` — 白名单管理
+### 8.3 本机配置页 `/localconfig` — 配置本机 IP/MAC
+
+```
+┌──────────────────────────────────────────────────┐
+│  本机网络配置                                     │
+│                                                  │
+│  ┌─ 当前配置 ──────────────────────────────┐     │
+│  │                                          │     │
+│  │  MAC 地址: [00:00:01:02:04:06]           │     │
+│  │  IP 地址:  [192.168.1.88   ]             │     │
+│  │  子网掩码: [255.255.255.0  ]             │     │
+│  │  网关地址: [192.168.1.1    ]             │     │
+│  │                                          │     │
+│  │  LAN 口 MAC:  [00:00:01:02:04:07]        │     │
+│  │  WAN 口 MAC:  [00:00:01:02:04:08]        │     │
+│  │                                          │     │
+│  │  [保存配置]  [从Flash重新加载]            │     │
+│  └──────────────────────────────────────────┘     │
+│                                                  │
+│  ┌─ 提示 ──────────────────────────────────┐     │
+│  │ ● 修改 IP 后需要用新 IP 重新访问本页面   │     │
+│  │ ● 配置保存到 Flash，断电不丢失           │     │
+│  │ ● MAC 地址格式: XX:XX:XX:XX:XX:XX       │     │
+│  │ ● IP 地址格式: XXX.XXX.XXX.XXX          │     │
+│  └──────────────────────────────────────────┘     │
+│                                                  │
+│  [◀ 返回首页]                                    │
+└──────────────────────────────────────────────────┘
+```
+
+### 8.4 白名单配置页 `/wlconfig` — MAC 白名单管理
 
 ```
 ┌──────────────────────────────────────────────────┐
@@ -861,7 +1016,6 @@ void designApp() {
 │  ┌─ 添加 MAC ──────────────────────────────┐     │
 │  │ [XX:XX:XX:XX:XX:XX________] [添加]       │     │
 │  │ 格式: 6字节十六进制，冒号分隔             │     │
-│  │ 示例: 00:11:22:33:44:55                  │     │
 │  └──────────────────────────────────────────┘     │
 │                                                  │
 │  ┌─ 白名单列表 ────────────────────────────┐     │
@@ -869,32 +1023,24 @@ void designApp() {
 │  │ ───┼───────────────────┼───────┼─────── │     │
 │  │ 0  │ 00:11:22:33:44:55 │ 有效  │ [删除] │     │
 │  │ 1  │ AA:BB:CC:DD:EE:FF │ 有效  │ [删除] │     │
-│  │ 2  │ 12:34:56:78:9A:BC │ 有效  │ [删除] │     │
-│  │ 3  │ ─── 空闲 ───      │  ---  │  ---   │     │
 │  │ ...                      │              │     │
 │  │              [清空全部]  [保存到Flash]   │     │
 │  │              [从Flash重新加载]           │     │
-│  └──────────────────────────────────────────┘     │
-│                                                  │
-│  ┌─ 提示 ──────────────────────────────────┐     │
-│  │ ● 修改白名单后自动保存到Flash            │     │
-│  │ ● 断电重启后配置不丢失                   │     │
-│  │ ● 默认策略为"全断"，空表=断网            │     │
 │  └──────────────────────────────────────────┘     │
 │                                                  │
 │  [◀ 返回首页]                                    │
 └──────────────────────────────────────────────────┘
 ```
 
-### 8.3 HTML 实现注意事项
+### 8.5 HTML 实现注意事项
 
-1. **Flash 存储**：HTML 内容写入 Flash，RISC-V 运行时读取，不编入固件 ROM
-2. **Content-Length**：每个页面单独记录长度（存储在 Flash 的 Index Table 中）
-3. **MAC 格式验证**：JS 端正则 `/^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/`
+1. **Flash 存储**：HTML 内容写入 MX25L12845 Flash，RISC-V 运行时读取
+2. **Content-Length**：每个页面单独记录长度，编译进 Flash Index Table
+3. **输入验证**：JS 端正则验证 MAC `^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$` 和 IP 格式
 4. **操作确认**：删除/清空 用 `confirm()` 弹窗确认
 5. **中文字符**：`<meta charset='UTF-8'>`
 6. **纯原生实现**：无外部 CSS/JS 库
-7. **返回按钮**：`<button onclick="location='/'">◀ 返回首页</button>`
+7. **导航**：配置页统一使用 `<button onclick="location='/'">◀ 返回首页</button>`
 
 ---
 
@@ -917,18 +1063,19 @@ void designApp() {
 
 | 步骤 | 内容 | 产出 |
 |------|------|------|
-| 2.1 | 新建 `whitelist.c/h`（含 Flash 读写） | API 实现 |
-| 2.2 | 更新 `lcpu_general.h` 寄存器结构体 | 头文件 |
-| 2.3 | 重写 `http.c` 两页面 + API 路由（Flash 读取 HTML） | HTTP 服务 |
-| 2.4 | 更新 `designApp.c` 初始化流程 | 主循环 |
-| 2.5 | 编译固件，生成 BIN | firmware_pads.bin |
+| 2.1 | 新建 `whitelist.c/h`（SubBus 0x1500 操作 mac_whitelist + Flash 持久化） | API 实现 |
+| 2.2 | 新建 `local_config.c/h`（本机 IP/MAC 管理 + Flash 持久化） | API 实现 |
+| 2.3 | 更新 `lcpu_general.h` 寄存器结构体 + IP/MAC 改为从寄存器读取 | 头文件 |
+| 2.4 | 重写 `http.c` 三页面路由 + 两类 API（白名单 + 本机配置） | HTTP 服务 |
+| 2.5 | 更新 `designApp.c` 初始化流程（local_config + whitelist） | 主循环 |
+| 2.6 | 编译固件，生成 BIN | firmware_pads.bin |
 
 ### 阶段 3：Flash 内容部署 + 板级验证
 
 | 步骤 | 内容 |
 |------|------|
-| 3.1 | 制作 `web_pages.bin`（主页+配置页 HTML） |
-| 3.2 | TCL 脚本将 firmware + web_pages 写入 Flash |
+| 3.1 | 制作 `web_pages.bin`（index.html + localconfig.html + wlconfig.html） |
+| 3.2 | TCL 脚本将 firmware + web_pages 写入 MX25L12845 Flash |
 | 3.3 | Xilinx Vivado 综合/布线（含 1000BASE-X IP） |
 | 3.4 | 板级测试：eth0 Web 主页访问 |
 | 3.5 | 板级测试：配置页 CRUD + Flash 持久化验证 |
@@ -971,18 +1118,21 @@ void designApp() {
 
 ### 新增文件
 ```
-fpga_webserver/rtl/mac_whitelist_seq.v         # BRAM 顺序查找引擎
+fpga_webserver/rtl/mac_whitelist_seq.v         # BRAM 顺序查找 + LCPU总线接口
 fpga_webserver/rtl/mac_whitelist_bin.v         # 二分法骨架 (预留)
 fpga_webserver/rtl/mac_whitelist_hash.v        # Hash骨架 (预留)
 fpga_webserver/rtl/mac_whitelist_top.v         # 顶层封装
 fpga_webserver/rtl/cpu_channel_tri.v           # 三端口L2桥接
 fpga_webserver/rtl/flash_mem_reader.v          # Flash 内存映射读 (可选)
-fpga_webserver/c/whitelist.c                   # 白名单API + Flash持久化
+fpga_webserver/c/whitelist.c                   # 白名单API (通过SubBus 0x1500)
 fpga_webserver/c/inc/whitelist.h               # 白名单头文件
+fpga_webserver/c/local_config.c                # 本机IP/MAC配置管理
+fpga_webserver/c/inc/local_config.h            # 本机配置头文件
 fpga_webserver/sim/bfm/mx25l12845_bfm.sv       # MX25L12845 Flash BFM (仿真)
 fpga_webserver/c_build/web_pages/              # Web 页面源文件目录
-fpga_webserver/c_build/web_pages/index.html     # 主页
-fpga_webserver/c_build/web_pages/config.html    # 配置页
+fpga_webserver/c_build/web_pages/index.html     # 主页 (产品展示+两个按钮)
+fpga_webserver/c_build/web_pages/localconfig.html # 本机配置页 (IP/MAC设置)
+fpga_webserver/c_build/web_pages/wlconfig.html  # 白名单配置页
 fpga_webserver/c_build/pack_web.py             # Web BIN 打包工具
 ```
 

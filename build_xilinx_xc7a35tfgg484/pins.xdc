@@ -18,7 +18,7 @@ set_property PACKAGE_PIN V22 [get_ports {led_o[1]}]
 set_property PACKAGE_PIN W21 [get_ports {led_o[2]}]
 set_property PACKAGE_PIN W22 [get_ports {led_o[3]}]
 
-# --- RGMII interface ---
+# --- RGMII interface (eth0) ---
 set_property PACKAGE_PIN AB21 [get_ports rgmii_txc]
 set_property PACKAGE_PIN P14  [get_ports rgmii_reset_l]
 set_property PACKAGE_PIN Y18  [get_ports rgmii_rxc]
@@ -33,9 +33,27 @@ set_property PACKAGE_PIN AB22 [get_ports {rgmii_txd[2]}]
 set_property PACKAGE_PIN W20  [get_ports {rgmii_txd[3]}]
 set_property PACKAGE_PIN AA19 [get_ports rgmii_tx_ctl]
 
-# --- MDIO ---
+# --- eth0 MDIO ---
 set_property PACKAGE_PIN R14 [get_ports eth0_mdc]
 set_property PACKAGE_PIN U21 [get_ports eth0_mdio]
+
+# --- SFP1 (eth1, GTPE2_CHANNEL X0Y0) ---
+# GT serial pins auto-placed by GTPE2_CHANNEL LOC constraint in timing.xdc
+set_property PACKAGE_PIN R17 [get_ports sfp1_tx_disable]
+
+# --- SFP2 (eth2, GTPE2_CHANNEL X0Y1) ---
+set_property PACKAGE_PIN V18 [get_ports sfp2_tx_disable]
+
+# --- GT Reference Clock (125MHz differential, MGT_CLK1) ---
+# Pins auto-assigned by Vivado; no manual LOC needed for MGT_CLK1_P/N
+
+# --- QSPI Flash (MX25L12845) ---
+set_property PACKAGE_PIN T19 [get_ports flash_cs_n]
+set_property PACKAGE_PIN P22 [get_ports flash_mosi]
+set_property PACKAGE_PIN R22 [get_ports flash_miso]
+set_property PACKAGE_PIN L12 [get_ports flash_sclk]
+set_property PACKAGE_PIN P21 [get_ports flash_wp_n]
+set_property PACKAGE_PIN R21 [get_ports flash_rst_n]
 
 #===================================================================
 # I/O Standards
@@ -58,3 +76,15 @@ set_property IOSTANDARD LVCMOS33 [get_ports {rgmii_rxd[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_rx_ctl]
 set_property IOSTANDARD LVCMOS33 [get_ports {rgmii_txd[*]}]
 set_property IOSTANDARD LVCMOS33 [get_ports rgmii_tx_ctl]
+
+# SFP control
+set_property IOSTANDARD LVCMOS33 [get_ports sfp1_tx_disable]
+set_property IOSTANDARD LVCMOS33 [get_ports sfp2_tx_disable]
+
+# QSPI Flash
+set_property IOSTANDARD LVCMOS33 [get_ports flash_cs_n]
+set_property IOSTANDARD LVCMOS33 [get_ports flash_mosi]
+set_property IOSTANDARD LVCMOS33 [get_ports flash_miso]
+set_property IOSTANDARD LVCMOS33 [get_ports flash_sclk]
+set_property IOSTANDARD LVCMOS33 [get_ports flash_wp_n]
+set_property IOSTANDARD LVCMOS33 [get_ports flash_rst_n]

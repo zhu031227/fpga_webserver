@@ -124,3 +124,4 @@ tcl/webserver_riscv_instruct_*.tcl
 *.pcapng
 .~lock.*
 *.7z
+py2aspVar.dat

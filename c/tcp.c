@@ -531,6 +531,19 @@ static void tcp_handle_post_request(int conn_idx, uint16_t tcp_data_len) {
     tcp_send_post_response(conn_idx, address, response_data, field_mode);
 }
 
+// Simple URL path match: compare packet data starting at current RD position
+// against a constant string. Returns 1 if matched, 0 otherwise.
+// Advances RD pointer past the matched string on success.
+static uint8 match_path(const char *path) {
+    while (*path) {
+        LCPU_RD_INC_ADDR();
+        if ((char)LCPU_RD_DATA8() != *path) return 0;
+        path++;
+    }
+    return 1;
+}
+
+// Read URL path from GET request and route
 void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
     LCPU_RD_SET_ADDR(OFF_TCP_PAYLOAD);
     char first_char = (char)LCPU_RD_DATA8();
@@ -543,11 +556,27 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
             if (LCPU_RD_DATA8() == 'T') {
                 LCPU_RD_INC_ADDR();
                 if (LCPU_RD_DATA8() == ' ') {
-#if DEBUG_En_tcp
-                    //printf("http start response!\n");
-#endif
-                    send_http_response(conn_idx, main_page);
-                    handled = 1;
+                    // Now at start of path: "/..." or "/ HTTP/1.1"
+                    LCPU_RD_INC_ADDR();
+                    char path_char = (char)LCPU_RD_DATA8();
+
+                    if (path_char == ' ' || path_char == '\r') {
+                        // "GET /" → main page
+                        send_http_response(conn_idx, main_page);
+                        handled = 1;
+                    } else if (path_char == 'w') {
+                        // /wlconfig or /wl...
+                        if (match_path("lconfig")) {
+                            send_http_response(conn_idx, wlconfig_page);
+                            handled = 1;
+                        }
+                    } else if (path_char == 'l') {
+                        // /localconfig
+                        if (match_path("ocalconfig")) {
+                            send_http_response(conn_idx, localconfig_page);
+                            handled = 1;
+                        }
+                    }
                 }
             }
         }
@@ -558,19 +587,37 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
             if (LCPU_RD_DATA8() == 'S') {
                 LCPU_RD_INC_ADDR();
                 if (LCPU_RD_DATA8() == 'T') {
-#if DEBUG_En_tcp
-                    printf("Received POST request\n");
-#endif
-                    tcp_handle_post_request(conn_idx, tcp_data_len);
-                    handled = 1;
+                    // Parse URL path to determine POST handler
+                    // Skip " /" to reach path
+                    LCPU_RD_SET_ADDR(OFF_TCP_PAYLOAD + 4); // after "POST"
+                    char pc = (char)LCPU_RD_DATA8();
+                    while (pc == ' ') { LCPU_RD_INC_ADDR(); pc = (char)LCPU_RD_DATA8(); }
+
+                    if (pc == '/') {
+                        LCPU_RD_INC_ADDR();
+                        pc = (char)LCPU_RD_DATA8();
+                        if (pc == 's' && match_path("ubmit")) {
+                            // Legacy POST /submit
+                            tcp_handle_post_request(conn_idx, tcp_data_len);
+                            handled = 1;
+                        } else if (pc == 'a') {
+                            // /api/... — send simple JSON OK
+                            if (match_path("pi/")) {
+                                send_http_response(conn_idx, post_response);
+                                handled = 1;
+                            }
+                        }
+                    }
+                    // Fallback: treat as legacy POST
+                    if (!handled) {
+                        tcp_handle_post_request(conn_idx, tcp_data_len);
+                        handled = 1;
+                    }
                 }
             }
         }
     }
 
-    // If no HTTP method matched, send a bare ACK so the host doesn't keep
-    // retransmitting. This covers keep-alive probes, malformed requests,
-    // and unrecognized HTTP methods.
     if (!handled) {
         send_ack(conn_idx);
     }

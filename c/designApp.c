@@ -6,7 +6,14 @@
 #include "inc/icmp.h"
 #include "inc/tcp.h"
 #include "inc/http.h"
+#include "inc/local_config.h"
+#include "inc/whitelist.h"
 #include "build_time.h"
+
+// Runtime globals (cached from registers)
+uint32 g_local_ip = Local_IP_ADDR;
+uint32 g_local_mac_high = Local_MAC_HIGH;
+uint32 g_local_mac_low = Local_MAC_LOW;
 
 void designApp() {
     uint32 rec_pkt_len = 0;
@@ -17,15 +24,19 @@ void designApp() {
     lcpu_baseaddr->sw_build_date = BUILD_DATE;
     lcpu_baseaddr->sw_build_time = BUILD_TIME;
 
+    // Load local IP/MAC config from Flash (or use defaults)
+    local_config_init();
+
+    // Load whitelist from Flash
+    whitelist_init();
+
     tcp_connection_init();
 
     while (1) {
-        //heart_beat_mod1();
         heart_beat_mod2();
-        //heart_beat_mod3();
 
         tcp_periodic_check();
-        
+
         if (!LCPU_RD_EMPTY()) {
             LCPU_RD_START_PACKET();
             rec_pkt_len = LCPU_RD_PKT_LEN();
