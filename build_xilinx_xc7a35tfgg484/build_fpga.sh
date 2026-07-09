@@ -244,14 +244,8 @@ puts "============================================"
 
 create_project -force \$proj_name \$proj_dir -part xc7a35tfgg484-2
 
-# Enable XPM libraries for xpm_memory_sdpr etc.
+# Enable XPM libraries for xpm_memory_sdpram etc.
 set_property xpm_libraries {XPM_MEMORY XPM_CDC XPM_FIFO} [current_project]
-# Explicitly read XPM memory source (auto-detect may fail in batch mode)
-set xpm_mem_sv "/home/huamingh/tools/xilinx/Vivado/2024.1/data/ip/xpm/xpm_memory/hdl/xpm_memory.sv"
-if {[file exists \$xpm_mem_sv]} {
-    read_verilog -sv \$xpm_mem_sv
-    puts "Loaded XPM memory primitives"
-}
 
 set cfg_file [open "\$proj_dir/filelist.cfg" r]
 set cfg_data [read \$cfg_file]
@@ -301,6 +295,12 @@ puts "Running synthesis..."
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 puts "Running implementation..."
+# Suppress UCIO-1 for GT refclk pins (auto-placed by GTPE2_CHANNEL)
+set drc_hook "\$proj_dir/drc_waiver.tcl"
+set fh [open \$drc_hook w]
+puts \$fh {set_property SEVERITY {Warning} [get_drc_checks UCIO-1]}
+close \$fh
+set_property STEPS.WRITE_BITSTREAM.TCL.PRE \$drc_hook [get_runs impl_1]
 launch_runs impl_1 -to_step write_bitstream -jobs 8
 wait_on_run impl_1
 

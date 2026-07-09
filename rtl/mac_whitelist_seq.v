@@ -130,7 +130,8 @@ module mac_whitelist_seq #(
       .addr_width(ADDR_WIDTH),
       .depth(ENTRY_NUM),
       .block_ram_size(32),
-      .ram_type(`LARGER_RAM)
+      .ram_type(`LARGER_RAM),
+      .vendor(`DEVICE_VENDOR)
   ) u_shadow (
       .clk(cfg_clk),
       .wren_a(sh_wr_en),
@@ -308,7 +309,7 @@ module mac_whitelist_seq #(
             4'h9: begin  // free_idx — check current entry
               if (!sh_rd_data[48]) begin
                 // Found free entry at cfg_scan_idx
-                cfg_rdata <= {24'b0, cfg_scan_idx[7:0]};
+                cfg_rdata <= {28'b0, cfg_scan_idx};
                 cfg_ack   <= 1'b1;
                 cfg_state <= CFG_IDLE;
               end else if (cfg_scan_idx == (ENTRY_NUM - 1)) begin

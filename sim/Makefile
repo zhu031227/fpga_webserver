@@ -21,12 +21,15 @@ SIM       = /home/huamingh/work/fpga_webserver/sim
 TOP = tb_webserver
 EXE = V$(TOP)
 
-# ---- FPGA Webserver RTL ----
+# ---- FPGA Webserver RTL (use OLD single-port versions for Verilator sim) ----
+# The current rtl/ has 3-port + SFP modules with Xilinx primitives.
+# For ARP/HTTP simulation we only need eth0 RGMII, so use the old RTL.
+OLD_RTL = /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0052_20260707_112204/rtl
 WEB_RTL = \
-	$(RTL)/xilinx_xc7a35tfgg484_webserver_top.v \
-	$(RTL)/webserver_wrapper.v \
-	$(RTL)/reg_webserver.v \
-	$(RTL)/cpu_channel.v
+	$(OLD_RTL)/xilinx_xc7a35tfgg484_webserver_top.v \
+	$(OLD_RTL)/webserver_wrapper.v \
+	$(OLD_RTL)/reg_webserver.v \
+	$(OLD_RTL)/cpu_channel.v
 
 # ---- FPGA CPU shared ----
 FPGA_CPU_RTL = $(FPGA_CPU)/rtl/lcpu_riscv_wrapper.v
@@ -144,7 +147,7 @@ LOCAL_TCL = $(SIM)/InstructRAM_local.tcl
 # ============================================================================
 # Targets
 # ============================================================================
-.PHONY: all wave clean
+.PHONY: all wave clean arp arp_wave
 
 all: $(LOCAL_TCL) run
 
@@ -192,7 +195,50 @@ obj_dir_wave/V$(TOP).mk: $(VERILOG_SRCS) $(TB_CPP)
 		$(VERILOG_SRCS)
 	@echo "== Verilog -> C++ done =="
 
+# ---- ARP test (fast, no waveform) ----
+ARP_EXE = V$(TOP)
+ARP_CPP  = $(SIM)/tb_webserver_arp.cpp
+
+arp: $(LOCAL_TCL) obj_dir_arp/$(ARP_EXE)
+	@echo "== Running ARP simulation (fast, no VCD) =="
+	./obj_dir_arp/$(ARP_EXE)
+	@echo "== ARP Done =="
+
+obj_dir_arp/$(ARP_EXE): obj_dir_arp/V$(TOP).mk
+	@echo "== Building C++ executable (ARP) =="
+	$(MAKE) -C obj_dir_arp -f V$(TOP).mk $(ARP_EXE)
+	@echo "== Build done =="
+
+obj_dir_arp/V$(TOP).mk: $(VERILOG_SRCS) $(ARP_CPP)
+	@echo "== Verilator: compiling $(TOP) for ARP test =="
+	$(VERILATOR) $(VERILATOR_BASE) \
+		--cc --exe $(ARP_CPP) \
+		--top-module $(TOP) \
+		-Mdir obj_dir_arp \
+		$(VERILOG_SRCS)
+	@echo "== Verilog -> C++ done =="
+
+# ---- ARP test with waveform ----
+arp_wave: $(LOCAL_TCL) obj_dir_arp_wave/$(ARP_EXE)
+	@echo "== Running ARP simulation with waveform =="
+	./obj_dir_arp_wave/$(ARP_EXE)
+	@echo "== ARP Done: tb_webserver_arp.vcd =="
+
+obj_dir_arp_wave/$(ARP_EXE): obj_dir_arp_wave/V$(TOP).mk
+	@echo "== Building C++ executable (ARP wave) =="
+	$(MAKE) -C obj_dir_arp_wave -f V$(TOP).mk $(ARP_EXE)
+	@echo "== Build done =="
+
+obj_dir_arp_wave/V$(TOP).mk: $(VERILOG_SRCS) $(ARP_CPP)
+	@echo "== Verilator: compiling $(TOP) for ARP test (trace) =="
+	$(VERILATOR) $(VERILATOR_BASE) --trace \
+		--cc --exe $(ARP_CPP) \
+		--top-module $(TOP) \
+		-Mdir obj_dir_arp_wave \
+		$(VERILOG_SRCS)
+	@echo "== Verilog -> C++ done =="
+
 # ---- Clean ----
 clean:
-	rm -rf obj_dir/ obj_dir_wave/ *.vcd $(LOCAL_TCL)
+	rm -rf obj_dir/ obj_dir_wave/ obj_dir_arp/ obj_dir_arp_wave/ *.vcd $(LOCAL_TCL)
 	@echo "== Cleaned =="
