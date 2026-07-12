@@ -288,6 +288,7 @@ struct lcpu_registers
 #define LCPU_WR_PULSE_WEN()     do { lcpu_baseaddr->wr_pkt_fifo.wen = 1u; } while (0)
 #define LCPU_WR_BYTE(addr, data) do { LCPU_WR_SET_ADDR(addr); LCPU_WR_SET_DATA(data); LCPU_WR_PULSE_WEN(); } while (0)
 #define LCPU_WR_PUSH_PACKET(pkt_len) do { lcpu_baseaddr->wr_pkt_fifo.wpkt_len = (uint32)(pkt_len); lcpu_baseaddr->wr_pkt_fifo.wpkt_push = 1u; } while (0)
+#define LCPU_WR_FULL()          ((lcpu_baseaddr->wr_pkt_fifo.full) != 0u)
 #define LCPU_WR_TEST_ENABLE()   ((lcpu_baseaddr->wr_pkt_fifo.reg_rw_0) != 0u)
 
 #define LCPU_REG32_WRITE(word_addr, data) do { *((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))) = (uint32)(data); } while (0)

@@ -3,8 +3,8 @@
 
 #include <stdint.h>
 
-// mac_whitelist SubBus base address (via reg_webserver SubBus 0x1500)
-#define WL_SUBBUS_ADDR  0x1500
+// mac_whitelist SubBus base address (reg_webserver SubBus range: 0x5000-0x5FFF)
+#define WL_SUBBUS_ADDR  0x5000
 
 // Whitelist internal register offsets
 #define WL_REG_ENTRY_INDEX      0x00
@@ -27,7 +27,7 @@ void whitelist_init(void);
 void whitelist_enable(uint8_t enable);
 uint8_t whitelist_is_enabled(void);
 
-// Entry operations (via SubBus 0x1500 → mac_whitelist BRAM)
+// Entry operations (via SubBus 0x5000 → mac_whitelist BRAM)
 int  whitelist_add(uint8_t mac[6]);
 int  whitelist_delete(uint8_t index);
 int  whitelist_get_entry(uint8_t index, uint8_t mac_out[6]);
@@ -35,6 +35,13 @@ void whitelist_clear_all(void);
 uint16_t whitelist_get_max_entries(void);
 uint16_t whitelist_get_used_count(void);
 uint8_t whitelist_get_free_index(void);
+
+// HW BRAM read-back (reads actual BRAM, bypasses software cache)
+int      whitelist_hw_read_entry(uint8_t index, uint8_t mac_out[6]);
+uint16_t whitelist_hw_get_used_count(void);
+uint16_t whitelist_hw_get_max_entries(void);
+uint8_t  whitelist_hw_get_free_index(void);
+int      whitelist_hw_diag(char *buf, int buf_size);
 
 // Flash persistence
 int  whitelist_save_to_flash(void);

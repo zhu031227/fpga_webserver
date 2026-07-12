@@ -22,15 +22,13 @@ module mac_whitelist_top #(
     output        lookup_done,
     output        lookup_busy,
 
-    // LCPU bus config port
+    // LCPU bus config port (RAMIF interface, same as program_ram)
     input         cfg_clk,
     input         cfg_reset_l,
-    input         cfg_req,
-    input         cfg_rhwl,
+    input         cfg_rlwh,
+    input  [11:0] cfg_addr,
     input  [31:0] cfg_wdata,
-    input  [15:0] cfg_address,
     output [31:0] cfg_rdata,
-    output        cfg_ack,
 
     // Global control
     input whitelist_en,
@@ -52,12 +50,10 @@ module mac_whitelist_top #(
           .lookup_busy (lookup_busy),
           .cfg_clk     (cfg_clk),
           .cfg_reset_l (cfg_reset_l),
-          .cfg_req     (cfg_req),
-          .cfg_rhwl    (cfg_rhwl),
+          .cfg_rlwh    (cfg_rlwh),
+          .cfg_addr    (cfg_addr),
           .cfg_wdata   (cfg_wdata),
-          .cfg_address (cfg_address),
           .cfg_rdata   (cfg_rdata),
-          .cfg_ack     (cfg_ack),
           .whitelist_en(whitelist_en),
           .default_pass(default_pass)
       );
@@ -67,7 +63,6 @@ module mac_whitelist_top #(
       assign lookup_done  = lookup_req;
       assign lookup_busy  = 1'b0;
       assign cfg_rdata    = 32'b0;
-      assign cfg_ack      = cfg_req;
     end
   endgenerate
 endmodule

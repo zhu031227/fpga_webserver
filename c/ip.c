@@ -25,7 +25,7 @@ uint16 ip_proc() {
     for (i = 0; i < 4; i++) {
         LCPU_RD_SET_ADDR(OFF_IP_DST_IP + i);
         fifo_data = LCPU_RD_DATA8();
-        if (fifo_data != ((Local_IP_ADDR >> (24 - i * 8)) & 0xFF)) {
+        if (fifo_data != ((g_local_ip >> (24 - i * 8)) & 0xFF)) {
             return NO_PROC;
         }
     }
@@ -93,9 +93,9 @@ void ip_header_update(uint32 src_ip, uint16 total_len) {
             LCPU_WR_SET_DATA((total_len >> (8 - (i - OFF_IP_TOTAL_LEN) * 8)) & 0xFF);
             LCPU_WR_PULSE_WEN();
         }
-        // Update source IP (swap: use Local_IP_ADDR as source)
+        // Update source IP (swap: use g_local_ip as source)
         else if (i >= OFF_IP_SRC_IP && i < OFF_IP_SRC_IP + 4) {
-            LCPU_WR_SET_DATA((Local_IP_ADDR >> (24 - (i - OFF_IP_SRC_IP) * 8)) & 0xFF);
+            LCPU_WR_SET_DATA((g_local_ip >> (24 - (i - OFF_IP_SRC_IP) * 8)) & 0xFF);
             LCPU_WR_PULSE_WEN();
         }
         // Update destination IP (swap: use src_ip as destination)

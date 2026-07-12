@@ -169,11 +169,10 @@ module webserver_wrapper #(
   wire [31:0] sflash_wrdata, sflash_rddata;
   wire [11:0] sflash_address;
   wire        sflash_op_ack;
-  // MAC Whitelist
-  wire mac_whitelist_op_req, mac_whitelist_wrl_rdh;
-  wire [11:0] mac_whitelist_address;
-  wire [31:0] mac_whitelist_wrdata, mac_whitelist_rddata;
-  wire mac_whitelist_op_ack;
+  // MAC Whitelist RAMIF
+  wire wl_ram_rlwh;
+  wire [11:0] wl_ram_addr;
+  wire [31:0] wl_ram_wrdata, wl_ram_rddata;
 
   // Bootloader (50MHz domain)
   wire                        bootloader_trigger;
@@ -277,10 +276,8 @@ module webserver_wrapper #(
   wire wl_lookup_req, wl_lookup_match, wl_lookup_done, wl_lookup_busy;
   wire [47:0] wl_lookup_mac;
 
-  // Whitelist LCPU bus (50MHz)
-  wire wl_cfg_req, wl_cfg_rhwl, wl_cfg_ack;
-  wire [31:0] wl_cfg_wdata, wl_cfg_rdata;
-  wire [11:0] wl_cfg_address;
+  // Whitelist LCPU bus (50MHz) — RAMIF interface
+  wire [31:0] wl_cfg_rdata;
 
   // Bridge drop counter (125MHz)
   wire [31:0] eth1_rx_drop_cnt_src;
@@ -450,12 +447,10 @@ module webserver_wrapper #(
       .SUBBUS_sflash_DataRd(sflash_rddata),
       .SUBBUS_sflash_Ack(sflash_op_ack),
       // MAC Whitelist
-      .SUBBUS_mac_whitelist_Req(mac_whitelist_op_req),
-      .SUBBUS_mac_whitelist_RhWl(mac_whitelist_wrl_rdh),
-      .SUBBUS_mac_whitelist_ReqAddr(mac_whitelist_address),
-      .SUBBUS_mac_whitelist_DataWr(mac_whitelist_wrdata),
-      .SUBBUS_mac_whitelist_DataRd(mac_whitelist_rddata),
-      .SUBBUS_mac_whitelist_Ack(mac_whitelist_op_ack),
+      .RAMIF_mac_whitelist_Ram_RlWh(wl_ram_rlwh),
+      .RAMIF_mac_whitelist_Ram_Addr(wl_ram_addr),
+      .RAMIF_mac_whitelist_Ram_WrData(wl_ram_wrdata),
+      .RAMIF_mac_whitelist_Ram_RdData(wl_ram_rddata),
       // LED
       .led(led),
       // CPU packet FIFO
@@ -894,12 +889,9 @@ module webserver_wrapper #(
   // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
   // ============================================================
-  assign wl_cfg_req           = mac_whitelist_op_req;
-  assign wl_cfg_rhwl          = mac_whitelist_wrl_rdh;
-  assign wl_cfg_wdata         = mac_whitelist_wrdata;
-  assign wl_cfg_address       = mac_whitelist_address;
-  assign mac_whitelist_rddata = wl_cfg_rdata;
-  assign mac_whitelist_op_ack = wl_cfg_ack;
+  // Whitelist config: RAMIF passthrough
+  // ============================================================
+  assign wl_ram_rddata = wl_cfg_rdata;
 
   // ============================================================
   // MAC Whitelist Engine
@@ -918,12 +910,10 @@ module webserver_wrapper #(
       .lookup_busy(wl_lookup_busy),
       .cfg_clk(clk_50mhz),
       .cfg_reset_l(reset_l),
-      .cfg_req(wl_cfg_req),
-      .cfg_rhwl(wl_cfg_rhwl),
-      .cfg_wdata(wl_cfg_wdata),
-      .cfg_address({4'b0, wl_cfg_address}),
+      .cfg_rlwh(wl_ram_rlwh),
+      .cfg_addr(wl_ram_addr),
+      .cfg_wdata(wl_ram_wrdata),
       .cfg_rdata(wl_cfg_rdata),
-      .cfg_ack(wl_cfg_ack),
       .whitelist_en(wl_ctrl_125m[0]),
       .default_pass(wl_ctrl_125m[1])
   );

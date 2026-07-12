@@ -30,7 +30,7 @@ void arp_reply() {
         LCPU_RD_SET_ADDR(i);
         target_ip = (target_ip << 8) | (LCPU_RD_DATA8() & 0xFFu);
     }
-    if (target_ip != Local_IP_ADDR) return;
+    if (target_ip != g_local_ip) return;
 
     // Read ARP opcode (bytes 20-21)
     LCPU_RD_SET_ADDR(OFF_ARP_OPCODE);
@@ -82,7 +82,7 @@ void arp_reply() {
 
     // Section 7: Write local IP as sender IP (bytes 28-31)
     for (i = 0; i < 4; i++) {
-        LCPU_WR_BYTE(OFF_ARP_SENDER_IP + i, (Local_IP_ADDR >> (24 - i * 8)) & 0xFF);
+        LCPU_WR_BYTE(OFF_ARP_SENDER_IP + i, (g_local_ip >> (24 - i * 8)) & 0xFF);
     }
 
     // Section 8: Copy sender MAC from RX to target MAC in TX (bytes 32-37 ← RX[22..27])

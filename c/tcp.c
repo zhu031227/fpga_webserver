@@ -3,6 +3,9 @@
 #include "inc/ip.h"
 #include "inc/tcp.h"
 #include "inc/http.h"
+#include "inc/eth.h"
+#include "inc/whitelist.h"
+#include "inc/local_config.h"
 
 // --- 替代 tcp_connection_t 结构体的并行数组定义 ---
 uint8_t  connection_states[MAX_CONNECTIONS];
@@ -23,6 +26,7 @@ uint32_t available_connections = MAX_CONNECTIONS;
 
 #define TCP_POST_FIELD_COUNT  6
 #define TCP_POST_FIELD_WIDTH  8
+#define TCP_POST_FIELD_LONG_WIDTH  24
 #define TCP_POST_RESPONSE_BUF_SIZE  640
 #define TCP_POST_KEY_MAX_LEN  8
 
@@ -407,7 +411,7 @@ void tcp_handle_syn(uint16 src_port, uint16 dst_port, uint32 src_ip, uint32 seq_
     connection_src_ports[conn_idx]      = src_port;
     connection_dst_ports[conn_idx]      = dst_port;
     connection_src_ips[conn_idx]        = src_ip;
-    connection_dst_ips[conn_idx]        = Local_IP_ADDR;
+    connection_dst_ips[conn_idx]        = g_local_ip;
     connection_seq_nums[conn_idx]       = LCPU_LOCAL_TIME_L();   // Randomized ISN
     connection_ack_nums[conn_idx]       = seq_num + 1;
     connection_last_activity[conn_idx]  = LCPU_LOCAL_TIME_L();
@@ -504,8 +508,13 @@ void send_http_response(int conn_idx, const char *response) {
         checksum = tcp_checksum_build(tcp_header, 0, connection_dst_ips[conn_idx], connection_src_ips[conn_idx], payload_ptr, data_to_send);
         tcp_set_checksum(tcp_header, checksum);
 
+        // Write Ethernet header for every segment (eth_proc only writes it once)
+        eth_tx_header_fill();
         ip_header_update(connection_src_ips[conn_idx], ip_header_len + tcp_header_len + data_to_send);
         send_tcp_segment(tcp_header, payload_ptr, data_to_send);
+
+        // Wait for TX FIFO to drain before sending next segment
+        while (LCPU_WR_FULL()) {}
 
         connection_seq_nums[conn_idx] += data_to_send;
         offset += data_to_send;
@@ -529,6 +538,471 @@ static void tcp_handle_post_request(int conn_idx, uint16_t tcp_data_len) {
     tcp_read_post_fields_keyed(tcp_data_len, field_addr, field_data, field_mode);
     tcp_run_reg_access(field_addr, field_data, field_mode, &address, &response_data);
     tcp_send_post_response(conn_idx, address, response_data, field_mode);
+}
+
+// --- Simple JSON string value extractor: finds "key":"value" in payload ---
+// Uses plain for-loop with index cap to avoid compiler optimization issues
+static uint8 json_get_str(uint16_t data_len, const char *key, char *out, uint8_t out_max) {
+    uint32_t base = OFF_TCP_PAYLOAD;
+    uint8_t klen = 0;
+    uint16_t i, j;
+    uint16_t limit;
+
+    while (key[klen]) klen++;
+
+    // Cap search to avoid reading beyond packet
+    limit = data_len;
+    if (limit > 1500) limit = 1500;
+
+    // Scan for "key":" pattern
+    for (i = 0; i + klen + 3 < limit; i++) {
+        LCPU_RD_SET_ADDR(base + i);
+        if (LCPU_RD_DATA8() != '"') continue;
+
+        // Check key
+        for (j = 0; j < klen; j++) {
+            LCPU_RD_SET_ADDR(base + i + 1 + j);
+            if (LCPU_RD_DATA8() != (uint8_t)key[j]) break;
+        }
+        if (j < klen) continue;
+
+        // Check closing ":
+        LCPU_RD_SET_ADDR(base + i + 1 + klen);
+        if (LCPU_RD_DATA8() != '"') continue;
+        LCPU_RD_SET_ADDR(base + i + 1 + klen + 1);
+        if (LCPU_RD_DATA8() != ':') continue;
+
+        // Skip opening " of value
+        j = i + 1 + klen + 2;
+        if (j >= limit) return 0;
+        LCPU_RD_SET_ADDR(base + j);
+        if (LCPU_RD_DATA8() != '"') continue;
+        j++;
+
+        // Read value until closing "
+        for (i = 0; i < out_max && j < limit; i++, j++) {
+            LCPU_RD_SET_ADDR(base + j);
+            uint8_t c = LCPU_RD_DATA8();
+            if (c == '"') break;
+            out[i] = (char)c;
+        }
+        out[i] = '\0';
+        return 1;
+    }
+    return 0;
+}
+
+// --- String utility helpers ---
+
+// Write uint8 as 1-3 decimal digits, return chars written
+static int write_u8_dec(char *buf, uint8_t val) {
+    int p = 0;
+    if (val >= 100) { buf[p++] = '0' + val / 100; val %= 100; }
+    if (val >= 10 || p > 0) { buf[p++] = '0' + val / 10; val %= 10; }
+    buf[p++] = '0' + val;
+    return p;
+}
+
+// Write uint16 as decimal string, return chars written
+static int write_u16_dec(char *buf, uint16_t val) {
+    int p = 0;
+    if (val >= 10000) { buf[p++] = '0' + val / 10000; val %= 10000; }
+    if (val >= 1000)  { buf[p++] = '0' + val / 1000;  val %= 1000; }
+    if (val >= 100)   { buf[p++] = '0' + val / 100;   val %= 100; }
+    if (val >= 10)    { buf[p++] = '0' + val / 10;    val %= 10; }
+    buf[p++] = '0' + val;
+    return p;
+}
+
+// MAC uint8[6] → "XX:XX:XX:XX:XX:XX"
+static void mac_to_str(uint8_t mac[6], char *out) {
+    int p = 0, i;
+    for (i = 0; i < 6; i++) {
+        out[p++] = hex_to_ascii(mac[i] >> 4);
+        out[p++] = hex_to_ascii(mac[i] & 0xF);
+        if (i < 5) out[p++] = ':';
+    }
+    out[p] = '\0';
+}
+
+// uint32 IP → "XXX.XXX.XXX.XXX"
+static void ip32_to_str(uint32_t ip, char *out) {
+    int p = 0;
+    p += write_u8_dec(out + p, (uint8_t)((ip >> 24) & 0xFF)); out[p++] = '.';
+    p += write_u8_dec(out + p, (uint8_t)((ip >> 16) & 0xFF)); out[p++] = '.';
+    p += write_u8_dec(out + p, (uint8_t)((ip >> 8) & 0xFF));  out[p++] = '.';
+    p += write_u8_dec(out + p, (uint8_t)(ip & 0xFF));
+    out[p] = '\0';
+}
+
+// Parse "XX:XX:XX:XX:XX:XX" → uint8_t[6]. Returns 0 on success, -1 on error.
+static int parse_mac_str(const char *str, uint8_t mac[6]) {
+    int i;
+    for (i = 0; i < 6; i++) {
+        uint8_t hi = hex_char_to_val(str[i * 3]);
+        uint8_t lo = hex_char_to_val(str[i * 3 + 1]);
+        if (hi == 0xFF || lo == 0xFF) return -1;
+        mac[i] = (hi << 4) | lo;
+    }
+    return 0;
+}
+
+// Parse "XXX.XXX.XXX.XXX" → uint32_t IP
+static uint32_t parse_ip_str(const char *str) {
+    uint32_t ip = 0, byte_val = 0;
+    while (*str) {
+        if (*str == '.') { ip = (ip << 8) | byte_val; byte_val = 0; }
+        else if (*str >= '0' && *str <= '9') { byte_val = byte_val * 10 + (*str - '0'); }
+        str++;
+    }
+    ip = (ip << 8) | byte_val;
+    return ip;
+}
+
+// Build HTTP JSON response and send it.
+// json_body must be null-terminated; Content-Length is computed automatically.
+#define API_RESP_BUF_SIZE  512
+static void api_send_json(int conn_idx, const char *json_body) {
+    char buf[API_RESP_BUF_SIZE];
+    int pos = 0;
+    int body_len = 0;
+    const char *p;
+
+    // Measure body length
+    p = json_body;
+    while (*p) { body_len++; p++; }
+
+    // Write header
+    p = "HTTP/1.1 200 OK\r\nContent-Length: ";
+    while (*p) buf[pos++] = *p++;
+    pos += write_u16_dec(buf + pos, (uint16_t)body_len);
+    p = "\r\nContent-Type: application/json\r\n\r\n";
+    while (*p) buf[pos++] = *p++;
+
+    // Write body
+    p = json_body;
+    while (*p) buf[pos++] = *p++;
+    buf[pos] = '\0';
+
+    send_http_response(conn_idx, buf);
+}
+
+// --- GET /api/wl/status ---
+static void api_wl_status(int conn_idx) {
+    char body[64];
+    int p = 0;
+    const char *s;
+    uint8_t en = whitelist_is_enabled();
+    uint16_t used = whitelist_hw_get_used_count();
+    uint16_t max = whitelist_hw_get_max_entries();
+
+    s = "{\"enabled\":";
+    while (*s) body[p++] = *s++;
+    body[p++] = en ? 't' : 'f';
+    body[p++] = en ? 'r' : 'a';
+    body[p++] = en ? 'u' : 'l';
+    body[p++] = en ? 'e' : 's';
+    if (!en) body[p++] = 'e';
+    s = ",\"used\":";
+    while (*s) body[p++] = *s++;
+    p += write_u16_dec(body + p, used);
+    s = ",\"max\":";
+    while (*s) body[p++] = *s++;
+    p += write_u16_dec(body + p, max);
+    body[p++] = '}';
+    body[p] = '\0';
+
+    api_send_json(conn_idx, body);
+}
+
+// --- GET /api/wl/list (reads actual BRAM via HW) ---
+#define WL_LIST_BUF_SIZE  4096
+static void api_wl_list(int conn_idx) {
+    char buf[WL_LIST_BUF_SIZE];
+    int pos = 0;
+    int body_start;
+    int body_len;
+    uint16_t max = whitelist_hw_get_max_entries();
+    uint16_t i;
+    uint8_t first = 1;
+    const char *s;
+
+    // Write HTTP header prefix (Content-Length placeholder will be patched)
+    s = "HTTP/1.1 200 OK\r\nContent-Length: ";
+    while (*s) buf[pos++] = *s++;
+    int cl_pos = pos;  // remember where Content-Length digits start
+    buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' ';
+    s = "\r\nContent-Type: application/json\r\n\r\n";
+    while (*s) buf[pos++] = *s++;
+
+    body_start = pos;
+
+    // Build JSON array body (reads HW BRAM directly)
+    buf[pos++] = '[';
+    for (i = 0; i < max && pos < (WL_LIST_BUF_SIZE - 64); i++) {
+        uint8_t mac[6];
+        if (whitelist_hw_read_entry((uint8_t)i, mac) == 0) {
+            char mac_str[18];
+            if (!first) buf[pos++] = ',';
+            first = 0;
+            mac_to_str(mac, mac_str);
+            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
+            buf[pos++] = 'c'; buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = '"';
+            {
+                const char *mp = mac_str;
+                while (*mp) buf[pos++] = *mp++;
+            }
+            buf[pos++] = '"'; buf[pos++] = ','; buf[pos++] = '"'; buf[pos++] = 'v';
+            buf[pos++] = 'a'; buf[pos++] = 'l'; buf[pos++] = 'i'; buf[pos++] = 'd';
+            buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = 't'; buf[pos++] = 'r';
+            buf[pos++] = 'u'; buf[pos++] = 'e'; buf[pos++] = '}';
+        }
+    }
+    buf[pos++] = ']';
+    buf[pos] = '\0';
+
+    body_len = pos - body_start;
+
+    // Patch Content-Length into the 4 placeholder bytes
+    // body_len is at most 9999 (fits 4 digits)
+    buf[cl_pos + 3] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 2] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 1] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 0] = '0' + (body_len % 10);
+
+    send_http_response(conn_idx, buf);
+}
+
+// --- GET /api/wl/hwlist (reads actual BRAM, bypasses software cache) ---
+static void api_wl_hwlist(int conn_idx) {
+    char buf[WL_LIST_BUF_SIZE];
+    int pos = 0;
+    int body_start;
+    int body_len;
+    uint16_t max = whitelist_hw_get_max_entries();
+    uint16_t used = whitelist_hw_get_used_count();
+    uint8_t free_idx = whitelist_hw_get_free_index();
+    uint16_t i;
+    uint8_t first = 1;
+    const char *s;
+
+    // Write HTTP header
+    s = "HTTP/1.1 200 OK\r\nContent-Length: ";
+    while (*s) buf[pos++] = *s++;
+    int cl_pos = pos;
+    buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' ';
+    s = "\r\nContent-Type: application/json\r\n\r\n";
+    while (*s) buf[pos++] = *s++;
+
+    body_start = pos;
+
+    // JSON: { "max":N, "used":N, "free":N, "entries": [...] }
+    buf[pos++] = '{';
+    s = "\"max\":";
+    while (*s) buf[pos++] = *s++;
+    pos += write_u16_dec(buf + pos, max);
+    s = ",\"used\":";
+    while (*s) buf[pos++] = *s++;
+    pos += write_u16_dec(buf + pos, used);
+    s = ",\"free\":";
+    while (*s) buf[pos++] = *s++;
+    pos += write_u16_dec(buf + pos, free_idx);
+    s = ",\"entries\":[";
+    while (*s) buf[pos++] = *s++;
+
+    for (i = 0; i < max && pos < (WL_LIST_BUF_SIZE - 64); i++) {
+        uint8_t mac[6];
+        if (whitelist_hw_read_entry((uint8_t)i, mac) == 0) {
+            char mac_str[18];
+            if (!first) buf[pos++] = ',';
+            first = 0;
+            mac_to_str(mac, mac_str);
+            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 'i'; buf[pos++] = 'd';
+            buf[pos++] = 'x'; buf[pos++] = '"'; buf[pos++] = ':';
+            pos += write_u16_dec(buf + pos, i);
+            buf[pos++] = ','; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
+            buf[pos++] = 'c'; buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = '"';
+            {
+                const char *mp = mac_str;
+                while (*mp) buf[pos++] = *mp++;
+            }
+            buf[pos++] = '"'; buf[pos++] = '}';
+        }
+    }
+    buf[pos++] = ']';
+    buf[pos++] = '}';
+    buf[pos] = '\0';
+
+    body_len = pos - body_start;
+
+    // Patch Content-Length
+    buf[cl_pos + 3] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 2] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 1] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 0] = '0' + (body_len % 10);
+
+    send_http_response(conn_idx, buf);
+}
+
+// --- GET /api/wl/diag (hardware diagnostic) ---
+static void api_wl_diag(int conn_idx) {
+    char buf[512];
+    int pos = 0;
+    int body_start;
+    const char *s;
+
+    s = "HTTP/1.1 200 OK\r\nContent-Length: ";
+    while (*s) buf[pos++] = *s++;
+    int cl_pos = pos;
+    buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' ';
+    s = "\r\nContent-Type: application/json\r\n\r\n";
+    while (*s) buf[pos++] = *s++;
+
+    body_start = pos;
+    buf[pos++] = '{';
+    int diag_len = whitelist_hw_diag(buf + pos, sizeof(buf) - pos - 8);
+    pos += diag_len;
+    buf[pos++] = '}';
+    buf[pos] = '\0';
+
+    int body_len = pos - body_start;
+    buf[cl_pos + 3] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 2] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 1] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 0] = '0' + (body_len % 10);
+
+    send_http_response(conn_idx, buf);
+}
+
+// --- POST /api/wl/add ---
+static void api_wl_add(int conn_idx, uint16_t tcp_data_len) {
+    char field_mac[TCP_POST_FIELD_LONG_WIDTH + 1];
+    uint8_t mac[6];
+
+    json_get_str(tcp_data_len, "mac", field_mac, TCP_POST_FIELD_LONG_WIDTH);
+    if (parse_mac_str(field_mac, mac) != 0) {
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"invalid MAC\"}");
+        return;
+    }
+    int idx = whitelist_add(mac);
+    if (idx < 0) {
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"table full\"}");
+    } else {
+        api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
+    }
+}
+
+// --- POST /api/wl/delete ---
+static void api_wl_delete(int conn_idx, uint16_t tcp_data_len) {
+    char field_idx[TCP_POST_FIELD_WIDTH + 1];
+    char body[64];
+    int r;
+    if (tcp_find_json_field(tcp_data_len, "index", field_idx)) {
+        uint8_t idx = 0;
+        int i = 0;
+        while (field_idx[i] >= '0' && field_idx[i] <= '9') {
+            idx = idx * 10 + (field_idx[i] - '0');
+            i++;
+        }
+        r = whitelist_delete(idx);
+        // Verify: read back from HW to confirm
+        if (r == 0) {
+            uint8_t mac[6];
+            if (whitelist_hw_read_entry(idx, mac) == 0)
+                r = -2;  // entry still exists in HW — delete failed
+        }
+    } else {
+        r = -1;
+    }
+    if (r == 0) {
+        api_send_json(conn_idx, "{\"code\":0,\"msg\":\"deleted\"}");
+    } else {
+        // Build error response
+        int p = 0;
+        const char *s = "{\"code\":";
+        while (*s) body[p++] = *s++;
+        body[p++] = '0' + (uint8_t)(-r);
+        s = ",\"msg\":\"delete failed\"}";
+        while (*s) body[p++] = *s++;
+        body[p] = '\0';
+        api_send_json(conn_idx, body);
+    }
+}
+
+// --- POST /api/wl/clear ---
+static void api_wl_clear(int conn_idx) {
+    whitelist_clear_all();
+    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
+}
+
+// --- POST /api/wl/toggle ---
+static void api_wl_toggle(int conn_idx) {
+    if (whitelist_is_enabled())
+        whitelist_enable(0);
+    else
+        whitelist_enable(1);
+    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
+}
+
+// --- GET /api/local/status ---
+static void api_local_status(int conn_idx) {
+    local_config_t cfg;
+    char mac_s[18], ip_s[16], nm_s[16], gw_s[16];
+    char body[128];
+    int p = 0;
+    const char *s;
+
+    local_config_get(&cfg);
+    mac_to_str(cfg.mac, mac_s);
+    ip32_to_str(cfg.ip, ip_s);
+    ip32_to_str(cfg.netmask, nm_s);
+    ip32_to_str(cfg.gateway, gw_s);
+
+    // Build JSON body: {"mac":"...","ip":"...","netmask":"...","gateway":"..."}
+    s = "{\"mac\":\"";       while (*s) body[p++] = *s++;
+    s = mac_s;               while (*s) body[p++] = *s++;
+    s = "\",\"ip\":\"";      while (*s) body[p++] = *s++;
+    s = ip_s;                while (*s) body[p++] = *s++;
+    s = "\",\"netmask\":\""; while (*s) body[p++] = *s++;
+    s = nm_s;                while (*s) body[p++] = *s++;
+    s = "\",\"gateway\":\""; while (*s) body[p++] = *s++;
+    s = gw_s;                while (*s) body[p++] = *s++;
+    body[p++] = '"'; body[p++] = '}';
+    body[p] = '\0';
+
+    api_send_json(conn_idx, body);
+}
+
+// --- POST /api/local/save ---
+static void api_local_save(int conn_idx, uint16_t tcp_data_len) {
+    char field[TCP_POST_FIELD_LONG_WIDTH + 1];
+    local_config_t cfg;
+    uint8_t mac[6];
+
+    local_config_get(&cfg);
+
+    if (json_get_str(tcp_data_len, "mac", field, TCP_POST_FIELD_LONG_WIDTH)) {
+        if (parse_mac_str(field, mac) == 0) {
+            int i; for (i = 0; i < 6; i++) cfg.mac[i] = mac[i];
+        }
+    }
+    if (json_get_str(tcp_data_len, "ip", field, TCP_POST_FIELD_LONG_WIDTH)) {
+        if (field[0] != ' ') { cfg.ip = parse_ip_str(field); }
+    }
+    if (json_get_str(tcp_data_len, "netmask", field, TCP_POST_FIELD_LONG_WIDTH)) {
+        if (field[0] != ' ') { cfg.netmask = parse_ip_str(field); }
+    }
+    if (json_get_str(tcp_data_len, "gateway", field, TCP_POST_FIELD_LONG_WIDTH)) {
+        if (field[0] != ' ') { cfg.gateway = parse_ip_str(field); }
+    }
+
+    // Send response FIRST — before local_config_set changes g_local_ip,
+    // so the TCP source IP matches the existing connection
+    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"saved\"}");
+
+    // Then apply config (changes g_local_ip, HW registers) and save to Flash
+    local_config_set(&cfg);
+    local_config_save_to_flash();
 }
 
 // Simple URL path match: compare packet data starting at current RD position
@@ -560,21 +1034,75 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                     LCPU_RD_INC_ADDR();
                     char path_char = (char)LCPU_RD_DATA8();
 
-                    if (path_char == ' ' || path_char == '\r') {
-                        // "GET /" → main page
-                        send_http_response(conn_idx, main_page);
-                        handled = 1;
-                    } else if (path_char == 'w') {
-                        // /wlconfig or /wl...
-                        if (match_path("lconfig")) {
-                            send_http_response(conn_idx, wlconfig_page);
+                    if (path_char == '/') {
+                        // Skip leading '/' and check sub-path
+                        LCPU_RD_INC_ADDR();
+                        char sub_char = (char)LCPU_RD_DATA8();
+
+                        if (sub_char == ' ' || sub_char == '\r') {
+                            // "GET /" → main page
+                            send_http_response(conn_idx, main_page);
                             handled = 1;
-                        }
-                    } else if (path_char == 'l') {
-                        // /localconfig
-                        if (match_path("ocalconfig")) {
-                            send_http_response(conn_idx, localconfig_page);
-                            handled = 1;
+                        } else if (sub_char == 'w') {
+                            // /wlconfig or /wl...
+                            if (match_path("lconfig")) {
+                                send_http_response(conn_idx, wlconfig_page);
+                                handled = 1;
+                            }
+                        } else if (sub_char == 'l') {
+                            // /localconfig
+                            if (match_path("ocalconfig")) {
+                                send_http_response(conn_idx, localconfig_page);
+                                handled = 1;
+                            }
+                        } else if (sub_char == 'a') {
+                            // /api/* — save RD position before each match_path attempt
+                            // because failed match_path corrupts the RD pointer
+                            uint32_t rd_save = lcpu_baseaddr->rd_pkt_fifo.raddr;
+                            if (match_path("pi/ping")) {
+                                static const char ping[] =
+                                    "HTTP/1.1 200 OK\r\n"
+                                    "Content-Length: 4\r\n"
+                                    "Content-Type: text/plain\r\n\r\n"
+                                    "pong";
+                                send_http_response(conn_idx, ping);
+                                handled = 1;
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/local/status")) {
+                                    api_local_status(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/status")) {
+                                    api_wl_status(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/list")) {
+                                    api_wl_list(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/hwlist")) {
+                                    api_wl_hwlist(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/diag")) {
+                                    api_wl_diag(conn_idx);
+                                    handled = 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -601,10 +1129,47 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                             tcp_handle_post_request(conn_idx, tcp_data_len);
                             handled = 1;
                         } else if (pc == 'a') {
-                            // /api/... — send simple JSON OK
-                            if (match_path("pi/")) {
-                                send_http_response(conn_idx, post_response);
+                            // /api/* — save RD position before each match_path
+                            uint32_t rd_save = lcpu_baseaddr->rd_pkt_fifo.raddr;
+                            if (match_path("pi/wl/add")) {
+                                api_wl_add(conn_idx, tcp_data_len);
                                 handled = 1;
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/delete")) {
+                                    api_wl_delete(conn_idx, tcp_data_len);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/clear")) {
+                                    api_wl_clear(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/toggle")) {
+                                    api_wl_toggle(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/save")) {
+                                    whitelist_save_to_flash();
+                                    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"saved\"}");
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/local/save")) {
+                                    api_local_save(conn_idx, tcp_data_len);
+                                    handled = 1;
+                                }
                             }
                         }
                     }
@@ -735,7 +1300,7 @@ void tcp_packet_handler() {
     }
 
     // Find existing connection
-    int conn_idx = find_connection(src_port, dst_port, src_ip, Local_IP_ADDR);
+    int conn_idx = find_connection(src_port, dst_port, src_ip, g_local_ip);
 
 #if DEBUG_En_tcp
     // printf("TCP Packet Received: Src Port=%d, Dst Port=%d, Seq=%lu, Ack=%lu, Flags=0x%02X, DataLen=%d, Found Conn Idx=%d\n",

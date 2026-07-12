@@ -21,19 +21,31 @@ static void local_config_read_regs(void)
 
 void local_config_init(void)
 {
-    // Try load from Flash first (simplified: always use register defaults for now)
-    local_config_read_regs();
+    // Use local_config_valid flag (HW sets it only after Flash→regs load succeeds)
+    if (lcpu_baseaddr->local_config_valid != 0) {
+        local_config_read_regs();
+    }
 
     // Populate the config struct
-    g_config.mac[0] = (uint8_t)((g_local_mac_high >> 8) & 0xFF);
-    g_config.mac[1] = (uint8_t)(g_local_mac_high & 0xFF);
-    g_config.mac[2] = (uint8_t)((g_local_mac_low >> 24) & 0xFF);
-    g_config.mac[3] = (uint8_t)((g_local_mac_low >> 16) & 0xFF);
+    // MAC byte order: high[31:24]=mac[0], ..., high[7:0]=mac[3], low[15:8]=mac[4], low[7:0]=mac[5]
+    // (matches Ethernet wire order used in eth.c and arp.c)
+    g_config.mac[0] = (uint8_t)((g_local_mac_high >> 24) & 0xFF);
+    g_config.mac[1] = (uint8_t)((g_local_mac_high >> 16) & 0xFF);
+    g_config.mac[2] = (uint8_t)((g_local_mac_high >> 8) & 0xFF);
+    g_config.mac[3] = (uint8_t)(g_local_mac_high & 0xFF);
     g_config.mac[4] = (uint8_t)((g_local_mac_low >> 8) & 0xFF);
     g_config.mac[5] = (uint8_t)(g_local_mac_low & 0xFF);
-    g_config.ip      = lcpu_baseaddr->local_ip;
-    g_config.netmask = lcpu_baseaddr->local_netmask;
-    g_config.gateway = lcpu_baseaddr->local_gateway;
+
+    // Use runtime globals (not HW registers — those may be zero/garbage)
+    if (lcpu_baseaddr->local_config_valid != 0) {
+        g_config.ip      = lcpu_baseaddr->local_ip;
+        g_config.netmask = lcpu_baseaddr->local_netmask;
+        g_config.gateway = lcpu_baseaddr->local_gateway;
+    } else {
+        g_config.ip      = g_local_ip;
+        g_config.netmask = 0xFFFFFF00;  // 255.255.255.0 (/24)
+        g_config.gateway = (g_local_ip & 0xFFFFFF00) | 0x00000001;  // .1 default
+    }
 }
 
 void local_config_get(local_config_t *c)
@@ -46,11 +58,10 @@ int local_config_set(local_config_t *c)
     if (!c) return -1;
     g_config = *c;
 
-    // Update HW registers
-    lcpu_baseaddr->local_mac_h = ((uint32_t)c->mac[0] << 8) | c->mac[1];
-    lcpu_baseaddr->local_mac_l =
-        ((uint32_t)c->mac[2] << 24) | ((uint32_t)c->mac[3] << 16) |
-        ((uint32_t)c->mac[4] << 8)  | c->mac[5];
+    // Update HW registers (MAC byte order: high=mac[0:3], low=mac[4:5])
+    lcpu_baseaddr->local_mac_h = ((uint32_t)c->mac[0] << 24) | ((uint32_t)c->mac[1] << 16) |
+                                  ((uint32_t)c->mac[2] << 8)  | c->mac[3];
+    lcpu_baseaddr->local_mac_l = ((uint32_t)c->mac[4] << 8)  | c->mac[5];
     lcpu_baseaddr->local_ip      = c->ip;
     lcpu_baseaddr->local_netmask = c->netmask;
     lcpu_baseaddr->local_gateway = c->gateway;

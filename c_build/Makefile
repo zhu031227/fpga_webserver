@@ -21,7 +21,7 @@ OBJDUMP   = $(CROSS)-objdump
 PYTHON    = python3
 
 # ---- Build configuration ----
-BIN_SIZE  = 16384
+BIN_SIZE  = 32768
 ARCH      = rv32ic
 ABI       = ilp32
 

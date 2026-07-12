@@ -2,7 +2,7 @@ ENTRY(reset_entry)
 
 MEMORY
 {
-    ROM (rwx) : ORIGIN = 0x00000000, LENGTH = 16K
+    ROM (rwx) : ORIGIN = 0x00000000, LENGTH = 32K
 }
 
 SECTIONS

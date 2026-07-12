@@ -21,7 +21,7 @@
 
 const char *main_page =
     "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 1397\r\n"
+    "Content-Length: 1077\r\n"
     "Content-Type: text/html\r\n\r\n"
     "<meta charset='UTF-8'><html><head><title>Web@RiscV@FPGA</title>"
     "<style>"
@@ -50,7 +50,7 @@ const char *main_page =
 
 const char *wlconfig_page =
     "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 2850\r\n"
+    "Content-Length: 2876\r\n"
     "Content-Type: text/html\r\n\r\n"
     "<meta charset='UTF-8'><html><head><title>MAC Whitelist</title>"
     "<style>"
@@ -110,7 +110,7 @@ const char *wlconfig_page =
 
 const char *localconfig_page =
     "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 2156\r\n"
+    "Content-Length: 2304\r\n"
     "Content-Type: text/html\r\n\r\n"
     "<meta charset='UTF-8'><html><head><title>Local Config</title>"
     "<style>"
@@ -164,7 +164,7 @@ const char *localconfig_page =
 // POST response template
 const char *post_response =
     "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 120\r\n"
+    "Content-Length: 21\r\n"
     "Connection: keep-alive\r\n"
     "Content-Type: application/json\r\n\r\n"
     "{\"code\":0,\"msg\":\"ok\"}";

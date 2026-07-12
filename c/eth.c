@@ -66,3 +66,30 @@ uint16 eth_proc()
         return NO_PROC;
     }
 }
+
+// Fill Ethernet header for outgoing IP packet (MAC swap + EtherType).
+// Called before each TX segment push: eth_proc only writes Eth header once,
+// but multi-segment TCP responses need it written in every block.
+void eth_tx_header_fill(void) {
+    uint32 i;
+    uint32 fifo_data;
+
+    // Source MAC = local MAC
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 0, (Local_MAC_HIGH >> 24) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 1, (Local_MAC_HIGH >> 16) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 2, (Local_MAC_HIGH >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 3, (Local_MAC_HIGH >> 0) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4, (Local_MAC_LOW >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 5, (Local_MAC_LOW >> 0) & 0xFF);
+
+    // Destination MAC = incoming packet's source MAC (swap)
+    for (i = 0; i < 6; i++) {
+        LCPU_RD_SET_ADDR(OFF_ETH_SRC_MAC + i);
+        fifo_data = LCPU_RD_DATA8();
+        LCPU_WR_BYTE(OFF_ETH_DST_MAC + i, fifo_data);
+    }
+
+    // EtherType = IPv4
+    LCPU_WR_BYTE(OFF_ETH_TYPE,     (ETH_TYPE_IP >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_TYPE + 1, (ETH_TYPE_IP >> 0) & 0xFF);
+}

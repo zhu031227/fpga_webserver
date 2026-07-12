@@ -392,7 +392,7 @@ module cpu_channel_tri #(
       .data_width(cpu_buf_data_width), .para_width(cpu_buf_para_width),
       .para_ram_type(cpu_buf_para_ram_type), .data_ram_type(cpu_buf_data_ram_type),
       .max_pkt_length(1518), .block_mode(cpu_buf_block_mode)
-  ) u_pkg_fifo_eth0_cpu (
+  ) u_pkg_fifo_cpu_rx (
       .reset_l(reset_l),
       .wclk(clk), .wclk_en(1'b1), .full(mac0_in_full),
       .wen(mac0_in_wen), .waddr(mac0_in_waddr), .wdata(mac0_in_wdata),

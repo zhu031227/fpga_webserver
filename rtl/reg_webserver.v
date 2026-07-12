@@ -125,12 +125,10 @@ module reg_webserver(
   output reg [31:0] SUBBUS_sflash_DataWr,
   input [31:0] SUBBUS_sflash_DataRd,
   input SUBBUS_sflash_Ack,
-  output reg SUBBUS_mac_whitelist_Req,
-  output reg SUBBUS_mac_whitelist_RhWl,
-  output reg [11:0] SUBBUS_mac_whitelist_ReqAddr,
-  output reg [31:0] SUBBUS_mac_whitelist_DataWr,
-  input [31:0] SUBBUS_mac_whitelist_DataRd,
-  input SUBBUS_mac_whitelist_Ack,
+  output RAMIF_mac_whitelist_Ram_RlWh,
+  output [11:0] RAMIF_mac_whitelist_Ram_Addr,
+  output [31:0] RAMIF_mac_whitelist_Ram_WrData,
+  input  [31:0] RAMIF_mac_whitelist_Ram_RdData,
   output reg [0:0] bootloader_trigger,
   output reg bootloader_trigger_ind,
   input [2:0] bootloader_status,
@@ -160,16 +158,22 @@ module reg_webserver(
   reg eth2_mdio_sb_ack;
   reg [31:0]sflash_sb_rdata;
   reg sflash_sb_ack;
-  reg [31:0]mac_whitelist_sb_rdata;
-  reg mac_whitelist_sb_ack;
-  
+
   reg SUBBUS_program_ram_Req;
   reg SUBBUS_program_ram_RhWl;
   reg [14:0] SUBBUS_program_ram_ReqAddr;
   reg [31:0] SUBBUS_program_ram_DataWr;
   wire [31:0]program_ram_sb_rdata;
   wire program_ram_sb_ack;
-  
+
+  // mac_whitelist RamIF (same pattern as program_ram)
+  reg  SUBBUS_mac_whitelist_Req;
+  reg  SUBBUS_mac_whitelist_RhWl;
+  reg  [11:0] SUBBUS_mac_whitelist_ReqAddr;
+  reg  [31:0] SUBBUS_mac_whitelist_DataWr;
+  wire [31:0] mac_whitelist_sb_rdata;
+  wire mac_whitelist_sb_ack;
+
   
   always @ (posedge clk or negedge rst_n) begin 
     if(!rst_n) begin 
@@ -1240,18 +1244,27 @@ module reg_webserver(
     end
   end
 
-  always @ (posedge clk or negedge rst_n) begin 
-    if(!rst_n) begin 
-      mac_whitelist_sb_ack <= 1'b0;
-      mac_whitelist_sb_rdata <= 32'b0;
-    end
-    else begin 
-      mac_whitelist_sb_ack <= SUBBUS_mac_whitelist_Ack;
-      mac_whitelist_sb_rdata <= SUBBUS_mac_whitelist_DataRd;
-    end
-  end
+  // mac_whitelist RamIF (replaces old SubBus ack block)
+  ramintf
+    #(
+    .DataBits(32),
+    .AddrBits(12)
+    ) RAMIF_mac_whitelist(
+    .Ram_RdData(RAMIF_mac_whitelist_Ram_RdData),
+    .Ram_RlWh(RAMIF_mac_whitelist_Ram_RlWh),
+    .Ram_Addr(RAMIF_mac_whitelist_Ram_Addr),
+    .Ram_WrData(RAMIF_mac_whitelist_Ram_WrData),
+    .clk(clk),
+    .rst_n(rst_n),
+    .req(SUBBUS_mac_whitelist_Req),
+    .rhwl(SUBBUS_mac_whitelist_RhWl),
+    .wdata(SUBBUS_mac_whitelist_DataWr),
+    .address(SUBBUS_mac_whitelist_ReqAddr),
+    .rdata(mac_whitelist_sb_rdata),
+    .ack(mac_whitelist_sb_ack)
+    );
 
-  
+
   always @ (posedge clk or negedge rst_n) begin 
     if(!rst_n) begin 
       ack <= 1'b0;
