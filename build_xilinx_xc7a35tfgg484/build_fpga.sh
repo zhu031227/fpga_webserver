@@ -294,30 +294,190 @@ add_files -fileset constrs_1 -norecurse "\$proj_dir/timing.xdc"
 puts "Running synthesis..."
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
-puts "Running implementation..."
-# Suppress UCIO-1 for GT refclk pins (auto-placed by GTPE2_CHANNEL)
-set drc_hook "\$proj_dir/drc_waiver.tcl"
-set fh [open \$drc_hook w]
-puts \$fh {set_property SEVERITY {Warning} [get_drc_checks UCIO-1]}
-close \$fh
-set_property STEPS.WRITE_BITSTREAM.TCL.PRE \$drc_hook [get_runs impl_1]
-launch_runs impl_1 -to_step write_bitstream -jobs 8
-wait_on_run impl_1
 
-set bit_src "\$proj_dir/\$proj_name.runs/impl_1/\$top_module.bit"
-set bit_dst "\$proj_dir/\$proj_name.bit"
-if {[file exists \$bit_src]} { file copy -force \$bit_src \$bit_dst }
+	# ILA setup: register debug-core insertion as an OPT_DESIGN pre-hook so
+	# the standard impl_1 run inserts the cores. This keeps impl_1 a real run
+	# (GUI "Open Implemented Design" works) instead of an inline flow.
+	set ila_tcl [file normalize "\$proj_dir/ila_setup.tcl"]
+	set ila_modified 0
+	if {[file exists \$ila_tcl]} {
+	    puts "ILA: registering debug-core setup as impl_1 OPT_DESIGN pre-hook..."
+	    set_property STEPS.OPT_DESIGN.TCL.PRE \$ila_tcl [get_runs impl_1]
+	    set ila_modified 1
+	}
 
-open_run impl_1
-report_timing_summary -file "\$proj_dir/timing_summary.rpt"
-report_utilization    -file "\$proj_dir/utilization.rpt"
-close_design
+	puts "Running implementation..."
+	# Suppress UCIO-1 for GT refclk pins (auto-placed by GTPE2_CHANNEL)
+	set drc_hook "\$proj_dir/drc_waiver.tcl"
+	set fh [open \$drc_hook w]
+	puts \$fh {set_property SEVERITY {Warning} [get_drc_checks UCIO-1]}
+	close \$fh
+	set_property STEPS.WRITE_BITSTREAM.TCL.PRE \$drc_hook [get_runs impl_1]
+
+	# Emit the debug probes (.ltx) inside the run, right after bitstream.
+	# Runs after route_design so the ILA core UUIDs are available.
+	if {\$ila_modified} {
+	    set ltx_hook "\$proj_dir/ltx_hook.tcl"
+	    set fh [open \$ltx_hook w]
+	    puts \$fh "write_debug_probes -force \\"[file normalize \$proj_dir/\$proj_name.ltx]\\""
+	    close \$fh
+	    set_property STEPS.WRITE_BITSTREAM.TCL.POST \$ltx_hook [get_runs impl_1]
+	}
+
+	launch_runs impl_1 -to_step write_bitstream -jobs 8
+	wait_on_run impl_1
+
+	set bit_src "\$proj_dir/\$proj_name.runs/impl_1/\$top_module.bit"
+	set bit_dst "\$proj_dir/\$proj_name.bit"
+	if {[file exists \$bit_src]} { file copy -force \$bit_src \$bit_dst }
+
+	# Timing / utilization reports (open the implemented design from the run)
+	open_run impl_1
+	report_timing_summary -file "\$proj_dir/timing_summary.rpt"
+	report_utilization    -file "\$proj_dir/utilization.rpt"
+	close_design
 
 puts "============================================"
 puts " Build Complete!  Bitstream: \$bit_dst"
 puts "============================================"
 TCL_EOF
 echo "[STEP 7/9] Done."
+
+#--------------------------------------------------------------------
+# 7b. Generate ILA setup TCL
+#--------------------------------------------------------------------
+echo "[STEP 7b/9] Generating ILA setup TCL..."
+ILA_SETUP="${PROJ_DIR}/ila_setup.tcl"
+cat > "${ILA_SETUP}" << 'ILA_EOF'
+# ila_setup.tcl -- auto-generated ILA debug core configuration
+# Runs after open_run synth_1. Groups mark_debug nets by ila_wrapper
+# instance, creates one ILA core per instance with per-instance DATA_DEPTH.
+#
+# Net hierarchy produced by rtl/ila_wrapper.v:
+#   top/.../u_ila_xxx/g_pN/dbgN         (1-bit probe)
+#   top/.../u_ila_xxx/g_pN/dbgN[b]      (multi-bit probe, one net per bit)
+#   top/.../u_ila_xxx/ila_clk           (clock, ILA_IS_CLK=1)
+
+set all_nets [get_nets -hier -filter {MARK_DEBUG}]
+if {[llength $all_nets] == 0} {
+    puts "ILA: No mark_debug nets found, skipping."
+    return
+}
+
+puts "ILA: Found [llength $all_nets] mark_debug nets"
+
+# ------------------------------------------------------------------
+# Parse every mark_debug net into (group, probe#, bit#) and separate
+# clock nets. Multi-bit buses arrive as individual bit nets and must
+# be re-assembled per probe, in bit order.
+# ------------------------------------------------------------------
+array set groups      {} ;# group -> 1 (set of groups seen)
+array set probe_bits  {} ;# "group|probe" -> list of {bit netobj}
+array set group_clk   {} ;# group -> clock net object
+array set group_depth {} ;# group -> C_DATA_DEPTH
+array set group_win   {} ;# group -> C_NUM_OF_WINDOWS
+
+foreach net $all_nets {
+    set name [get_property NAME $net]
+
+    # Identify the ILA instance (grandparent) this net belongs to.
+    set grp ""
+    foreach part [split $name "/"] {
+        if {[string match "u_ila_*" $part]} { set grp $part; break }
+    }
+    if {$grp eq ""} { continue }
+
+    # Clock net?
+    set is_clk 0
+    catch { set is_clk [get_property ILA_IS_CLK $net] }
+    if {$is_clk == 1} {
+        set group_clk($grp) $net
+        # Window count travels on the clock net (ILA_WINDOWS attribute).
+        set nwin 1
+        catch { set nwin [get_property ILA_WINDOWS $net] }
+        if {$nwin eq "" || $nwin < 1} { set nwin 1 }
+        set group_win($grp) $nwin
+        continue
+    }
+
+    # Data net: leaf is dbgN or dbgN[bit]
+    set leaf [lindex [split $name "/"] end]
+    set bit 0
+    if {[regexp {^(.*)\[(\d+)\]$} $leaf -> base bit]} {
+        set leaf $base
+    }
+    if {![regexp {dbg(\d+)$} $leaf -> pidx]} { continue }
+
+    set key "$grp|$pidx"
+    lappend probe_bits($key) [list $bit $net]
+
+    # Track depth from any data net in the group.
+    if {![info exists group_depth($grp)]} {
+        set d 1024
+        catch { set d [get_property ILA_DEPTH $net] }
+        if {$d eq "" || $d == 0} { set d 1024 }
+        set group_depth($grp) $d
+    }
+    set groups($grp) 1
+}
+
+# ------------------------------------------------------------------
+# Create one ILA core per group and connect clk + every probe.
+# ------------------------------------------------------------------
+set core_idx 0
+foreach grp [lsort [array names groups]] {
+    # Collect this group's probe indices in numeric order.
+    set pidxs {}
+    foreach key [array names probe_bits "$grp|*"] {
+        lappend pidxs [lindex [split $key "|"] 1]
+    }
+    set pidxs [lsort -integer -unique $pidxs]
+    if {[llength $pidxs] == 0} { continue }
+
+    set depth 1024
+    if {[info exists group_depth($grp)]} { set depth $group_depth($grp) }
+
+    set nwin 1
+    if {[info exists group_win($grp)]} { set nwin $group_win($grp) }
+
+    set core_name "ila_auto_${core_idx}"
+    puts "ILA: Creating core $core_name (group=$grp, depth=$depth, windows=$nwin, probes=[llength $pidxs])"
+    set core [create_debug_core $core_name ila]
+    set_property C_DATA_DEPTH $depth [get_debug_cores $core_name]
+    set_property C_NUM_OF_WINDOWS $nwin [get_debug_cores $core_name]
+
+    # Clock connection (create_debug_core auto-creates the clk port).
+    if {[info exists group_clk($grp)]} {
+        set_property port_width 1 [get_debug_ports $core_name/clk]
+        connect_debug_port $core_name/clk $group_clk($grp)
+        puts "ILA:   clk = [get_property NAME $group_clk($grp)]"
+    }
+
+    # Probe connections. create_debug_core auto-creates probe0; any
+    # further probe port must be added with create_debug_port.
+    set port_num 0
+    foreach pidx $pidxs {
+        set key "$grp|$pidx"
+        # Sort bit nets by bit index, then extract the net objects.
+        set sorted [lsort -integer -index 0 $probe_bits($key)]
+        set nets {}
+        foreach pair $sorted { lappend nets [lindex $pair 1] }
+        set width [llength $nets]
+
+        if {$port_num > 0} { create_debug_port $core_name probe }
+        set_property port_width $width [get_debug_ports $core_name/probe$port_num]
+        set_property PROBE_TYPE DATA_AND_TRIGGER [get_debug_ports $core_name/probe$port_num]
+        connect_debug_port $core_name/probe$port_num $nets
+        puts "ILA:   probe$port_num <= dbg$pidx (width=$width)"
+        incr port_num
+    }
+    incr core_idx
+}
+
+puts "ILA: Setup complete -- $core_idx ILA core(s) created"
+ILA_EOF
+echo "[STEP 7b/9] Done  -> ${ILA_SETUP}"
+
 
 #--------------------------------------------------------------------
 # 11. Run Vivado

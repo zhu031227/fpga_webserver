@@ -7,6 +7,8 @@
 //
 // New modules: cpu_channel_tri, mac_whitelist_top, lcpu_sflash
 
+`include "define.sv"
+
 module webserver_wrapper #(
     parameter int sim_mod                  = 0,
     parameter     script_file              = "../tcl/InstructRAM.tcl",
@@ -129,6 +131,14 @@ module webserver_wrapper #(
   wire [                31:0] debug_ro_1;
   wire [                 7:0] recv_pkt_drop_cnt_src;  // 125MHz
   wire [                 7:0] recv_pkt_drop_cnt;  // 50MHz, Gray synced
+  wire [                31:0] debug_wc_0;
+  wire                        debug_wc_0_ind;
+  wire [                31:0] debug_wc_1;
+  wire                        debug_wc_1_ind;
+  wire [                31:0] debug_rc_0;
+  wire                        debug_rc_0_ind;
+  wire [                31:0] debug_rc_1;
+  wire                        debug_rc_1_ind;
 
   // Local config (50MHz domain, from reg_webserver)
   wire [                31:0] local_mac_h;
@@ -275,6 +285,9 @@ module webserver_wrapper #(
   // ============================================================
   wire wl_lookup_req, wl_lookup_match, wl_lookup_done, wl_lookup_busy;
   wire [47:0] wl_lookup_mac;
+  wire wl_manual_lookup_pulse;  // from debug_wc_0_ind, CDC'd to 125MHz
+  wire wl_lookup_req_combined;
+  assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
   // Whitelist LCPU bus (50MHz) — RAMIF interface
   wire [31:0] wl_cfg_rdata;
@@ -369,6 +382,14 @@ module webserver_wrapper #(
       .debug_ro_1(debug_ro_1),
       .debug_ro_2(32'd0),
       .debug_ro_3(32'd0),
+      .debug_wc_0(debug_wc_0),
+      .debug_wc_0_ind(debug_wc_0_ind),
+      .debug_wc_1(debug_wc_1),
+      .debug_wc_1_ind(debug_wc_1_ind),
+      .debug_rc_0(32'd0),
+      .debug_rc_0_ind(debug_rc_0_ind),
+      .debug_rc_1(32'd0),
+      .debug_rc_1_ind(debug_rc_1_ind),
       // eth0 stats
       .eth_rx_correct_pkt_cnt(eth0_rx_correct_pkt_cnt),
       .eth_rx_crc_err_pkt_cnt(eth0_rx_crc_err_pkt_cnt),
@@ -896,6 +917,36 @@ module webserver_wrapper #(
   // ============================================================
   // MAC Whitelist Engine
   // ============================================================
+  // CDC: debug_wc_0_ind (50MHz pulse) → 125MHz manual lookup trigger
+  pulse_clock_region_pass u_wl_manual_trig (
+      .reset_l(reset_l),
+      .clk_a  (clk_50mhz),
+      .pulse_a(debug_wc_0_ind),
+      .clk_b  (clk_125mhz),
+      .pulse_b(wl_manual_lookup_pulse)
+  );
+
+  // ILA: Whitelist lookup monitor (depth=2048)
+`ifdef ILA_ENABLE
+  ila_wrapper #(
+      .DATA_DEPTH   (2048),
+      .NUM_WINDOWS  (1),
+      .NUM_PROBES   (5),
+      .PROBE0_WIDTH (1),
+      .PROBE1_WIDTH (48),
+      .PROBE2_WIDTH (1),
+      .PROBE3_WIDTH (1),
+      .PROBE4_WIDTH (1)
+  ) u_ila_wl_lookup (
+      .clk    (clk_125mhz),
+      .probe0 (wl_lookup_req_combined),
+      .probe1 (wl_lookup_mac),
+      .probe2 (wl_lookup_match),
+      .probe3 (wl_lookup_done),
+      .probe4 (wl_lookup_busy)
+  );
+`endif
+
   mac_whitelist_top #(
       .LOOKUP_MODE(0),
       .ENTRY_NUM  (16),
@@ -903,7 +954,7 @@ module webserver_wrapper #(
   ) u_mac_wl (
       .clk(clk_125mhz),
       .reset_l(reset_l),
-      .lookup_req(wl_lookup_req),
+      .lookup_req(wl_lookup_req_combined),
       .lookup_mac(wl_lookup_mac),
       .lookup_match(wl_lookup_match),
       .lookup_done(wl_lookup_done),

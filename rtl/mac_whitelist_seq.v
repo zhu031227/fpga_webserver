@@ -253,6 +253,33 @@ module mac_whitelist_seq #(
   assign sh_wr_addr   = (clear_active) ? clear_cnt : sh_wr_addr_r;
   assign sh_wr_data   = (clear_active) ? 49'b0 : sh_wr_data_r;
 
+  // ============================================================
+  // ILA: BRAM/shadow write port monitor (depth=1024)
+  // ============================================================
+`ifdef ILA_ENABLE
+  ila_wrapper #(
+      .DATA_DEPTH   (1024),
+      .NUM_WINDOWS  (2),
+      .NUM_PROBES   (7),
+      .PROBE0_WIDTH (1),
+      .PROBE1_WIDTH (1),
+      .PROBE2_WIDTH (ADDR_WIDTH),
+      .PROBE3_WIDTH (49),
+      .PROBE4_WIDTH (1),
+      .PROBE5_WIDTH (ADDR_WIDTH),
+      .PROBE6_WIDTH (49)
+  ) u_ila_wr (
+      .clk    (cfg_clk),
+      .probe0 (clear_active),
+      .probe1 (bram_wr_en),
+      .probe2 (bram_wr_addr),
+      .probe3 (bram_wr_data),
+      .probe4 (sh_wr_en),
+      .probe5 (sh_wr_addr),
+      .probe6 (sh_wr_data)
+  );
+`endif
+
   assign bram_rd_addr = (state == S_COMPARE) ? cmp_index : {ADDR_WIDTH{1'b0}};
 
   // ============================================================
@@ -274,6 +301,23 @@ module mac_whitelist_seq #(
       .address_b(bram_rd_addr),
       .q_b(bram_rd_data)
   );
+
+  // ============================================================
+  // ILA: BRAM read port monitor (depth=1024)
+  // ============================================================
+`ifdef ILA_ENABLE
+  ila_wrapper #(
+      .DATA_DEPTH   (1024),
+      .NUM_WINDOWS  (1),
+      .NUM_PROBES   (2),
+      .PROBE0_WIDTH (4),
+      .PROBE1_WIDTH (49)
+  ) u_ila_bram (
+      .clk    (clk),
+      .probe0 (bram_rd_addr),
+      .probe1 (bram_rd_data)
+  );
+`endif
 
   // ============================================================
   // Lookup FSM (clk domain, 125MHz) — unchanged

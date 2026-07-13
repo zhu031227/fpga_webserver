@@ -20,6 +20,7 @@
 `else
 `define DEVICE_VENDOR "xilinx"
 `define IS_XILINX
+`define ILA_ENABLE      // Xilinx: enable ILA debug cores (comment out to disable)
 `endif
 
 // ── RAM type (per platform) ───────────────────────────

@@ -1,4 +1,4 @@
-//Code Generate at: 2026-07-07 16:48:55
+//Code Generate at: 2026-07-13 10:43:52
 module reg_webserver(
   input [31:0] fpga_build_date,
   input [31:0] fpga_build_time,
@@ -15,10 +15,18 @@ module reg_webserver(
   output reg [31:0] debug_rw_1,
   output reg [31:0] debug_rw_2,
   output reg [31:0] debug_rw_3,
+  output reg [31:0] debug_wc_0,
+  output reg debug_wc_0_ind,
+  output reg [31:0] debug_wc_1,
+  output reg debug_wc_1_ind,
   input [31:0] debug_ro_0,
   input [31:0] debug_ro_1,
   input [31:0] debug_ro_2,
   input [31:0] debug_ro_3,
+  input [31:0] debug_rc_0,
+  output reg debug_rc_0_ind,
+  input [31:0] debug_rc_1,
+  output reg debug_rc_1_ind,
   input [31:0] eth_rx_correct_pkt_cnt,
   input [31:0] eth_rx_crc_err_pkt_cnt,
   input [31:0] eth_tx_correct_pkt_cnt,
@@ -128,7 +136,7 @@ module reg_webserver(
   output RAMIF_mac_whitelist_Ram_RlWh,
   output [11:0] RAMIF_mac_whitelist_Ram_Addr,
   output [31:0] RAMIF_mac_whitelist_Ram_WrData,
-  input  [31:0] RAMIF_mac_whitelist_Ram_RdData,
+  input [31:0] RAMIF_mac_whitelist_Ram_RdData,
   output reg [0:0] bootloader_trigger,
   output reg bootloader_trigger_ind,
   input [2:0] bootloader_status,
@@ -158,22 +166,20 @@ module reg_webserver(
   reg eth2_mdio_sb_ack;
   reg [31:0]sflash_sb_rdata;
   reg sflash_sb_ack;
-
+  
   reg SUBBUS_program_ram_Req;
   reg SUBBUS_program_ram_RhWl;
   reg [14:0] SUBBUS_program_ram_ReqAddr;
   reg [31:0] SUBBUS_program_ram_DataWr;
   wire [31:0]program_ram_sb_rdata;
   wire program_ram_sb_ack;
-
-  // mac_whitelist RamIF (same pattern as program_ram)
-  reg  SUBBUS_mac_whitelist_Req;
-  reg  SUBBUS_mac_whitelist_RhWl;
-  reg  [11:0] SUBBUS_mac_whitelist_ReqAddr;
-  reg  [31:0] SUBBUS_mac_whitelist_DataWr;
-  wire [31:0] mac_whitelist_sb_rdata;
+  reg SUBBUS_mac_whitelist_Req;
+  reg SUBBUS_mac_whitelist_RhWl;
+  reg [11:0] SUBBUS_mac_whitelist_ReqAddr;
+  reg [31:0] SUBBUS_mac_whitelist_DataWr;
+  wire [31:0]mac_whitelist_sb_rdata;
   wire mac_whitelist_sb_ack;
-
+  
   
   always @ (posedge clk or negedge rst_n) begin 
     if(!rst_n) begin 
@@ -304,6 +310,56 @@ module reg_webserver(
     end
   end
 
+  always @ (posedge clk or negedge rst_n) begin 
+    if(!rst_n) begin 
+      debug_wc_0 <= 32'h0;
+    debug_wc_0_ind <= 1'b0;
+    end
+    else begin 
+      debug_wc_0_ind <= 1'b0;
+      if(req == 1'b1 && rhwl == 1'b0 && address == 16'h14)begin
+        debug_wc_0_ind <= 1'b1;
+        debug_wc_0 <= wdata[31:0];
+      end
+    end
+  end
+
+  always @ (posedge clk or negedge rst_n) begin 
+    if(!rst_n) begin 
+      debug_wc_1 <= 32'h0;
+    debug_wc_1_ind <= 1'b0;
+    end
+    else begin 
+      debug_wc_1_ind <= 1'b0;
+      if(req == 1'b1 && rhwl == 1'b0 && address == 16'h15)begin
+        debug_wc_1_ind <= 1'b1;
+        debug_wc_1 <= wdata[31:0];
+      end
+    end
+  end
+
+  always @ (posedge clk or negedge rst_n) begin 
+    if(!rst_n) begin 
+      debug_rc_0_ind <= 1'b0;
+    end
+    else begin 
+      debug_rc_0_ind <= 1'b0;
+      if(req == 1'b1 && rhwl == 1'b0 && address == 16'h24)
+        debug_rc_0_ind <= 1'b1;
+      end
+    end
+  
+  always @ (posedge clk or negedge rst_n) begin 
+    if(!rst_n) begin 
+      debug_rc_1_ind <= 1'b0;
+    end
+    else begin 
+      debug_rc_1_ind <= 1'b0;
+      if(req == 1'b1 && rhwl == 1'b0 && address == 16'h25)
+        debug_rc_1_ind <= 1'b1;
+      end
+    end
+  
   always @ (posedge clk or negedge rst_n) begin 
     if(!rst_n) begin 
       filter_data <= 16'h0;
@@ -789,6 +845,14 @@ module reg_webserver(
         reg_rdata[31:0]<=debug_rw_3;
         reg_ack <= 1'b1;
       end
+      if(req == 1'b1 && address == 16'h14)begin 
+        reg_rdata[31:0]<=debug_wc_0;
+        reg_ack <= 1'b1;
+      end
+      if(req == 1'b1 && address == 16'h15)begin 
+        reg_rdata[31:0]<=debug_wc_1;
+        reg_ack <= 1'b1;
+      end
       if(req == 1'b1 && address == 16'h20)begin 
         reg_rdata[31:0]<=debug_ro_0;
         reg_ack <= 1'b1;
@@ -803,6 +867,14 @@ module reg_webserver(
       end
       if(req == 1'b1 && address == 16'h23)begin 
         reg_rdata[31:0]<=debug_ro_3;
+        reg_ack <= 1'b1;
+      end
+      if(req == 1'b1 && address == 16'h24)begin 
+        reg_rdata[31:0]<=debug_rc_0;
+        reg_ack <= 1'b1;
+      end
+      if(req == 1'b1 && address == 16'h25)begin 
+        reg_rdata[31:0]<=debug_rc_1;
         reg_ack <= 1'b1;
       end
       if(req == 1'b1 && address == 16'h100)begin 
@@ -1244,27 +1316,7 @@ module reg_webserver(
     end
   end
 
-  // mac_whitelist RamIF (replaces old SubBus ack block)
-  ramintf
-    #(
-    .DataBits(32),
-    .AddrBits(12)
-    ) RAMIF_mac_whitelist(
-    .Ram_RdData(RAMIF_mac_whitelist_Ram_RdData),
-    .Ram_RlWh(RAMIF_mac_whitelist_Ram_RlWh),
-    .Ram_Addr(RAMIF_mac_whitelist_Ram_Addr),
-    .Ram_WrData(RAMIF_mac_whitelist_Ram_WrData),
-    .clk(clk),
-    .rst_n(rst_n),
-    .req(SUBBUS_mac_whitelist_Req),
-    .rhwl(SUBBUS_mac_whitelist_RhWl),
-    .wdata(SUBBUS_mac_whitelist_DataWr),
-    .address(SUBBUS_mac_whitelist_ReqAddr),
-    .rdata(mac_whitelist_sb_rdata),
-    .ack(mac_whitelist_sb_ack)
-    );
-
-
+  
   always @ (posedge clk or negedge rst_n) begin 
     if(!rst_n) begin 
       ack <= 1'b0;
@@ -1301,6 +1353,25 @@ module reg_webserver(
     .address(SUBBUS_program_ram_ReqAddr), 
     .rdata(program_ram_sb_rdata), 
     .ack(program_ram_sb_ack) 
+    ); 
+      
+  ramintf 
+    #( 
+    .DataBits(32),
+    .AddrBits(12)
+    ) RAMIF_mac_whitelist(
+    .Ram_RdData(RAMIF_mac_whitelist_Ram_RdData), 
+    .Ram_RlWh(RAMIF_mac_whitelist_Ram_RlWh), 
+    .Ram_Addr(RAMIF_mac_whitelist_Ram_Addr), 
+    .Ram_WrData(RAMIF_mac_whitelist_Ram_WrData), 
+    .clk(clk), 
+    .rst_n(rst_n), 
+    .req(SUBBUS_mac_whitelist_Req), 
+    .rhwl(SUBBUS_mac_whitelist_RhWl), 
+    .wdata(SUBBUS_mac_whitelist_DataWr), 
+    .address(SUBBUS_mac_whitelist_ReqAddr), 
+    .rdata(mac_whitelist_sb_rdata), 
+    .ack(mac_whitelist_sb_ack) 
     ); 
       
   
