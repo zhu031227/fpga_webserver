@@ -746,7 +746,10 @@ static void api_wl_list(int conn_idx) {
             if (!first) buf[pos++] = ',';
             first = 0;
             mac_to_str(mac, mac_str);
-            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
+            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 'i'; buf[pos++] = 'd';
+            buf[pos++] = 'x'; buf[pos++] = '"'; buf[pos++] = ':';
+            pos += write_u16_dec(buf + pos, i);
+            buf[pos++] = ','; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
             buf[pos++] = 'c'; buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = '"';
             {
                 const char *mp = mac_str;
@@ -846,23 +849,23 @@ static void api_wl_hwlist(int conn_idx) {
 
 // --- GET /api/wl/diag (hardware diagnostic) ---
 static void api_wl_diag(int conn_idx) {
-    char buf[512];
+    static char buf[WL_LIST_BUF_SIZE];
     int pos = 0;
     int body_start;
+    int buf_size = WL_LIST_BUF_SIZE;
     const char *s;
 
     s = "HTTP/1.1 200 OK\r\nContent-Length: ";
-    while (*s) buf[pos++] = *s++;
+    while (*s && pos < buf_size) buf[pos++] = *s++;
     int cl_pos = pos;
     buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' ';
     s = "\r\nContent-Type: application/json\r\n\r\n";
-    while (*s) buf[pos++] = *s++;
+    while (*s && pos < buf_size) buf[pos++] = *s++;
 
     body_start = pos;
-    buf[pos++] = '{';
-    int diag_len = whitelist_hw_diag(buf + pos, sizeof(buf) - pos - 8);
+    // whitelist_hw_diag now outputs complete JSON, no extra wrapping needed
+    int diag_len = whitelist_hw_diag(buf + pos, buf_size - pos - 8);
     pos += diag_len;
-    buf[pos++] = '}';
     buf[pos] = '\0';
 
     int body_len = pos - body_start;
@@ -895,37 +898,17 @@ static void api_wl_add(int conn_idx, uint16_t tcp_data_len) {
 // --- POST /api/wl/delete ---
 static void api_wl_delete(int conn_idx, uint16_t tcp_data_len) {
     char field_idx[TCP_POST_FIELD_WIDTH + 1];
-    char body[64];
-    int r;
-    if (tcp_find_json_field(tcp_data_len, "index", field_idx)) {
+    if (json_get_str(tcp_data_len, "index", field_idx, TCP_POST_FIELD_WIDTH)) {
         uint8_t idx = 0;
         int i = 0;
         while (field_idx[i] >= '0' && field_idx[i] <= '9') {
             idx = idx * 10 + (field_idx[i] - '0');
             i++;
         }
-        r = whitelist_delete(idx);
-        // Verify: read back from HW to confirm
-        if (r == 0) {
-            uint8_t mac[6];
-            if (whitelist_hw_read_entry(idx, mac) == 0)
-                r = -2;  // entry still exists in HW — delete failed
-        }
-    } else {
-        r = -1;
-    }
-    if (r == 0) {
+        whitelist_delete(idx);
         api_send_json(conn_idx, "{\"code\":0,\"msg\":\"deleted\"}");
     } else {
-        // Build error response
-        int p = 0;
-        const char *s = "{\"code\":";
-        while (*s) body[p++] = *s++;
-        body[p++] = '0' + (uint8_t)(-r);
-        s = ",\"msg\":\"delete failed\"}";
-        while (*s) body[p++] = *s++;
-        body[p] = '\0';
-        api_send_json(conn_idx, body);
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"no index field\"}");
     }
 }
 

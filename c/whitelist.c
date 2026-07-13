@@ -119,9 +119,9 @@ int whitelist_delete(uint8_t index)
 {
     if (index >= 16) return -1;
 
-    // Delete: write INDEX with bit31=1 (delete flag)
-    // Single SubBus write to 0x5000, no additional addresses needed
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, ((uint32)index) | 0x80000000u);
+    // Two-step delete: (1) select entry, (2) trigger DEL
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32)index);
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_DEL, 1);
 
     // Update software cache
     sw_wl_valid[index] = 0;
@@ -166,85 +166,95 @@ uint8_t whitelist_get_free_index(void)
 }
 
 // ============================================================
-// Hardware diagnostic — step-by-step register readback test
+// Hardware diagnostic — delete-focused tests
 // ============================================================
 
-static int write_hex32(char *buf, uint32 v) {
+static int wh(char *buf, uint32 v) {
     int i, p = 0;
     buf[p++] = '0'; buf[p++] = 'x';
-    for (i = 28; i >= 0; i -= 4) {
-        uint8 nib = (v >> i) & 0xF;
-        buf[p++] = (nib < 10) ? ('0' + nib) : ('a' + nib - 10);
-    }
+    for (i = 28; i >= 0; i -= 4)
+        buf[p++] = "0123456789abcdef"[(v >> i) & 0xF];
     return p;
 }
+static int ws(char *buf, const char *s) { int p=0; while(*s)buf[p++]=*s++; return p; }
+static int wd(char *buf, int v) {
+    int p=0; if(v<0){buf[p++]='-';v=-v;}
+    if(v>=100){buf[p++]='0'+v/100;v%=100;}
+    if(v>=10||p>(buf[0]=='-'?1:0)){buf[p++]='0'+v/10;v%=10;}
+    buf[p++]='0'+v; return p;
+}
+static void wr(uint32 a, uint32 d) { LCPU_REG32_WRITE(a,d); volatile uint32 _=LCPU_REG32_READ(0x500A); (void)_; }
+static uint32 rr(uint32 a) { return LCPU_REG32_READ(a); }
 
 int whitelist_hw_diag(char *buf, int buf_size)
 {
-    int p = 0;
-    const char *s;
-    uint32 v;
+    int p=0, rem; uint32 v; uint32 S=WL_SUBBUS_ADDR;
+    p+=ws(buf+p,"{"); rem=buf_size-p-4;
 
-    // Test 1: read MAX_ENTRIES (constant, no BRAM needed)
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_MAX_ENTRIES);
-    s = "\"max_entries\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T1: Register snapshot (compact: reg name=hex)
+    if(rem>300){ const char *rn[]={"i","H","L","W","D","C","rh","rl","rv","fr","mx","us"};
+        p+=ws(buf+p,"\"r\":{");
+        for(int i=0;i<12;i++){ if(i)p+=ws(buf+p,","); p+=ws(buf+p,"\""); p+=ws(buf+p,rn[i]);
+            p+=ws(buf+p,"\":"); p+=wh(buf+p,rr(S+i)); }
+        p+=ws(buf+p,"}"); rem=buf_size-p-4; }
 
-    // Test 2: write INDEX=5, read back INDEX
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, 5);
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX);
-    s = "\"idx_wr5_rd\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T2: Test DEL at offset 4 (entry slot 2)
+    if(rem>250){
+        // Add entry 2
+        wr(S+0,2); wr(S+1,0xAABBCCDD); wr(S+2,0xEEFF); wr(S+3,1);
+        wr(S+0,2); uint32 v2=rr(S+8);
+        // Delete: INDEX=2, DEL=1
+        wr(S+0,2); wr(S+4,1);
+        wr(S+0,2); uint32 d2=rr(S+8);
+        p+=ws(buf+p,"\"t2\":{\"av\":"); p+=wh(buf+p,v2);
+        p+=ws(buf+p,",\"dv\":"); p+=wh(buf+p,d2);
+        p+=ws(buf+p,",\"uc\":"); p+=wh(buf+p,rr(S+0xB));
+        p+=ws(buf+p,"}"); rem=buf_size-p-4;
+    }
 
-    // Test 3: write MAC_H=0xAABBCCDD, read back
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_H, 0xAABBCCDDu);
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_H);
-    s = "\"mach_wr_rd\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T3: Test DEL with entry 5
+    if(rem>250){
+        wr(S+0,5); wr(S+1,0x11112222); wr(S+2,0x3333); wr(S+3,1);
+        wr(S+0,5); uint32 v5=rr(S+8);
+        wr(S+0,5); wr(S+4,1);
+        wr(S+0,5); uint32 d5=rr(S+8);
+        p+=ws(buf+p,"\"t5\":{\"av\":"); p+=wh(buf+p,v5);
+        p+=ws(buf+p,",\"dv\":"); p+=wh(buf+p,d5);
+        p+=ws(buf+p,"}"); rem=buf_size-p-4;
+    }
 
-    // Test 4: write MAC_L=0xEEFF, read back
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_L, 0x0000EEFFu);
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_L);
-    s = "\"macl_wr_rd\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T4: Test cfg_mac==0 delete via WR (entry 12)
+    if(rem>300){
+        // Add entry 12 with non-zero MAC
+        wr(S+0,12); wr(S+1,0xCAFE0000); wr(S+2,0xBABE); wr(S+3,1);
+        wr(S+0,12); uint32 v12=rr(S+8);
+        // Zero out MAC registers, then WR — cfg_mac==0 should trigger delete
+        wr(S+1,0); wr(S+2,0);
+        wr(S+0,12); wr(S+3,1);  // WR with cfg_mac==0
+        wr(S+0,12); uint32 d12=rr(S+8);
+        p+=ws(buf+p,"\"t12\":{\"av\":"); p+=wh(buf+p,v12);
+        p+=ws(buf+p,",\"dv\":"); p+=wh(buf+p,d12);
+        p+=ws(buf+p,"}"); rem=buf_size-p-4;
+    }
 
-    // Test 5: WR trigger (write to BRAM[5]), then read shadow BRAM
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_WR, 1);
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, 5);
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_VALID);
-    s = "\"bram5_valid\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T5: Test bit31 delete (entry 13) — for future RTL
+    if(rem>250){
+        wr(S+0,13); wr(S+1,0xDEAD0000); wr(S+2,0xBEEF); wr(S+3,1);
+        wr(S+0,13); uint32 v13=rr(S+8);
+        wr(S+0, 13u|0x80000000u);
+        wr(S+0,13); uint32 d13=rr(S+8);
+        p+=ws(buf+p,"\"t13\":{\"av\":"); p+=wh(buf+p,v13);
+        p+=ws(buf+p,",\"dv\":"); p+=wh(buf+p,d13);
+        p+=ws(buf+p,"}"); rem=buf_size-p-4;
+    }
 
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_MAC_H);
-    s = "\"bram5_mach\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
+    // T6: Final state
+    if(rem>80){
+        p+=ws(buf+p,"\"f\":{\"u\":"); p+=wh(buf+p,rr(S+0xB));
+        p+=ws(buf+p,",\"fr\":"); p+=wh(buf+p,rr(S+9));
+        p+=ws(buf+p,"}"); }
 
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_MAC_L);
-    s = "\"bram5_macl\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-    buf[p++] = ',';
-
-    // Test 6: read USED_CNT
-    v = subbus_read(WL_SUBBUS_ADDR, WL_REG_USED_CNT);
-    s = "\"used_cnt\":";
-    while (*s && p < buf_size) buf[p++] = *s++;
-    p += write_hex32(buf + p, v);
-
-    buf[p] = '\0';
-    return p;
+    buf[p++]= '}'; buf[p]=0; return p;
 }
 
 int whitelist_save_to_flash(void)
