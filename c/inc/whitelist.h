@@ -26,6 +26,8 @@ void whitelist_init(void);
 // Global control
 void whitelist_enable(uint8_t enable);
 uint8_t whitelist_is_enabled(void);
+void    whitelist_set_default_pass(uint8_t pass);  // wl_ctrl[1]: 白名单禁用时策略 0=全断,1=全放
+uint8_t whitelist_get_default_pass(void);
 
 // Entry operations (via SubBus 0x5000 → mac_whitelist BRAM)
 int  whitelist_add(uint8_t mac[6]);

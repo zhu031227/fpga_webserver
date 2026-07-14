@@ -689,10 +689,11 @@ static void api_send_json(int conn_idx, const char *json_body) {
 
 // --- GET /api/wl/status ---
 static void api_wl_status(int conn_idx) {
-    char body[64];
+    char body[96];
     int p = 0;
     const char *s;
     uint8_t en = whitelist_is_enabled();
+    uint8_t dp = whitelist_get_default_pass();
     uint16_t used = whitelist_hw_get_used_count();
     uint16_t max = whitelist_hw_get_max_entries();
 
@@ -703,6 +704,13 @@ static void api_wl_status(int conn_idx) {
     body[p++] = en ? 'u' : 'l';
     body[p++] = en ? 'e' : 's';
     if (!en) body[p++] = 'e';
+    s = ",\"defpass\":";
+    while (*s) body[p++] = *s++;
+    body[p++] = dp ? 't' : 'f';
+    body[p++] = dp ? 'r' : 'a';
+    body[p++] = dp ? 'u' : 'l';
+    body[p++] = dp ? 'e' : 's';
+    if (!dp) body[p++] = 'e';
     s = ",\"used\":";
     while (*s) body[p++] = *s++;
     p += write_u16_dec(body + p, used);
@@ -927,6 +935,15 @@ static void api_wl_toggle(int conn_idx) {
     api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
 }
 
+// --- POST /api/wl/defpass ---
+static void api_wl_defpass(int conn_idx) {
+    if (whitelist_get_default_pass())
+        whitelist_set_default_pass(0);
+    else
+        whitelist_set_default_pass(1);
+    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
+}
+
 // --- GET /api/local/status ---
 static void api_local_status(int conn_idx) {
     local_config_t cfg;
@@ -1136,6 +1153,13 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                                 lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
                                 if (match_path("pi/wl/toggle")) {
                                     api_wl_toggle(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/defpass")) {
+                                    api_wl_defpass(conn_idx);
                                     handled = 1;
                                 }
                             }

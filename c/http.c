@@ -13,6 +13,7 @@
  *   POST /api/wl/delete → delete entry
  *   POST /api/wl/clear  → clear all
  *   POST /api/wl/toggle → enable/disable
+ *   POST /api/wl/defpass → toggle default-pass policy (block-all / pass-all when disabled)
  *   GET  /api/wl/status → whitelist status
  *   GET  /api/wl/list   → list all entries
  *   GET  /api/local/status → local config
@@ -50,7 +51,7 @@ const char *main_page =
 
 const char *wlconfig_page =
     "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 2876\r\n"
+    "Content-Length: 3205\r\n"
     "Content-Type: text/html\r\n\r\n"
     "<meta charset='UTF-8'><html><head><title>MAC Whitelist</title>"
     "<style>"
@@ -70,10 +71,12 @@ const char *wlconfig_page =
     "<div class='bar'>"
     "白名单: <span id='wlState'>--</span> | "
     "条目: <span id='wlCount'>--</span> | "
+    "默认策略: <span id='dpState'>--</span> | "
     "查找模式: BRAM顺序"
     "</div>"
     "<div>"
     "<button onclick='toggleWL()' id='btnToggle'>启用/禁用</button>"
+    "<button onclick='toggleDefPass()' id='btnDefPass'>切换默认策略</button>"
     "</div>"
     "<div style='margin:10px 0;'>"
     "<input id='macInput' placeholder='XX:XX:XX:XX:XX:XX' style='width:200px;'>"
@@ -90,6 +93,7 @@ const char *wlconfig_page =
     "function loadStatus(){"
     "fetch('/api/wl/status').then(r=>r.json()).then(j=>{"
     "document.getElementById('wlState').innerText=j.enabled?'已启用':'已禁用';"
+    "document.getElementById('dpState').innerText=j.defpass?'全放':'全断';"
     "document.getElementById('wlCount').innerText=j.used+'/'+j.max;"
     "});}"
     "function loadList(){"
@@ -104,6 +108,7 @@ const char *wlconfig_page =
     "fetch('/api/wl/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:''+i})}).then(r=>r.json()).then(j=>{alert(j.msg);loadList();loadStatus();});}"
     "function clearAll(){if(confirm('清空全部白名单?')){fetch('/api/wl/clear',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadList();loadStatus();});}}"
     "function toggleWL(){fetch('/api/wl/toggle',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadStatus();});}"
+    "function toggleDefPass(){fetch('/api/wl/defpass',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadStatus();});}"
     "function saveWL(){fetch('/api/wl/save',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);});}"
     "loadStatus();loadList();"
     "</script></body></html>";

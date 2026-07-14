@@ -926,25 +926,28 @@ module webserver_wrapper #(
       .pulse_b(wl_manual_lookup_pulse)
   );
 
-  // ILA: Whitelist lookup monitor (depth=2048)
+  // ILA: Whitelist lookup monitor (depth=2048) — enabled by ILA_ENABLE bit[0]
 `ifdef ILA_ENABLE
+  generate if ((`ILA_ENABLE & 8'b0000_0001) != 0) begin : u_ila_wl_lookup_g
   ila_wrapper #(
       .DATA_DEPTH   (2048),
-      .NUM_WINDOWS  (1),
-      .NUM_PROBES   (5),
+      .NUM_PROBES   (6),
       .PROBE0_WIDTH (1),
       .PROBE1_WIDTH (48),
       .PROBE2_WIDTH (1),
       .PROBE3_WIDTH (1),
-      .PROBE4_WIDTH (1)
+      .PROBE4_WIDTH (1),
+      .PROBE5_WIDTH (2)
   ) u_ila_wl_lookup (
       .clk    (clk_125mhz),
       .probe0 (wl_lookup_req_combined),
       .probe1 (wl_lookup_mac),
       .probe2 (wl_lookup_match),
       .probe3 (wl_lookup_done),
-      .probe4 (wl_lookup_busy)
+      .probe4 (wl_lookup_busy),
+      .probe5 (wl_ctrl_125m)
   );
+  end endgenerate
 `endif
 
   mac_whitelist_top #(

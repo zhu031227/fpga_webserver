@@ -20,7 +20,10 @@
 `else
 `define DEVICE_VENDOR "xilinx"
 `define IS_XILINX
-`define ILA_ENABLE      // Xilinx: enable ILA debug cores (comment out to disable)
+`define ILA_ENABLE 8'b0000_0111  // Xilinx ILA 使能向量, 每 bit 控一个 ILA:
+                                 //   bit[0]=u_ila_wl_lookup(白名单查找)
+                                 //   bit[1]=u_ila_wr(BRAM写口), bit[2]=u_ila_bram(BRAM读口)
+                                 //   全 0 (或注释掉本行) = 关闭所有 ILA
 `endif
 
 // ── RAM type (per platform) ───────────────────────────

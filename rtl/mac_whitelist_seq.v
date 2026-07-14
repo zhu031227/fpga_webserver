@@ -254,12 +254,12 @@ module mac_whitelist_seq #(
   assign sh_wr_data   = (clear_active) ? 49'b0 : sh_wr_data_r;
 
   // ============================================================
-  // ILA: BRAM/shadow write port monitor (depth=1024)
+  // ILA: BRAM/shadow write port monitor (depth=1024) — enabled by ILA_ENABLE bit[1]
   // ============================================================
 `ifdef ILA_ENABLE
+  generate if ((`ILA_ENABLE & 8'b0000_0010) != 0) begin : u_ila_wr_g
   ila_wrapper #(
       .DATA_DEPTH   (1024),
-      .NUM_WINDOWS  (2),
       .NUM_PROBES   (7),
       .PROBE0_WIDTH (1),
       .PROBE1_WIDTH (1),
@@ -278,6 +278,7 @@ module mac_whitelist_seq #(
       .probe5 (sh_wr_addr),
       .probe6 (sh_wr_data)
   );
+  end endgenerate
 `endif
 
   assign bram_rd_addr = (state == S_COMPARE) ? cmp_index : {ADDR_WIDTH{1'b0}};
@@ -303,12 +304,12 @@ module mac_whitelist_seq #(
   );
 
   // ============================================================
-  // ILA: BRAM read port monitor (depth=1024)
+  // ILA: BRAM read port monitor (depth=1024) — enabled by ILA_ENABLE bit[2]
   // ============================================================
 `ifdef ILA_ENABLE
+  generate if ((`ILA_ENABLE & 8'b0000_0100) != 0) begin : u_ila_bram_g
   ila_wrapper #(
       .DATA_DEPTH   (1024),
-      .NUM_WINDOWS  (1),
       .NUM_PROBES   (2),
       .PROBE0_WIDTH (4),
       .PROBE1_WIDTH (49)
@@ -317,6 +318,7 @@ module mac_whitelist_seq #(
       .probe0 (bram_rd_addr),
       .probe1 (bram_rd_data)
   );
+  end endgenerate
 `endif
 
   // ============================================================

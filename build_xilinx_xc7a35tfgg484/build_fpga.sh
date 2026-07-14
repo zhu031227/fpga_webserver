@@ -375,7 +375,6 @@ array set groups      {} ;# group -> 1 (set of groups seen)
 array set probe_bits  {} ;# "group|probe" -> list of {bit netobj}
 array set group_clk   {} ;# group -> clock net object
 array set group_depth {} ;# group -> C_DATA_DEPTH
-array set group_win   {} ;# group -> C_NUM_OF_WINDOWS
 
 foreach net $all_nets {
     set name [get_property NAME $net]
@@ -392,11 +391,6 @@ foreach net $all_nets {
     catch { set is_clk [get_property ILA_IS_CLK $net] }
     if {$is_clk == 1} {
         set group_clk($grp) $net
-        # Window count travels on the clock net (ILA_WINDOWS attribute).
-        set nwin 1
-        catch { set nwin [get_property ILA_WINDOWS $net] }
-        if {$nwin eq "" || $nwin < 1} { set nwin 1 }
-        set group_win($grp) $nwin
         continue
     }
 
@@ -437,14 +431,10 @@ foreach grp [lsort [array names groups]] {
     set depth 1024
     if {[info exists group_depth($grp)]} { set depth $group_depth($grp) }
 
-    set nwin 1
-    if {[info exists group_win($grp)]} { set nwin $group_win($grp) }
-
     set core_name "ila_auto_${core_idx}"
-    puts "ILA: Creating core $core_name (group=$grp, depth=$depth, windows=$nwin, probes=[llength $pidxs])"
+    puts "ILA: Creating core $core_name (group=$grp, depth=$depth, probes=[llength $pidxs])"
     set core [create_debug_core $core_name ila]
     set_property C_DATA_DEPTH $depth [get_debug_cores $core_name]
-    set_property C_NUM_OF_WINDOWS $nwin [get_debug_cores $core_name]
 
     # Clock connection (create_debug_core auto-creates the clk port).
     if {[info exists group_clk($grp)]} {

@@ -17,13 +17,6 @@
 //   ila_wrapper #(.NUM_PROBES(1), .DATA_DEPTH(131072), .PROBE0_WIDTH(128)
 //   ) u_ila_deep (.clk(clk), .probe0({addr,data,ctrl}));
 //
-//   // 4 采样窗口 (每窗口 depth=1024, 总采样 4096), 2 probe
-//   ila_wrapper #(.NUM_PROBES(2), .DATA_DEPTH(1024), .NUM_WINDOWS(4),
-//       .PROBE0_WIDTH(8), .PROBE1_WIDTH(16)
-//   ) u_ila_win (.clk(clk), .probe0(a), .probe1(b));
-//   // 注意: NUM_WINDOWS 必须是 2 的幂; C_DATA_DEPTH 是"每窗口"深度,
-//   //       总采样量 = NUM_WINDOWS × DATA_DEPTH
-//
 // ====================================================================
 // 综合后自动设置各 ILA 深度（Vivado TCL 控制台执行一次）:
 //   foreach net [get_nets -hier -filter {NAME =~ */dbg* && MARK_DEBUG}] {
@@ -33,8 +26,7 @@
 // ====================================================================
 
 module ila_wrapper #(
-    parameter DATA_DEPTH   = 1024,    // 每窗口采样深度: 1024/2048/4096/.../131072
-    parameter NUM_WINDOWS  = 1,       // 采样窗口个数 (C_NUM_OF_WINDOWS), 必须是 2 的幂
+    parameter DATA_DEPTH   = 1024,    // 采样深度: 1024/2048/4096/8192/16384/32768/65536/131072
     parameter NUM_PROBES   = 1,
     parameter PROBE0_WIDTH = 1,
     parameter PROBE1_WIDTH = 1,
@@ -101,7 +93,7 @@ module ila_wrapper #(
   // ============================================================
   // ILA clock reference (each instance provides its clock to ILA)
   // ============================================================
-  (* mark_debug = "true" *) (* ILA_IS_CLK = 1 *) (* ILA_WINDOWS = NUM_WINDOWS *) wire ila_clk;
+  (* mark_debug = "true" *) (* ILA_IS_CLK = 1 *) wire ila_clk;
   assign ila_clk = clk;
 
   generate

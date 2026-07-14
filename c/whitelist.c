@@ -89,6 +89,21 @@ uint8_t whitelist_is_enabled(void)
     return (uint8_t)(lcpu_baseaddr->wl_ctrl & 0x1);
 }
 
+void whitelist_set_default_pass(uint8_t pass)
+{
+    uint32 ctrl = lcpu_baseaddr->wl_ctrl;
+    if (pass)
+        ctrl |= 0x2;
+    else
+        ctrl &= ~0x2u;
+    lcpu_baseaddr->wl_ctrl = ctrl;
+}
+
+uint8_t whitelist_get_default_pass(void)
+{
+    return (uint8_t)((lcpu_baseaddr->wl_ctrl >> 1) & 0x1);
+}
+
 int whitelist_add(uint8_t mac[6])
 {
     uint32 mac_h = ((uint32)mac[0] << 24) | ((uint32)mac[1] << 16) |
