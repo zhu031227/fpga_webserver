@@ -32,7 +32,17 @@ module mac_whitelist_top #(
 
     // Global control
     input whitelist_en,
-    input default_pass
+    input default_pass,
+
+    // fpga_ila 寄存器总线透传（→ mac_whitelist_seq，2核：写口+读口）
+    input  wire [1:0]  ila_reg_we,
+    input  wire [15:0] ila_reg_addr,
+    input  wire [31:0] ila_reg_wdata,
+    output wire [63:0] ila_reg_rdata,
+    input  wire        ila_cross_in,
+    output wire [1:0]  ila_cross_out,
+    input  wire        ila_ext_trig,
+    output wire [1:0]  ila_trig_out
 );
 
   generate
@@ -55,7 +65,15 @@ module mac_whitelist_top #(
           .cfg_wdata   (cfg_wdata),
           .cfg_rdata   (cfg_rdata),
           .whitelist_en(whitelist_en),
-          .default_pass(default_pass)
+          .default_pass(default_pass),
+          .ila_reg_we    (ila_reg_we),
+          .ila_reg_addr  (ila_reg_addr),
+          .ila_reg_wdata (ila_reg_wdata),
+          .ila_reg_rdata (ila_reg_rdata),
+          .ila_cross_in  (ila_cross_in),
+          .ila_cross_out (ila_cross_out),
+          .ila_ext_trig  (ila_ext_trig),
+          .ila_trig_out  (ila_trig_out)
       );
     end else begin : g_mode_placeholder
       // Placeholder: tie off lookup outputs

@@ -1,0 +1,107 @@
+{
+  "project": "webserver_whitelist",
+  "cores": [
+    {
+      "core_id": 0,
+      "name": "u_ila_wr",
+      "sample_clock_hz": 125000000,
+      "data_depth": 1024,
+      "max_windows": 4,
+      "probes": [
+        {
+          "name": "clear_active",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bram_wr_en",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bram_wr_addr",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bram_wr_data",
+          "width": 49,
+          "radix": "hex"
+        },
+        {
+          "name": "sh_wr_en",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "sh_wr_addr",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "sh_wr_data",
+          "width": 49,
+          "radix": "hex"
+        }
+      ]
+    },
+    {
+      "core_id": 1,
+      "name": "u_ila_bram",
+      "sample_clock_hz": 125000000,
+      "data_depth": 1024,
+      "max_windows": 4,
+      "probes": [
+        {
+          "name": "bram_rd_addr",
+          "width": 4,
+          "radix": "hex"
+        },
+        {
+          "name": "bram_rd_data",
+          "width": 49,
+          "radix": "hex"
+        }
+      ]
+    },
+    {
+      "core_id": 2,
+      "name": "u_ila_wl_lookup",
+      "sample_clock_hz": 125000000,
+      "data_depth": 2048,
+      "max_windows": 4,
+      "probes": [
+        {
+          "name": "wl_lookup_req_combined",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "wl_lookup_mac",
+          "width": 48,
+          "radix": "hex"
+        },
+        {
+          "name": "wl_lookup_match",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "wl_lookup_done",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "wl_lookup_busy",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "wl_ctrl_125m",
+          "width": 2,
+          "radix": "hex"
+        }
+      ]
+    }
+  ]
+}

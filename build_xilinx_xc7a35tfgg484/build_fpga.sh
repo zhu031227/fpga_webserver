@@ -84,6 +84,7 @@ declare -a FILES_FPGA_CPU=()
 declare -a FILES_IP_LCPU=()
 declare -a FILES_IP_RISCV=()
 declare -a FILES_IP_COMMON=()
+declare -a FILES_FPGA_ILA=()
 
 while IFS= read -r line; do
     line="${line%%#*}"
@@ -97,6 +98,7 @@ while IFS= read -r line; do
         ../../ip_lcpu/rtl/*)  FILES_IP_LCPU+=("${line#../../ip_lcpu/rtl/}") ;;
         ../../ip_riscv/rtl/*) FILES_IP_RISCV+=("${line#../../ip_riscv/rtl/}") ;;
         ../../ip_common/rtl/*)FILES_IP_COMMON+=("${line#../../ip_common/rtl/}") ;;
+        ../../fpga_ila/rtl/*)FILES_FPGA_ILA+=("${line#../../fpga_ila/rtl/}") ;;
         fpga_build_time.v)   ;;
         *) echo "  WARN: unrecognized: $line" ;;
     esac
@@ -108,6 +110,7 @@ echo "  fpga_cpu/rtl  : ${#FILES_FPGA_CPU[@]} files"
 echo "  ip_lcpu/rtl   : ${#FILES_IP_LCPU[@]} files"
 echo "  ip_riscv/rtl  : ${#FILES_IP_RISCV[@]} files"
 echo "  ip_common/rtl : ${#FILES_IP_COMMON[@]} files"
+echo "  fpga_ila/rtl  : ${#FILES_FPGA_ILA[@]} files"
 echo "[STEP 2/9] Done."
 
 #--------------------------------------------------------------------
@@ -147,10 +150,26 @@ clone_repo_rtl() {
     echo "done"
 }
 
+# Full clone for repos that also carry Python/tools (not just RTL)
+clone_repo_full() {
+    local repo_name="$1"; local dst="${PROJ_DIR}/${repo_name}"
+    local url="${GH_REMOTE}/${repo_name}.git"
+    echo -n "  Cloning ${repo_name} (full)... "
+    if ! git clone --depth 1 "${url}" "${dst}" 2>/tmp/gh_clone_err; then
+        echo "FAILED"
+        echo "  ERROR: Could not clone ${repo_name}."
+        rm -f /tmp/gh_clone_err
+        exit 1
+    fi
+    rm -f /tmp/gh_clone_err
+    echo "done"
+}
+
 clone_repo_rtl "fpga_cpu"  "${FILES_FPGA_CPU[@]}"
 clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
 clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
 clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
+clone_repo_full "fpga_ila"
 echo "[STEP 3/9] Done."
 
 #--------------------------------------------------------------------
@@ -206,6 +225,8 @@ echo "" >&3; echo "# -- IP: riscv --" >&3
 for f in "${FILES_IP_RISCV[@]}";     do echo "ip_riscv/rtl/${f}" >&3; done
 echo "" >&3; echo "# -- IP: common --" >&3
 for f in "${FILES_IP_COMMON[@]}";    do echo "ip_common/rtl/${f}" >&3; done
+echo "" >&3; echo "# -- fpga_ila: soft logic analyzer --" >&3
+for f in "${FILES_FPGA_ILA[@]}";     do echo "fpga_ila/rtl/${f}" >&3; done
 echo "" >&3; echo "fpga_build_time.v" >&3
 exec 3>&-
 echo "[STEP 5/9] Done  -> ${CFG}"
@@ -228,9 +249,49 @@ EOF
 echo "[STEP 6/9] Done."
 
 #--------------------------------------------------------------------
+# 7. Generate signals.json for fpga_ila (if wl_spec.json exists)
+#--------------------------------------------------------------------
+echo "[STEP 7/9] Checking fpga_ila waveform config..."
+SPEC_FILE="${REPO_ROOT}/wl_spec.json"
+SIGNALS_FILE="${PROJ_DIR}/wl_signals.json"
+GEN_SPEC_PY="${PROJ_DIR}/fpga_ila/tools/gen_spec_from_rtl.py"
+GEN_SIGNALS_PY="${PROJ_DIR}/fpga_ila/tools/gen_signals.py"
+export PYTHONPATH="${PROJ_DIR}/fpga_ila/host:${PYTHONPATH:-}"
+
+# Step 1: ensure wl_spec.json exists (generate skeleton from RTL if missing)
+if [ ! -f "${SPEC_FILE}" ]; then
+    echo "  No wl_spec.json found, generating from RTL..."
+    # Scan entire project directory for soft_ila_top instantiations
+    # (covers fpga_webserver rtl/ + all cloned repos, no matter what they're named)
+    RTL_FILES=$(find "${PROJ_DIR}" -name '*.v' -o -name '*.sv' 2>/dev/null)
+    python3 "${GEN_SPEC_PY}" ${RTL_FILES} \
+        -o "${SPEC_FILE}" -p webserver_whitelist 2>/dev/null
+    if [ -f "${SPEC_FILE}" ]; then
+        echo "  ✓ Auto-generated ${SPEC_FILE} (probe names from RTL)"
+    else
+        echo "  [WARN] Could not generate spec skeleton from RTL"
+    fi
+fi
+
+# Step 2: generate wl_signals.json from spec (always, so every build has it)
+if [ -f "${SPEC_FILE}" ]; then
+    echo "  Generating wl_signals.json..."
+    python3 "${GEN_SIGNALS_PY}" "${SPEC_FILE}" -o "${SIGNALS_FILE}" 2>/dev/null && \
+        echo "  ✓ ${SIGNALS_FILE}" || \
+        echo "  [WARN] gen_signals.py failed"
+fi
+
+# Step 3: copy into windows_portable so each build is a complete debug kit
+if [ -f "${SIGNALS_FILE}" ] && [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
+    cp "${SIGNALS_FILE}" "${PROJ_DIR}/fpga_ila/windows_portable/wl_signals.json"
+    echo "  ✓ wl_signals.json → windows_portable/"
+fi
+echo "[STEP 7/9] Done."
+
+#--------------------------------------------------------------------
 # 10. Generate Vivado TCL
 #--------------------------------------------------------------------
-echo "[STEP 7/9] Generating Vivado TCL script..."
+echo "[STEP 8/9] Generating Vivado TCL script..."
 TOP_MODULE="xilinx_xc7a35tfgg484_webserver_top"
 cat > "${PROJ_DIR}/build.tcl" << TCL_EOF
 set proj_name [lindex \$argv 0]
@@ -284,7 +345,13 @@ if {[llength \$sv_files] > 0} {
     set_property file_type SystemVerilog \$sv_files
     puts "Set [llength \$sv_files] .v file(s) to SystemVerilog"
 }
-set_property include_dirs [file normalize "\$proj_dir/rtl"] [current_fileset]
+set_property include_dirs [list \
+    [file normalize "\$proj_dir/rtl"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl/mem"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl/transport"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl/transport/uart"] \
+] [current_fileset]
 
 set_property top \$top_module [current_fileset]
 update_compile_order -fileset sources_1
@@ -295,16 +362,7 @@ puts "Running synthesis..."
 launch_runs synth_1 -jobs 8
 wait_on_run synth_1
 
-	# ILA setup: register debug-core insertion as an OPT_DESIGN pre-hook so
-	# the standard impl_1 run inserts the cores. This keeps impl_1 a real run
-	# (GUI "Open Implemented Design" works) instead of an inline flow.
-	set ila_tcl [file normalize "\$proj_dir/ila_setup.tcl"]
-	set ila_modified 0
-	if {[file exists \$ila_tcl]} {
-	    puts "ILA: registering debug-core setup as impl_1 OPT_DESIGN pre-hook..."
-	    set_property STEPS.OPT_DESIGN.TCL.PRE \$ila_tcl [get_runs impl_1]
-	    set ila_modified 1
-	}
+	# fpga_ila: no mark_debug hooks needed (soft_ila_top is pure RTL)
 
 	puts "Running implementation..."
 	# Suppress UCIO-1 for GT refclk pins (auto-placed by GTPE2_CHANNEL)
@@ -313,16 +371,6 @@ wait_on_run synth_1
 	puts \$fh {set_property SEVERITY {Warning} [get_drc_checks UCIO-1]}
 	close \$fh
 	set_property STEPS.WRITE_BITSTREAM.TCL.PRE \$drc_hook [get_runs impl_1]
-
-	# Emit the debug probes (.ltx) inside the run, right after bitstream.
-	# Runs after route_design so the ILA core UUIDs are available.
-	if {\$ila_modified} {
-	    set ltx_hook "\$proj_dir/ltx_hook.tcl"
-	    set fh [open \$ltx_hook w]
-	    puts \$fh "write_debug_probes -force \\"[file normalize \$proj_dir/\$proj_name.ltx]\\""
-	    close \$fh
-	    set_property STEPS.WRITE_BITSTREAM.TCL.POST \$ltx_hook [get_runs impl_1]
-	}
 
 	launch_runs impl_1 -to_step write_bitstream -jobs 8
 	wait_on_run impl_1
@@ -341,138 +389,16 @@ puts "============================================"
 puts " Build Complete!  Bitstream: \$bit_dst"
 puts "============================================"
 TCL_EOF
-echo "[STEP 7/9] Done."
+echo "[STEP 8/9] Done."
 
 #--------------------------------------------------------------------
-# 7b. Generate ILA setup TCL
-#--------------------------------------------------------------------
-echo "[STEP 7b/9] Generating ILA setup TCL..."
-ILA_SETUP="${PROJ_DIR}/ila_setup.tcl"
-cat > "${ILA_SETUP}" << 'ILA_EOF'
-# ila_setup.tcl -- auto-generated ILA debug core configuration
-# Runs after open_run synth_1. Groups mark_debug nets by ila_wrapper
-# instance, creates one ILA core per instance with per-instance DATA_DEPTH.
-#
-# Net hierarchy produced by rtl/ila_wrapper.v:
-#   top/.../u_ila_xxx/g_pN/dbgN         (1-bit probe)
-#   top/.../u_ila_xxx/g_pN/dbgN[b]      (multi-bit probe, one net per bit)
-#   top/.../u_ila_xxx/ila_clk           (clock, ILA_IS_CLK=1)
-
-set all_nets [get_nets -hier -filter {MARK_DEBUG}]
-if {[llength $all_nets] == 0} {
-    puts "ILA: No mark_debug nets found, skipping."
-    return
-}
-
-puts "ILA: Found [llength $all_nets] mark_debug nets"
-
-# ------------------------------------------------------------------
-# Parse every mark_debug net into (group, probe#, bit#) and separate
-# clock nets. Multi-bit buses arrive as individual bit nets and must
-# be re-assembled per probe, in bit order.
-# ------------------------------------------------------------------
-array set groups      {} ;# group -> 1 (set of groups seen)
-array set probe_bits  {} ;# "group|probe" -> list of {bit netobj}
-array set group_clk   {} ;# group -> clock net object
-array set group_depth {} ;# group -> C_DATA_DEPTH
-
-foreach net $all_nets {
-    set name [get_property NAME $net]
-
-    # Identify the ILA instance (grandparent) this net belongs to.
-    set grp ""
-    foreach part [split $name "/"] {
-        if {[string match "u_ila_*" $part]} { set grp $part; break }
-    }
-    if {$grp eq ""} { continue }
-
-    # Clock net?
-    set is_clk 0
-    catch { set is_clk [get_property ILA_IS_CLK $net] }
-    if {$is_clk == 1} {
-        set group_clk($grp) $net
-        continue
-    }
-
-    # Data net: leaf is dbgN or dbgN[bit]
-    set leaf [lindex [split $name "/"] end]
-    set bit 0
-    if {[regexp {^(.*)\[(\d+)\]$} $leaf -> base bit]} {
-        set leaf $base
-    }
-    if {![regexp {dbg(\d+)$} $leaf -> pidx]} { continue }
-
-    set key "$grp|$pidx"
-    lappend probe_bits($key) [list $bit $net]
-
-    # Track depth from any data net in the group.
-    if {![info exists group_depth($grp)]} {
-        set d 1024
-        catch { set d [get_property ILA_DEPTH $net] }
-        if {$d eq "" || $d == 0} { set d 1024 }
-        set group_depth($grp) $d
-    }
-    set groups($grp) 1
-}
-
-# ------------------------------------------------------------------
-# Create one ILA core per group and connect clk + every probe.
-# ------------------------------------------------------------------
-set core_idx 0
-foreach grp [lsort [array names groups]] {
-    # Collect this group's probe indices in numeric order.
-    set pidxs {}
-    foreach key [array names probe_bits "$grp|*"] {
-        lappend pidxs [lindex [split $key "|"] 1]
-    }
-    set pidxs [lsort -integer -unique $pidxs]
-    if {[llength $pidxs] == 0} { continue }
-
-    set depth 1024
-    if {[info exists group_depth($grp)]} { set depth $group_depth($grp) }
-
-    set core_name "ila_auto_${core_idx}"
-    puts "ILA: Creating core $core_name (group=$grp, depth=$depth, probes=[llength $pidxs])"
-    set core [create_debug_core $core_name ila]
-    set_property C_DATA_DEPTH $depth [get_debug_cores $core_name]
-
-    # Clock connection (create_debug_core auto-creates the clk port).
-    if {[info exists group_clk($grp)]} {
-        set_property port_width 1 [get_debug_ports $core_name/clk]
-        connect_debug_port $core_name/clk $group_clk($grp)
-        puts "ILA:   clk = [get_property NAME $group_clk($grp)]"
-    }
-
-    # Probe connections. create_debug_core auto-creates probe0; any
-    # further probe port must be added with create_debug_port.
-    set port_num 0
-    foreach pidx $pidxs {
-        set key "$grp|$pidx"
-        # Sort bit nets by bit index, then extract the net objects.
-        set sorted [lsort -integer -index 0 $probe_bits($key)]
-        set nets {}
-        foreach pair $sorted { lappend nets [lindex $pair 1] }
-        set width [llength $nets]
-
-        if {$port_num > 0} { create_debug_port $core_name probe }
-        set_property port_width $width [get_debug_ports $core_name/probe$port_num]
-        set_property PROBE_TYPE DATA_AND_TRIGGER [get_debug_ports $core_name/probe$port_num]
-        connect_debug_port $core_name/probe$port_num $nets
-        puts "ILA:   probe$port_num <= dbg$pidx (width=$width)"
-        incr port_num
-    }
-    incr core_idx
-}
-
-puts "ILA: Setup complete -- $core_idx ILA core(s) created"
-ILA_EOF
-echo "[STEP 7b/9] Done  -> ${ILA_SETUP}"
+# (Step 7b removed — soft_ila_top replaces mark_debug, no ila_setup.tcl needed)
 
 
 #--------------------------------------------------------------------
 # 11. Run Vivado
 #--------------------------------------------------------------------
-echo "[STEP 8/9] Launching Vivado..."
+echo "[STEP 9/9] Launching Vivado..."
 mkdir -p "${PROJ_DIR}/log"
 cd "${PROJ_DIR}"
 vivado -mode batch \

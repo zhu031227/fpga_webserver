@@ -344,8 +344,8 @@ module webserver_wrapper #(
   ) u_cpu_subsystem (
       .clk(clk_50mhz),
       .reset_l(reset_l),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx),
+      .uart_rx(1'b0),
+      .uart_tx(),
       .riscv_reset_l(riscv_reset_l),
       .pram_wr(pram_wr),
       .pram_addr(pram_addr),
@@ -908,6 +908,69 @@ module webserver_wrapper #(
   assign debug_ro_1           = eth1_rx_drop_cnt;
 
   // ============================================================
+  // fpga_ila：软逻辑分析仪（Hub + UART 后端 + 3 核）
+  //   Core 0, 1 → mac_whitelist_seq (写口/读口监控)
+  //   Core 2    → wl_lookup 监控（本文件下方）
+  //   ILA_ENABLE=0 时整块不编译，UART 引脚恢复空闲
+  // ============================================================
+`ifdef ILA_ENABLE
+  localparam ILA_NUM_CORES = 3;
+
+  wire                  ila_m_valid, ila_m_last, ila_m_ready;
+  wire                  ila_s_valid, ila_s_last, ila_s_ready;
+  wire           [7:0]  ila_m_data,  ila_s_data;
+
+  wire [ILA_NUM_CORES-1:0]    ila_core_we;
+  wire                 [15:0] ila_core_addr;
+  wire                 [31:0] ila_core_wdata;
+  wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
+  wire [ILA_NUM_CORES-1:0]    ila_core_cross, ila_core_trig;
+  wire                        ila_cross_in;
+  wire                        ila_ext_trig;
+
+  // UART 后端（共用顶层 uart_rx/uart_tx 引脚）
+  uart_backend #(
+      .CLK_HZ(125_000_000),
+      .BAUD(115200)
+  ) u_ila_be (
+      .clk    (clk_125mhz),
+      .rst    (~reset_l),
+      .rxd    (uart_rx),
+      .txd    (uart_tx),
+      .m_valid(ila_m_valid),  .m_data(ila_m_data),  .m_last(ila_m_last),
+      .m_ready(ila_m_ready),
+      .s_valid(ila_s_valid),  .s_data(ila_s_data),  .s_last(ila_s_last),
+      .s_ready(ila_s_ready)
+  );
+
+  // Hub（管理 3 个核）
+  ila_hub #(
+      .NUM_CORES(ILA_NUM_CORES)
+  ) u_ila_hub (
+      .clk    (clk_125mhz),
+      .rst    (~reset_l),
+      .m_valid (ila_m_valid),  .m_data (ila_m_data),  .m_last (ila_m_last),
+      .m_ready (ila_m_ready),
+      .s_valid (ila_s_valid),  .s_data (ila_s_data),  .s_last (ila_s_last),
+      .s_ready (ila_s_ready),
+      .core_reg_we    (ila_core_we),
+      .core_reg_addr  (ila_core_addr),
+      .core_reg_wdata (ila_core_wdata),
+      .reg_re         (),
+      .core_reg_rdata (ila_core_rdata),
+      .core_cross_out (ila_core_cross),
+      .core_cross_in  (ila_cross_in),
+      .core_trig_out  (ila_core_trig),
+      .ext_trig_in    (1'b0),
+      .trig_out       ()
+  );
+
+  // 跨核触发由 Hub 内部计算广播（core_cross_in = |core_cross_out），外面只接线
+  assign ila_ext_trig = 1'b0;
+
+`endif // ILA_ENABLE
+
+  // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
   // ============================================================
   // Whitelist config: RAMIF passthrough
@@ -926,26 +989,31 @@ module webserver_wrapper #(
       .pulse_b(wl_manual_lookup_pulse)
   );
 
-  // ILA: Whitelist lookup monitor (depth=2048) — enabled by ILA_ENABLE bit[0]
+  // ILA Core 2: Whitelist lookup monitor (depth=2048, clk=125MHz)
 `ifdef ILA_ENABLE
   generate if ((`ILA_ENABLE & 8'b0000_0001) != 0) begin : u_ila_wl_lookup_g
-  ila_wrapper #(
-      .DATA_DEPTH   (2048),
-      .NUM_PROBES   (6),
-      .PROBE0_WIDTH (1),
-      .PROBE1_WIDTH (48),
-      .PROBE2_WIDTH (1),
-      .PROBE3_WIDTH (1),
-      .PROBE4_WIDTH (1),
-      .PROBE5_WIDTH (2)
+  soft_ila_top #(
+      .CORE_ID(2), .DATA_DEPTH(2048), .MAX_WINDOWS(4), .SAMPLE_HZ(125_000_000),
+      .RST_ACTIVE_LOW(1), .NUM_PROBES(6),
+      .PROBE0_WIDTH(1), .PROBE1_WIDTH(48), .PROBE2_WIDTH(1),
+      .PROBE3_WIDTH(1), .PROBE4_WIDTH(1), .PROBE5_WIDTH(2)
   ) u_ila_wl_lookup (
-      .clk    (clk_125mhz),
-      .probe0 (wl_lookup_req_combined),
-      .probe1 (wl_lookup_mac),
-      .probe2 (wl_lookup_match),
-      .probe3 (wl_lookup_done),
-      .probe4 (wl_lookup_busy),
-      .probe5 (wl_ctrl_125m)
+      .sample_clk(clk_125mhz), .rst_in(reset_l),
+      .probe0(wl_lookup_req_combined), .probe1(wl_lookup_mac),
+      .probe2(wl_lookup_match), .probe3(wl_lookup_done),
+      .probe4(wl_lookup_busy),  .probe5(wl_ctrl_125m),
+      .probe6(1'b0),.probe7(1'b0),.probe8(1'b0),.probe9(1'b0),
+      .probe10(1'b0),.probe11(1'b0),.probe12(1'b0),.probe13(1'b0),
+      .probe14(1'b0),.probe15(1'b0),.probe16(1'b0),.probe17(1'b0),
+      .probe18(1'b0),.probe19(1'b0),.probe20(1'b0),.probe21(1'b0),
+      .probe22(1'b0),.probe23(1'b0),.probe24(1'b0),.probe25(1'b0),
+      .probe26(1'b0),.probe27(1'b0),.probe28(1'b0),.probe29(1'b0),
+      .probe30(1'b0),.probe31(1'b0),
+      .ext_trig_in(ila_ext_trig),    .trig_out(ila_core_trig[2]),
+      .cross_trig_in(ila_cross_in),  .cross_trig_out(ila_core_cross[2]),
+      .reg_we(ila_core_we[2]),        .reg_re(1'b1),
+      .reg_addr(ila_core_addr),       .reg_wdata(ila_core_wdata),
+      .reg_rdata(ila_core_rdata[2*32 +: 32])
   );
   end endgenerate
 `endif
@@ -969,7 +1037,16 @@ module webserver_wrapper #(
       .cfg_wdata(wl_ram_wrdata),
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
-      .default_pass(wl_ctrl_125m[1])
+      .default_pass(wl_ctrl_125m[1]),
+      // fpga_ila 总线 → Cores 0,1（写口/读口监控）
+      .ila_reg_we    (ila_core_we[1:0]),
+      .ila_reg_addr  (ila_core_addr),
+      .ila_reg_wdata (ila_core_wdata),
+      .ila_reg_rdata (ila_core_rdata[63:0]),
+      .ila_cross_in  (ila_cross_in),
+      .ila_cross_out (ila_core_cross[1:0]),
+      .ila_ext_trig  (ila_ext_trig),
+      .ila_trig_out  (ila_core_trig[1:0])
   );
 
   // ============================================================

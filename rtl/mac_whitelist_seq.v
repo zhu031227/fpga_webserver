@@ -31,7 +31,18 @@ module mac_whitelist_seq #(
     output     [31:0] cfg_rdata,        // combinational mux
 
     input whitelist_en,
-    input default_pass
+    input default_pass,
+
+    // fpga_ila 寄存器总线（接 ila_hub，clk 域 = 125MHz）
+    input  wire [1:0]  ila_reg_we,       // bit0=写口核  bit1=读口核
+    input  wire [15:0] ila_reg_addr,
+    input  wire [31:0] ila_reg_wdata,
+    output wire [63:0] ila_reg_rdata,    // {读口核rdata, 写口核rdata}
+    // 跨核/外部触发（暂不用）
+    input  wire        ila_cross_in,
+    output wire [1:0]  ila_cross_out,
+    input  wire        ila_ext_trig,
+    output wire [1:0]  ila_trig_out
 );
 
   // ============================================================
@@ -254,29 +265,34 @@ module mac_whitelist_seq #(
   assign sh_wr_data   = (clear_active) ? 49'b0 : sh_wr_data_r;
 
   // ============================================================
-  // ILA: BRAM/shadow write port monitor (depth=1024) — enabled by ILA_ENABLE bit[1]
+  // ILA Core 0: BRAM/shadow write port monitor (depth=1024)
+  //   采样时钟统一用 clk(125MHz)，cfg_clk 域信号被过采样(波形中见连续重复值)
   // ============================================================
 `ifdef ILA_ENABLE
   generate if ((`ILA_ENABLE & 8'b0000_0010) != 0) begin : u_ila_wr_g
-  ila_wrapper #(
-      .DATA_DEPTH   (1024),
-      .NUM_PROBES   (7),
-      .PROBE0_WIDTH (1),
-      .PROBE1_WIDTH (1),
-      .PROBE2_WIDTH (ADDR_WIDTH),
-      .PROBE3_WIDTH (49),
-      .PROBE4_WIDTH (1),
-      .PROBE5_WIDTH (ADDR_WIDTH),
-      .PROBE6_WIDTH (49)
+  soft_ila_top #(
+      .CORE_ID(0), .DATA_DEPTH(1024), .MAX_WINDOWS(4), .SAMPLE_HZ(125_000_000),
+      .RST_ACTIVE_LOW(1), .NUM_PROBES(7),
+      .PROBE0_WIDTH(1), .PROBE1_WIDTH(1),
+      .PROBE2_WIDTH(ADDR_WIDTH), .PROBE3_WIDTH(49),
+      .PROBE4_WIDTH(1), .PROBE5_WIDTH(ADDR_WIDTH), .PROBE6_WIDTH(49)
   ) u_ila_wr (
-      .clk    (cfg_clk),
-      .probe0 (clear_active),
-      .probe1 (bram_wr_en),
-      .probe2 (bram_wr_addr),
-      .probe3 (bram_wr_data),
-      .probe4 (sh_wr_en),
-      .probe5 (sh_wr_addr),
-      .probe6 (sh_wr_data)
+      .sample_clk(clk), .rst_in(reset_l),
+      .probe0(clear_active), .probe1(bram_wr_en),
+      .probe2(bram_wr_addr), .probe3(bram_wr_data),
+      .probe4(sh_wr_en),     .probe5(sh_wr_addr), .probe6(sh_wr_data),
+      .probe7(1'b0),.probe8(1'b0),.probe9(1'b0),.probe10(1'b0),
+      .probe11(1'b0),.probe12(1'b0),.probe13(1'b0),.probe14(1'b0),
+      .probe15(1'b0),.probe16(1'b0),.probe17(1'b0),.probe18(1'b0),
+      .probe19(1'b0),.probe20(1'b0),.probe21(1'b0),.probe22(1'b0),
+      .probe23(1'b0),.probe24(1'b0),.probe25(1'b0),.probe26(1'b0),
+      .probe27(1'b0),.probe28(1'b0),.probe29(1'b0),.probe30(1'b0),
+      .probe31(1'b0),
+      .ext_trig_in(ila_ext_trig),    .trig_out(ila_trig_out[0]),
+      .cross_trig_in(ila_cross_in),  .cross_trig_out(ila_cross_out[0]),
+      .reg_we(ila_reg_we[0]),        .reg_re(1'b1),
+      .reg_addr(ila_reg_addr),       .reg_wdata(ila_reg_wdata),
+      .reg_rdata(ila_reg_rdata[0*32 +: 32])
   );
   end endgenerate
 `endif
@@ -304,19 +320,30 @@ module mac_whitelist_seq #(
   );
 
   // ============================================================
-  // ILA: BRAM read port monitor (depth=1024) — enabled by ILA_ENABLE bit[2]
+  // ILA Core 1: BRAM read port monitor (depth=1024, clk=125MHz)
   // ============================================================
 `ifdef ILA_ENABLE
   generate if ((`ILA_ENABLE & 8'b0000_0100) != 0) begin : u_ila_bram_g
-  ila_wrapper #(
-      .DATA_DEPTH   (1024),
-      .NUM_PROBES   (2),
-      .PROBE0_WIDTH (4),
-      .PROBE1_WIDTH (49)
+  soft_ila_top #(
+      .CORE_ID(1), .DATA_DEPTH(1024), .MAX_WINDOWS(4), .SAMPLE_HZ(125_000_000),
+      .RST_ACTIVE_LOW(1), .NUM_PROBES(2),
+      .PROBE0_WIDTH(4), .PROBE1_WIDTH(49)
   ) u_ila_bram (
-      .clk    (clk),
-      .probe0 (bram_rd_addr),
-      .probe1 (bram_rd_data)
+      .sample_clk(clk), .rst_in(reset_l),
+      .probe0(bram_rd_addr), .probe1(bram_rd_data),
+      .probe2(1'b0),.probe3(1'b0),.probe4(1'b0),.probe5(1'b0),
+      .probe6(1'b0),.probe7(1'b0),.probe8(1'b0),.probe9(1'b0),
+      .probe10(1'b0),.probe11(1'b0),.probe12(1'b0),.probe13(1'b0),
+      .probe14(1'b0),.probe15(1'b0),.probe16(1'b0),.probe17(1'b0),
+      .probe18(1'b0),.probe19(1'b0),.probe20(1'b0),.probe21(1'b0),
+      .probe22(1'b0),.probe23(1'b0),.probe24(1'b0),.probe25(1'b0),
+      .probe26(1'b0),.probe27(1'b0),.probe28(1'b0),.probe29(1'b0),
+      .probe30(1'b0),.probe31(1'b0),
+      .ext_trig_in(ila_ext_trig),    .trig_out(ila_trig_out[1]),
+      .cross_trig_in(ila_cross_in),  .cross_trig_out(ila_cross_out[1]),
+      .reg_we(ila_reg_we[1]),        .reg_re(1'b1),
+      .reg_addr(ila_reg_addr),       .reg_wdata(ila_reg_wdata),
+      .reg_rdata(ila_reg_rdata[1*32 +: 32])
   );
   end endgenerate
 `endif
