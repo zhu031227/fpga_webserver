@@ -965,7 +965,7 @@ module webserver_wrapper #(
 
   // ILA Core 2: Whitelist lookup monitor (depth=2048, clk=125MHz)
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (125_000_000),
