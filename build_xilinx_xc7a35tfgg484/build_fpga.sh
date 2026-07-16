@@ -69,12 +69,12 @@ echo "============================================"
 # 4. Create project directory
 #--------------------------------------------------------------------
 mkdir -p "${PROJ_DIR}"
-echo "[STEP 1/9] Project directory created."
+echo "[STEP 1/8] Project directory created."
 
 #--------------------------------------------------------------------
 # 5. Parse filelist.cfg
 #--------------------------------------------------------------------
-echo "[STEP 2/9] Analyzing filelist.cfg..."
+echo "[STEP 2/8] Analyzing filelist.cfg..."
 
 FILELIST_SRC="${SCRIPT_DIR}/filelist.cfg"
 
@@ -111,12 +111,12 @@ echo "  ip_lcpu/rtl   : ${#FILES_IP_LCPU[@]} files"
 echo "  ip_riscv/rtl  : ${#FILES_IP_RISCV[@]} files"
 echo "  ip_common/rtl : ${#FILES_IP_COMMON[@]} files"
 echo "  fpga_ila/rtl  : ${#FILES_FPGA_ILA[@]} files"
-echo "[STEP 2/9] Done."
+echo "[STEP 2/8] Done."
 
 #--------------------------------------------------------------------
 # 6. Clone external IP repos into project directory
 #--------------------------------------------------------------------
-echo "[STEP 3/9] Cloning external IP from GitHub..."
+echo "[STEP 3/8] Cloning external IP from GitHub..."
 
 clone_repo_rtl() {
     local repo_name="$1"; local dst="${PROJ_DIR}/${repo_name}"
@@ -170,12 +170,12 @@ clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
 clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
 clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
 clone_repo_full "fpga_ila"
-echo "[STEP 3/9] Done."
+echo "[STEP 3/8] Done."
 
 #--------------------------------------------------------------------
 # 7. Copy project files
 #--------------------------------------------------------------------
-echo "[STEP 4/9] Copying project source files..."
+echo "[STEP 4/8] Copying project source files..."
 
 if [ ${#FILES_OWN_RTL[@]} -gt 0 ]; then
     mkdir -p "${PROJ_DIR}/rtl"
@@ -197,12 +197,12 @@ fi
 
 cp "${SCRIPT_DIR}/pins.xdc"   "${PROJ_DIR}/pins.xdc"
 cp "${SCRIPT_DIR}/timing.xdc" "${PROJ_DIR}/timing.xdc"
-echo "[STEP 4/9] Done."
+echo "[STEP 4/8] Done."
 
 #--------------------------------------------------------------------
 # 8. Generate project filelist.cfg
 #--------------------------------------------------------------------
-echo "[STEP 5/9] Generating project filelist.cfg..."
+echo "[STEP 5/8] Generating project filelist.cfg..."
 
 CFG="${PROJ_DIR}/filelist.cfg"
 exec 3>"${CFG}"
@@ -229,12 +229,12 @@ echo "" >&3; echo "# -- fpga_ila: soft logic analyzer --" >&3
 for f in "${FILES_FPGA_ILA[@]}";     do echo "fpga_ila/rtl/${f}" >&3; done
 echo "" >&3; echo "fpga_build_time.v" >&3
 exec 3>&-
-echo "[STEP 5/9] Done  -> ${CFG}"
+echo "[STEP 5/8] Done  -> ${CFG}"
 
 #--------------------------------------------------------------------
 # 9. Generate fpga_build_time.v
 #--------------------------------------------------------------------
-echo "[STEP 6/9] Generating fpga_build_time.v..."
+echo "[STEP 6/8] Generating fpga_build_time.v..."
 BUILD_DATE=$(printf "32'h%04d%02d%02d" "$((10#$(date +%Y)))" "$((10#$(date +%m)))" "$((10#$(date +%d)))")
 BUILD_TIME=$(printf "32'h%02d%02d%04s" "$((10#$(date +%H)))" "$((10#$(date +%M)))" "${VERSION}" | tr ' ' '0')
 cat > "${PROJ_DIR}/fpga_build_time.v" << EOF
@@ -246,52 +246,12 @@ module fpga_build_time (
     assign build_time = ${BUILD_TIME};
 endmodule
 EOF
-echo "[STEP 6/9] Done."
+echo "[STEP 6/8] Done."
 
 #--------------------------------------------------------------------
-# 7. Generate signals.json for fpga_ila (if wl_spec.json exists)
+# 7. Generate Vivado TCL
 #--------------------------------------------------------------------
-echo "[STEP 7/9] Checking fpga_ila waveform config..."
-SPEC_FILE="${REPO_ROOT}/wl_spec.json"
-SIGNALS_FILE="${PROJ_DIR}/wl_signals.json"
-GEN_SPEC_PY="${PROJ_DIR}/fpga_ila/tools/gen_spec_from_rtl.py"
-GEN_SIGNALS_PY="${PROJ_DIR}/fpga_ila/tools/gen_signals.py"
-export PYTHONPATH="${PROJ_DIR}/fpga_ila/host:${PYTHONPATH:-}"
-
-# Step 1: ensure wl_spec.json exists (generate skeleton from RTL if missing)
-if [ ! -f "${SPEC_FILE}" ]; then
-    echo "  No wl_spec.json found, generating from RTL..."
-    # Scan entire project directory for soft_ila_top instantiations
-    # (covers fpga_webserver rtl/ + all cloned repos, no matter what they're named)
-    RTL_FILES=$(find "${PROJ_DIR}" -name '*.v' -o -name '*.sv' 2>/dev/null)
-    python3 "${GEN_SPEC_PY}" ${RTL_FILES} \
-        -o "${SPEC_FILE}" -p webserver_whitelist 2>/dev/null
-    if [ -f "${SPEC_FILE}" ]; then
-        echo "  ✓ Auto-generated ${SPEC_FILE} (probe names from RTL)"
-    else
-        echo "  [WARN] Could not generate spec skeleton from RTL"
-    fi
-fi
-
-# Step 2: generate wl_signals.json from spec (always, so every build has it)
-if [ -f "${SPEC_FILE}" ]; then
-    echo "  Generating wl_signals.json..."
-    python3 "${GEN_SIGNALS_PY}" "${SPEC_FILE}" -o "${SIGNALS_FILE}" 2>/dev/null && \
-        echo "  ✓ ${SIGNALS_FILE}" || \
-        echo "  [WARN] gen_signals.py failed"
-fi
-
-# Step 3: copy into windows_portable so each build is a complete debug kit
-if [ -f "${SIGNALS_FILE}" ] && [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
-    cp "${SIGNALS_FILE}" "${PROJ_DIR}/fpga_ila/windows_portable/wl_signals.json"
-    echo "  ✓ wl_signals.json → windows_portable/"
-fi
-echo "[STEP 7/9] Done."
-
-#--------------------------------------------------------------------
-# 10. Generate Vivado TCL
-#--------------------------------------------------------------------
-echo "[STEP 8/9] Generating Vivado TCL script..."
+echo "[STEP 7/8] Generating Vivado TCL script..."
 TOP_MODULE="xilinx_xc7a35tfgg484_webserver_top"
 cat > "${PROJ_DIR}/build.tcl" << TCL_EOF
 set proj_name [lindex \$argv 0]
@@ -389,16 +349,12 @@ puts "============================================"
 puts " Build Complete!  Bitstream: \$bit_dst"
 puts "============================================"
 TCL_EOF
-echo "[STEP 8/9] Done."
+echo "[STEP 7/8] Done."
 
 #--------------------------------------------------------------------
-# (Step 7b removed — soft_ila_top replaces mark_debug, no ila_setup.tcl needed)
-
-
+# 9. Run Vivado
 #--------------------------------------------------------------------
-# 11. Run Vivado
-#--------------------------------------------------------------------
-echo "[STEP 9/9] Launching Vivado..."
+echo "[STEP 8/8] Launching Vivado..."
 mkdir -p "${PROJ_DIR}/log"
 cd "${PROJ_DIR}"
 vivado -mode batch \
@@ -407,10 +363,42 @@ vivado -mode batch \
     -journal "${PROJ_DIR}/log/vivado.jou" \
     -tclargs "${PROJ_NAME}" "${PROJ_DIR}"
 
+#--------------------------------------------------------------------
+# Post-Build: generate webserver_signals.json from RTL
+#--------------------------------------------------------------------
+echo ""
+echo "============================================"
+echo " Post-Build: Generating ILA signal config..."
+echo "============================================"
+
+GEN_SIGNALS_PY="${PROJ_DIR}/fpga_ila/tools/gen_signals.py"
+SIGNALS_JSON="${PROJ_DIR}/webserver_signals.json"
+export PYTHONPATH="${PROJ_DIR}/fpga_ila/host:${PYTHONPATH:-}"
+
+if [ -f "${GEN_SIGNALS_PY}" ]; then
+    echo "  Scanning RTL for soft_ila_top instances..."
+    python3 "${GEN_SIGNALS_PY}" "${PROJ_DIR}" "${SIGNALS_JSON}"
+    if [ -f "${SIGNALS_JSON}" ]; then
+        CORE_COUNT=$(python3 -c "import json; d=json.load(open('${SIGNALS_JSON}')); print(len(d.get('cores',[])))")
+        echo "  ✓ ${SIGNALS_JSON}  (${CORE_COUNT} cores)"
+        # Copy to windows_portable for debug kit
+        if [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
+            cp "${SIGNALS_JSON}" "${PROJ_DIR}/fpga_ila/windows_portable/webserver_signals.json"
+            echo "  ✓ webserver_signals.json → windows_portable/"
+        fi
+    else
+        echo "  [WARN] gen_signals.py ran but no output"
+    fi
+else
+    echo "  [WARN] gen_signals.py not found (fpga_ila not cloned?)"
+fi
+
 echo ""
 echo "============================================"
 echo " Build Complete"
 echo " Project : ${PROJ_DIR}"
+echo " Bitfile : ${PROJ_DIR}/${PROJ_NAME}.bit"
+echo " Signals : ${PROJ_DIR}/webserver_signals.json"
 echo ""
 echo " Self-contained.  To rebuild:"
 echo "   cd ${PROJ_DIR}"
