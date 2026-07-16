@@ -308,9 +308,6 @@ if {[llength \$sv_files] > 0} {
 set_property include_dirs [list \
     [file normalize "\$proj_dir/rtl"] \
     [file normalize "\$proj_dir/fpga_ila/rtl"] \
-    [file normalize "\$proj_dir/fpga_ila/rtl/mem"] \
-    [file normalize "\$proj_dir/fpga_ila/rtl/transport"] \
-    [file normalize "\$proj_dir/fpga_ila/rtl/transport/uart"] \
 ] [current_fileset]
 
 set_property top \$top_module [current_fileset]
