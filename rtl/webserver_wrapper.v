@@ -914,11 +914,8 @@ module webserver_wrapper #(
   //   ILA_ENABLE=0 时整块不编译，UART 引脚恢复空闲
   // ============================================================
 `ifdef ILA_ENABLE
+  // mac_whitelist_top 内含 2 核 + 本文件直接例化 1 核 = 3 核
   localparam ILA_NUM_CORES = 3;
-
-  wire                  ila_m_valid, ila_m_last, ila_m_ready;
-  wire                  ila_s_valid, ila_s_last, ila_s_ready;
-  wire           [7:0]  ila_m_data,  ila_s_data;
 
   wire [ILA_NUM_CORES-1:0]    ila_core_we;
   wire                 [15:0] ila_core_addr;
@@ -926,47 +923,33 @@ module webserver_wrapper #(
   wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
   wire [ILA_NUM_CORES-1:0]    ila_core_cross, ila_core_trig;
   wire                        ila_cross_in;
-  wire                        ila_ext_trig;
 
-  // UART 后端（共用顶层 uart_rx/uart_tx 引脚）
-  uart_backend #(
-      .CLK_HZ(125_000_000),
-      .BAUD(115200)
-  ) u_ila_be (
-      .clk    (clk_125mhz),
-      .rst    (~reset_l),
-      .rxd    (uart_rx),
-      .txd    (uart_tx),
-      .m_valid(ila_m_valid),  .m_data(ila_m_data),  .m_last(ila_m_last),
-      .m_ready(ila_m_ready),
-      .s_valid(ila_s_valid),  .s_data(ila_s_data),  .s_last(ila_s_last),
-      .s_ready(ila_s_ready)
-  );
-
-  // Hub（管理 3 个核）
-  ila_hub #(
-      .NUM_CORES(ILA_NUM_CORES)
-  ) u_ila_hub (
-      .clk    (clk_125mhz),
-      .rst    (~reset_l),
-      .m_valid (ila_m_valid),  .m_data (ila_m_data),  .m_last (ila_m_last),
-      .m_ready (ila_m_ready),
-      .s_valid (ila_s_valid),  .s_data (ila_s_data),  .s_last (ila_s_last),
-      .s_ready (ila_s_ready),
-      .core_reg_we    (ila_core_we),
-      .core_reg_addr  (ila_core_addr),
-      .core_reg_wdata (ila_core_wdata),
-      .reg_re         (),
-      .core_reg_rdata (ila_core_rdata),
-      .core_cross_out (ila_core_cross),
-      .core_cross_in  (ila_cross_in),
-      .core_trig_out  (ila_core_trig),
-      .ext_trig_in    (1'b0),
-      .trig_out       ()
-  );
-
-  // 跨核触发由 Hub 内部计算广播（core_cross_in = |core_cross_out），外面只接线
-  assign ila_ext_trig = 1'b0;
+  // 调试顶层：Hub + 传输（UART, 共用顶层 uart_rx/uart_tx）
+  // ILA_NUM_CORES > 0 才例化；全 0 时整块被 generate 消除
+  generate if (ILA_NUM_CORES > 0) begin : g_ila_debug
+    ila_hub_top #(
+        .TRANSPORT  (0),              // 0=UART, 1=ETH
+        .NUM_CORES  (ILA_NUM_CORES),
+        .ILA_CLK_HZ (125_000_000),
+        .ILA_BAUD   (115200)
+    ) u_ila_debug (
+        .clk    (clk_125mhz),
+        .rst    (~reset_l),
+        .uart_rxd(uart_rx),
+        .uart_txd(uart_txd),
+        .gmii_rxd(8'h0), .gmii_rx_dv(1'b0),  // 未用（UART 模式）
+        .gmii_txd(), .gmii_tx_en(), .gmii_gtx_clk(),
+        .core_reg_we   (ila_core_we),
+        .core_reg_addr (ila_core_addr),
+        .core_reg_wdata(ila_core_wdata),
+        .core_reg_rdata(ila_core_rdata),
+        .core_cross_out(ila_core_cross),
+        .core_cross_in (ila_cross_in),
+        .core_trig_out (ila_core_trig),
+        .ext_trig_in   (1'b0),
+        .trig_out      ()
+    );
+  end endgenerate
 
 `endif // ILA_ENABLE
 
@@ -1002,7 +985,7 @@ module webserver_wrapper #(
       .probe0(wl_lookup_req_combined), .probe1(wl_lookup_mac),
       .probe2(wl_lookup_match), .probe3(wl_lookup_done),
       .probe4(wl_lookup_busy),  .probe5(wl_ctrl_125m),
-      .ext_trig_in(ila_ext_trig),    .trig_out(ila_core_trig[2]),
+      .ext_trig_in(1'b0),    .trig_out(ila_core_trig[2]),
       .cross_trig_in(ila_cross_in),  .cross_trig_out(ila_core_cross[2]),
       .reg_we(ila_core_we[2]),        .reg_re(1'b1),
       .reg_addr(ila_core_addr),       .reg_wdata(ila_core_wdata),
@@ -1038,7 +1021,7 @@ module webserver_wrapper #(
       .ila_reg_rdata (ila_core_rdata[63:0]),
       .ila_cross_in  (ila_cross_in),
       .ila_cross_out (ila_core_cross[1:0]),
-      .ila_ext_trig  (ila_ext_trig),
+      .1'b0  (1'b0),
       .ila_trig_out  (ila_core_trig[1:0])
   );
 
