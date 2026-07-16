@@ -10,28 +10,29 @@
 `include "define.sv"
 
 module webserver_wrapper #(
-    parameter int sim_mod                  = 0,
-    parameter     script_file              = "../tcl/InstructRAM.tcl",
-    parameter int second_event_period      = 50000000,
-    parameter int uart_baud_rate           = 115200,
-    parameter     cpu_vendor               = "xilinx",
-    parameter     device_vendor            = "xilinx",
-    parameter int riscv_inst_en            = 1,
-    parameter     instr_ram_type           = "block",
-    parameter int instr_addr_depth         = 1024 * 5,
-    parameter int instr_addr_width         = $clog2(instr_addr_depth),
-    parameter int init_blockram_size       = 32,
-    parameter int lcpu_init_instru         = 1,
-    parameter int amd_coe_init_instru      = 0,
-    parameter int intel_hex_init_instru    = 0,
-    parameter int cpu_buf_addr_width       = 12,
-    parameter     cpu_buf_block_mode       = "false",
+    parameter int sim_mod = 0,
+    parameter script_file = "../tcl/InstructRAM.tcl",
+    parameter int second_event_period = 50000000,
+    parameter int uart_baud_rate = 115200,
+    parameter cpu_vendor = "xilinx",
+    parameter device_vendor = "xilinx",
+    parameter int riscv_inst_en = 1,
+    parameter instr_ram_type = "block",
+    parameter int instr_addr_depth = 1024 * 5,
+    parameter int instr_addr_width = $clog2(instr_addr_depth),
+    parameter int init_blockram_size = 32,
+    parameter int lcpu_init_instru = 1,
+    parameter int amd_coe_init_instru = 0,
+    parameter int intel_hex_init_instru = 0,
+    parameter int cpu_buf_addr_width = 12,
+    parameter cpu_buf_block_mode = "false",
     parameter int cpu_buf_block_addr_width = 2,
-    parameter int cpu_buf_data_width       = 8,
-    parameter int cpu_buf_para_width       = 1,
-    parameter     cpu_buf_data_ram_type    = "block",
-    parameter     cpu_buf_para_ram_type    = "distributed",
-    parameter int stat_cnt_en              = 1
+    parameter int cpu_buf_data_width = 8,
+    parameter int cpu_buf_para_width = 1,
+    parameter cpu_buf_data_ram_type = "block",
+    parameter cpu_buf_para_ram_type = "distributed",
+    parameter int stat_cnt_en = 1,
+    parameter ILA_NUM_CORES = 3  // fpga_ila 核数（透传到顶层）
 ) (
     input reset_l,
     input clk_50mhz,
@@ -87,6 +88,15 @@ module webserver_wrapper #(
     output flash_wp_n,
     output flash_rst_n,
 
+    // fpga_ila 调试总线（透传到顶层 ila_hub_top）
+    input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
+    input  wire [                15:0] ila_core_addr,
+    input  wire [                31:0] ila_core_wdata,
+    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
+    output wire [   ILA_NUM_CORES-1:0] ila_core_cross,
+    input  wire                        ila_cross_in,
+    output wire [   ILA_NUM_CORES-1:0] ila_core_trig,
+
     output [3:0] eth_greset,
     output [3:0] led
 );
@@ -117,7 +127,7 @@ module webserver_wrapper #(
   wire [                31:0] pram_wdata_lcpu;
   wire [                31:0] pram_rdata;
 
-  wire                        pram_wr   = bootloader_status[0] ? bl_pram_wr   : pram_wr_lcpu;
+  wire                        pram_wr = bootloader_status[0] ? bl_pram_wr : pram_wr_lcpu;
   wire [instr_addr_width-1:0] pram_addr = bootloader_status[0] ? bl_pram_addr : pram_addr_lcpu;
   wire [                31:0] pram_wdata = bootloader_status[0] ? bl_pram_wdata : pram_wdata_lcpu;
 
@@ -180,34 +190,34 @@ module webserver_wrapper #(
   wire [11:0] sflash_address;
   wire        sflash_op_ack;
   // MAC Whitelist RAMIF
-  wire wl_ram_rlwh;
+  wire        wl_ram_rlwh;
   wire [11:0] wl_ram_addr;
   wire [31:0] wl_ram_wrdata, wl_ram_rddata;
 
   // Bootloader (50MHz domain)
   wire                        bootloader_trigger;
   wire                        bootloader_trigger_ind;
-  wire [2:0]                  bootloader_status;
-  wire [31:0]                 bootloader_flash_addr;
-  wire [31:0]                 bootloader_length;
+  wire [                 2:0] bootloader_status;
+  wire [                31:0] bootloader_flash_addr;
+  wire [                31:0] bootloader_length;
 
   // Bootloader pram interface (muxed with LCPU pram)
   wire                        bl_pram_wr;
   wire [instr_addr_width-1:0] bl_pram_addr;
-  wire [31:0]                 bl_pram_wdata;
+  wire [                31:0] bl_pram_wdata;
   wire                        lcpu_pram_wr;
   wire [instr_addr_width-1:0] lcpu_pram_addr;
-  wire [31:0]                 lcpu_pram_wdata;
+  wire [                31:0] lcpu_pram_wdata;
 
   // Bootloader SPI interface (muxed with lcpu_sflash)
-  wire        bl_spi_op_start, bl_spi_op_done;
+  wire bl_spi_op_start, bl_spi_op_done;
   wire [15:0] bl_spi_channel_len;
   wire [63:0] bl_spi_wdata;
   wire [31:0] bl_spi_rdata;
 
   // SPI mux: bootloader vs lcpu_sflash
-  wire        spi_sclk_bl, spi_mosi_bl, spi_cs_n_bl;
-  wire        spi_sclk_sf, spi_mosi_sf, spi_cs_n_sf;
+  wire spi_sclk_bl, spi_mosi_bl, spi_cs_n_bl;
+  wire spi_sclk_sf, spi_mosi_sf, spi_cs_n_sf;
 
   // ============================================================
   // Eth statistics (125MHz domain, from gmii2mac)
@@ -284,17 +294,35 @@ module webserver_wrapper #(
   // Whitelist lookup interface (125MHz)
   // ============================================================
   wire wl_lookup_req, wl_lookup_match, wl_lookup_done, wl_lookup_busy;
-  wire [47:0] wl_lookup_mac;
-  wire wl_manual_lookup_pulse;  // from debug_wc_0_ind, CDC'd to 125MHz
-  wire wl_lookup_req_combined;
-  assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
+  wire [                47:0] wl_lookup_mac;
+  wire                        wl_manual_lookup_pulse;  // from debug_wc_0_ind, CDC'd to 125MHz
+  wire                        wl_lookup_req_combined;
 
   // Whitelist LCPU bus (50MHz) — RAMIF interface
-  wire [31:0] wl_cfg_rdata;
+  wire [                31:0] wl_cfg_rdata;
 
   // Bridge drop counter (125MHz)
-  wire [31:0] eth1_rx_drop_cnt_src;
-  wire [31:0] eth1_rx_drop_cnt;
+  wire [                31:0] eth1_rx_drop_cnt_src;
+  wire [                31:0] eth1_rx_drop_cnt;
+
+  // SPI clock divider: 50MHz → 5MHz (divide by 10)
+  reg  [                 3:0] spi_clk_div;
+  reg                         spi_clk_bl;
+
+  // ============================================================
+  // ============================================================
+  // fpga_ila 调试总线（透传：顶层 ila_hub_top ↔ 子模块 + 本地核）
+  //   mac_whitelist_top 内含 2 核 + 本文件 1 核 = ILA_NUM_CORES=3
+  // ============================================================
+
+  // ── fpga_ila 内部总线（始终存在，CORE_EN 控制各核使能）──
+  wire [   ILA_NUM_CORES-1:0] ila_w_we;
+  wire [                15:0] ila_w_addr;
+  wire [                31:0] ila_w_wdata;
+  wire [ILA_NUM_CORES*32-1:0] ila_w_rdata;
+  wire [ILA_NUM_CORES-1:0] ila_w_cross, ila_w_trig;
+  wire ila_w_cross_in;
+  assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
   // ============================================================
   // tod / interval_timer / build_time (existing)
@@ -593,7 +621,10 @@ module webserver_wrapper #(
   // ============================================================
   // Bootloader SPI controller (dedicated spi_ctrl, 5MHz)
   // ============================================================
-  spi_ctrl #(.cpol(0), .cpha(0)) u_bl_spi (
+  spi_ctrl #(
+      .cpol(0),
+      .cpha(0)
+  ) u_bl_spi (
       .reset_l(reset_l),
       .clk(spi_clk_bl),
       .op_start(bl_spi_op_start),
@@ -606,10 +637,6 @@ module webserver_wrapper #(
       .miso(flash_miso),
       .cs(spi_cs_n_bl)
   );
-
-  // SPI clock divider: 50MHz → 5MHz (divide by 10)
-  reg [3:0] spi_clk_div;
-  reg       spi_clk_bl;
   always @(posedge clk_50mhz or negedge reset_l) begin
     if (!reset_l) begin
       spi_clk_div <= 0;
@@ -627,14 +654,16 @@ module webserver_wrapper #(
   // ============================================================
   // SPI output mux: bootloader takes priority when busy
   // ============================================================
-  assign flash_sclk = bootloader_status[0] ? spi_sclk_bl  : spi_sclk_sf;
-  assign flash_mosi = bootloader_status[0] ? spi_mosi_bl  : spi_mosi_sf;
-  assign flash_cs_n = bootloader_status[0] ? spi_cs_n_bl  : spi_cs_n_sf;
+  assign flash_sclk = bootloader_status[0] ? spi_sclk_bl : spi_sclk_sf;
+  assign flash_mosi = bootloader_status[0] ? spi_mosi_bl : spi_mosi_sf;
+  assign flash_cs_n = bootloader_status[0] ? spi_cs_n_bl : spi_cs_n_sf;
 
   // ============================================================
   // SPI Bootloader: Flash → InstructRAM
   // ============================================================
-  spi_bootloader #(.PRAM_ADDR_WIDTH(instr_addr_width)) u_spi_bootloader (
+  spi_bootloader #(
+      .PRAM_ADDR_WIDTH(instr_addr_width)
+  ) u_spi_bootloader (
       .clk(clk_50mhz),
       .reset_l(reset_l),
       .trigger(bootloader_trigger_ind),
@@ -904,61 +933,23 @@ module webserver_wrapper #(
       .src_ready()
   );
 
-  assign debug_ro_0           = {24'b0, recv_pkt_drop_cnt};
-  assign debug_ro_1           = eth1_rx_drop_cnt;
+  assign debug_ro_0     = {24'b0, recv_pkt_drop_cnt};
+  assign debug_ro_1     = eth1_rx_drop_cnt;
 
-  // ============================================================
-  // fpga_ila：软逻辑分析仪（Hub + UART 后端 + 3 核）
-  //   Core 0, 1 → mac_whitelist_seq (写口/读口监控)
-  //   Core 2    → wl_lookup 监控（本文件下方）
-  //   ILA_ENABLE=0 时整块不编译，UART 引脚恢复空闲
-  // ============================================================
-`ifdef ILA_ENABLE
-  // mac_whitelist_top 内含 2 核 + 本文件直接例化 1 核 = 3 核
-  localparam ILA_NUM_CORES = 3;
-
-  wire [ILA_NUM_CORES-1:0]    ila_core_we;
-  wire                 [15:0] ila_core_addr;
-  wire                 [31:0] ila_core_wdata;
-  wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
-  wire [ILA_NUM_CORES-1:0]    ila_core_cross, ila_core_trig;
-  wire                        ila_cross_in;
-
-  // 调试顶层：Hub + 传输（UART, 共用顶层 uart_rx/uart_tx）
-  // ILA_NUM_CORES > 0 才例化；全 0 时整块被 generate 消除
-  generate if (ILA_NUM_CORES > 0) begin : g_ila_debug
-    ila_hub_top #(
-        .TRANSPORT  (0),              // 0=UART, 1=ETH
-        .NUM_CORES  (ILA_NUM_CORES),
-        .ILA_CLK_HZ (125_000_000),
-        .ILA_BAUD   (115200)
-    ) u_ila_debug (
-        .clk    (clk_125mhz),
-        .rst    (~reset_l),
-        .uart_rxd(uart_rx),
-        .uart_txd(uart_txd),
-        .gmii_rxd(8'h0), .gmii_rx_dv(1'b0),  // 未用（UART 模式）
-        .gmii_txd(), .gmii_tx_en(), .gmii_gtx_clk(),
-        .core_reg_we   (ila_core_we),
-        .core_reg_addr (ila_core_addr),
-        .core_reg_wdata(ila_core_wdata),
-        .core_reg_rdata(ila_core_rdata),
-        .core_cross_out(ila_core_cross),
-        .core_cross_in (ila_cross_in),
-        .core_trig_out (ila_core_trig),
-        .ext_trig_in   (1'b0),
-        .trig_out      ()
-    );
-  end endgenerate
-
-`endif // ILA_ENABLE
+  assign ila_core_rdata = ila_w_rdata;
+  assign ila_core_cross = ila_w_cross;
+  assign ila_core_trig  = ila_w_trig;
+  assign ila_w_we       = ila_core_we;
+  assign ila_w_addr     = ila_core_addr;
+  assign ila_w_wdata    = ila_core_wdata;
+  assign ila_w_cross_in = ila_cross_in;
 
   // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
   // ============================================================
   // Whitelist config: RAMIF passthrough
   // ============================================================
-  assign wl_ram_rddata = wl_cfg_rdata;
+  assign wl_ram_rddata  = wl_cfg_rdata;
 
   // ============================================================
   // MAC Whitelist Engine
@@ -973,31 +964,45 @@ module webserver_wrapper #(
   );
 
   // ILA Core 2: Whitelist lookup monitor (depth=2048, clk=125MHz)
-`ifdef ILA_ENABLE
-  generate if ((`ILA_ENABLE & 8'b0000_0001) != 0) begin : u_ila_wl_lookup_g
   soft_ila_top #(
-      .CORE_ID(2), .DATA_DEPTH(2048), .MAX_WINDOWS(4), .SAMPLE_HZ(125_000_000),
-      .RST_ACTIVE_LOW(1), .NUM_PROBES(6),
-      .PROBE0_WIDTH(1), .PROBE1_WIDTH(48), .PROBE2_WIDTH(1),
-      .PROBE3_WIDTH(1), .PROBE4_WIDTH(1), .PROBE5_WIDTH(2)
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (4),
+      .SAMPLE_HZ     (125_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (6),
+      .PROBE0_WIDTH  (1),
+      .PROBE1_WIDTH  (48),
+      .PROBE2_WIDTH  (1),
+      .PROBE3_WIDTH  (1),
+      .PROBE4_WIDTH  (1),
+      .PROBE5_WIDTH  (2)
   ) u_ila_wl_lookup (
-      .sample_clk(clk_125mhz), .rst_in(reset_l),
-      .probe0(wl_lookup_req_combined), .probe1(wl_lookup_mac),
-      .probe2(wl_lookup_match), .probe3(wl_lookup_done),
-      .probe4(wl_lookup_busy),  .probe5(wl_ctrl_125m),
-      .ext_trig_in(1'b0),    .trig_out(ila_core_trig[2]),
-      .cross_trig_in(ila_cross_in),  .cross_trig_out(ila_core_cross[2]),
-      .reg_we(ila_core_we[2]),        .reg_re(1'b1),
-      .reg_addr(ila_core_addr),       .reg_wdata(ila_core_wdata),
-      .reg_rdata(ila_core_rdata[2*32 +: 32])
+      .sample_clk    (clk_125mhz),
+      .rst_in        (reset_l),
+      .probe0        (wl_lookup_req_combined),
+      .probe1        (wl_lookup_mac),
+      .probe2        (wl_lookup_match),
+      .probe3        (wl_lookup_done),
+      .probe4        (wl_lookup_busy),
+      .probe5        (wl_ctrl_125m),
+      .ext_trig_in   (1'b0),
+      .trig_out      (ila_w_trig[2]),
+      .cross_trig_in (ila_w_cross_in),
+      .cross_trig_out(ila_w_cross[2]),
+      .reg_we        (ila_w_we[2]),
+      .reg_re        (1'b1),
+      .reg_addr      (ila_w_addr),
+      .reg_wdata     (ila_w_wdata),
+      .reg_rdata     (ila_w_rdata[2*32+:32])
   );
-  end endgenerate
-`endif
 
+  // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──
   mac_whitelist_top #(
       .LOOKUP_MODE(0),
-      .ENTRY_NUM  (16),
-      .ADDR_WIDTH (4)
+      .ENTRY_NUM(16),
+      .ADDR_WIDTH(4),
+      .ILA_NUM_CORES(2)
   ) u_mac_wl (
       .clk(clk_125mhz),
       .reset_l(reset_l),
@@ -1014,15 +1019,13 @@ module webserver_wrapper #(
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
       .default_pass(wl_ctrl_125m[1]),
-      // fpga_ila 总线 → Cores 0,1（写口/读口监控）
-      .ila_reg_we    (ila_core_we[1:0]),
-      .ila_reg_addr  (ila_core_addr),
-      .ila_reg_wdata (ila_core_wdata),
-      .ila_reg_rdata (ila_core_rdata[63:0]),
-      .ila_cross_in  (ila_cross_in),
-      .ila_cross_out (ila_core_cross[1:0]),
-      .1'b0  (1'b0),
-      .ila_trig_out  (ila_core_trig[1:0])
+      .ila_core_we   (ila_w_we[1:0]),
+      .ila_core_addr (ila_w_addr),
+      .ila_core_wdata(ila_w_wdata),
+      .ila_core_rdata(ila_w_rdata[63:0]),
+      .ila_cross_in  (ila_w_cross_in),
+      .ila_core_cross(ila_w_cross[1:0]),
+      .ila_core_trig (ila_w_trig[1:0])
   );
 
   // ============================================================

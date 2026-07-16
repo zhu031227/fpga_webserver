@@ -85,6 +85,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam cpu_buf_para_ram_type = `SMALL_RAM;
   localparam int stat_cnt_en = 1;
 
+  // ============================================================
+  // fpga_ila 调试系统（UART 模式，复用顶层 uart_rx/uart_tx）
+  // ============================================================
+  localparam ILA_NUM_CORES = 3;  // mac_whitelist 2 核 + wl_lookup 1 核
+
   // --- Reset / PLL ---
   wire reset_l_synced;
   wire clk_50m, clk_125m, clk_200m, pll_locked;
@@ -113,6 +118,13 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // eth1/eth2 MDIO (unused for SFP, but connected)
   wire eth1_mdc, eth2_mdc;
   wire eth1_mdio, eth2_mdio;
+
+  wire [   ILA_NUM_CORES-1:0] ila_core_we;
+  wire [                15:0] ila_core_addr;
+  wire [                31:0] ila_core_wdata;
+  wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
+  wire [ILA_NUM_CORES-1:0] ila_core_cross, ila_core_trig;
+  wire ila_cross_in;
 
   // --- Reset controller ---
   clk_rst_ctrl #(
@@ -208,6 +220,36 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   assign gmii1_rx_clk = clk_125m;
   assign gmii2_rx_clk = clk_125m;
 
+  generate
+    if (ILA_NUM_CORES > 0) begin : g_ila_debug
+      ila_hub_top #(
+          .TRANSPORT (0),              // 0=UART, 1=ETH
+          .NUM_CORES (ILA_NUM_CORES),
+          .ILA_CLK_HZ(125_000_000),
+          .ILA_BAUD  (115200)
+      ) u_ila_debug (
+          .clk           (clk_125m),
+          .rst           (~reset_l_synced),
+          .uart_rxd      (uart_rx),
+          .uart_txd      (uart_tx),
+          .gmii_rxd      (8'h0),
+          .gmii_rx_dv    (1'b0),
+          .gmii_txd      (),
+          .gmii_tx_en    (),
+          .gmii_gtx_clk  (),
+          .core_reg_we   (ila_core_we),
+          .core_reg_addr (ila_core_addr),
+          .core_reg_wdata(ila_core_wdata),
+          .core_reg_rdata(ila_core_rdata),
+          .core_cross_out(ila_core_cross),
+          .core_cross_in (ila_cross_in),
+          .core_trig_out (ila_core_trig),
+          .ext_trig_in   (1'b0),
+          .trig_out      ()
+      );
+    end
+  endgenerate
+
   // --- Webserver core ---
   webserver_wrapper #(
       .sim_mod(sim_mod),
@@ -231,7 +273,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .cpu_buf_para_width(cpu_buf_para_width),
       .cpu_buf_data_ram_type(cpu_buf_data_ram_type),
       .cpu_buf_para_ram_type(cpu_buf_para_ram_type),
-      .stat_cnt_en(stat_cnt_en)
+      .stat_cnt_en(stat_cnt_en),
+      .ILA_NUM_CORES(ILA_NUM_CORES)
   ) u_webserver (
       .reset_l(reset_l_synced),
       .clk_50mhz(clk_50m),
@@ -283,6 +326,15 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .flash_wp_n (flash_wp_n),
       .flash_rst_n(flash_rst_n),
 
-      .led(led_o)
+      .led(led_o),
+
+      // fpga_ila 调试总线
+      .ila_core_we   (ila_core_we),
+      .ila_core_addr (ila_core_addr),
+      .ila_core_wdata(ila_core_wdata),
+      .ila_core_rdata(ila_core_rdata),
+      .ila_core_cross(ila_core_cross),
+      .ila_cross_in  (ila_cross_in),
+      .ila_core_trig (ila_core_trig)
   );
 endmodule

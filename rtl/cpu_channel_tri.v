@@ -126,7 +126,7 @@ module cpu_channel_tri #(
   wire                          eth1_fwd_ren;
   wire [cpu_buf_addr_width-1:0] eth1_fwd_raddr;
   wire [cpu_buf_data_width-1:0] eth1_fwd_rdata;
-  wire                          eth1_fwd_rpkt_pop;    // from pktfifo2ram back to fifo
+  wire                          eth1_fwd_rpkt_pop;  // from pktfifo2ram back to fifo
 
   wire                          eth2_tx_en_s;
   wire [cpu_buf_data_width-1:0] eth2_tx_data_s;
@@ -149,7 +149,7 @@ module cpu_channel_tri #(
   wire                          eth2_fwd_ren;
   wire [cpu_buf_addr_width-1:0] eth2_fwd_raddr;
   wire [cpu_buf_data_width-1:0] eth2_fwd_rdata;
-  wire                          eth2_fwd_rpkt_pop;    // from pktfifo2ram back to fifo
+  wire                          eth2_fwd_rpkt_pop;  // from pktfifo2ram back to fifo
 
   wire                          eth1_tx_en_s;
   wire [cpu_buf_data_width-1:0] eth1_tx_data_s;
@@ -163,7 +163,7 @@ module cpu_channel_tri #(
   wire                          cpu_wr_ren;
   wire [cpu_buf_addr_width-1:0] cpu_wr_raddr;
   wire [cpu_buf_data_width-1:0] cpu_wr_rdata;
-  wire                          cpu_tx_rpkt_pop;       // from pktfifo2ram back to fifo
+  wire                          cpu_tx_rpkt_pop;  // from pktfifo2ram back to fifo
 
   wire                          eth0_tx_en_s;
   wire [cpu_buf_data_width-1:0] eth0_tx_data_s;
@@ -171,18 +171,18 @@ module cpu_channel_tri #(
   // ============================================================
   // Whitelist: SrcMAC extraction from eth1 header
   // ============================================================
-  reg  [47:0] mac1_src_mac;
-  reg  [ 3:0] mac1_byte_cnt;
-  reg         mac1_header_done;
-  reg         wl_lookup_pending;
-  reg         wl_result_valid;
-  reg         wl_result_match;
+  reg  [                  47:0] mac1_src_mac;
+  reg  [                   3:0] mac1_byte_cnt;
+  reg                           mac1_header_done;
+  reg                           wl_lookup_pending;
+  reg                           wl_result_valid;
+  reg                           wl_result_match;
 
   // ============================================================
   // Drop counters
   // ============================================================
-  reg [31:0] eth1_rx_drop_cnt_reg;
-  reg [ 7:0] recv_pkt_drop_cnt_reg;
+  reg  [                  31:0] eth1_rx_drop_cnt_reg;
+  reg  [                   7:0] recv_pkt_drop_cnt_reg;
   assign eth1_rx_drop_cnt  = eth1_rx_drop_cnt_reg;
   assign recv_pkt_drop_cnt = recv_pkt_drop_cnt_reg;
 
@@ -251,31 +251,50 @@ module cpu_channel_tri #(
   // eth0 RX → ram2pktfifo_int → CPU
   // ============================================================
   ram2pktfifo_int #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
       .para_width(cpu_buf_para_width)
   ) u_ram2pktfifo_eth0 (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .ram_wen(mac0_rx_en), .ram_wdata(mac0_rx_data), .ram_waddr(mac0_rx_addr),
-      .ram_wpara({cpu_buf_para_width{1'b0}}), .ram_wen_permit(),
-      .full(mac0_in_full), .wen(mac0_in_wen), .waddr(mac0_in_waddr),
-      .wdata(mac0_in_wdata), .wpkt_push(mac0_in_wpkt_push),
-      .wpkt_len(mac0_in_wpkt_len), .wpkt_para(mac0_in_wpkt_para)
+      .reset_l       (reset_l),
+      .clk           (clk),
+      .clk_en        (1'b1),
+      .ram_wen       (mac0_rx_en),
+      .ram_wdata     (mac0_rx_data),
+      .ram_waddr     (mac0_rx_addr),
+      .ram_wpara     ({cpu_buf_para_width{1'b0}}),
+      .ram_wen_permit(),
+      .full          (mac0_in_full),
+      .wen           (mac0_in_wen),
+      .waddr         (mac0_in_waddr),
+      .wdata         (mac0_in_wdata),
+      .wpkt_push     (mac0_in_wpkt_push),
+      .wpkt_len      (mac0_in_wpkt_len),
+      .wpkt_para     (mac0_in_wpkt_para)
   );
 
   // ============================================================
   // eth1 RX → ram2pktfifo_int → eth2 TX bridge forward
   // ============================================================
   ram2pktfifo_int #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
       .para_width(cpu_buf_para_width)
   ) u_ram2pktfifo_eth1_fwd (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .ram_wen(mac1_rx_en), .ram_wdata(mac1_rx_data),
-      .ram_waddr(mac1_rx_en ? eth1_fwd_addr : {cpu_buf_addr_width{1'b0}}),
-      .ram_wpara({cpu_buf_para_width{1'b0}}), .ram_wen_permit(),
-      .full(eth1_fwd_full), .wen(eth1_fwd_wen), .waddr(eth1_fwd_waddr),
-      .wdata(eth1_fwd_wdata), .wpkt_push(eth1_fwd_wpkt_push_raw),
-      .wpkt_len(eth1_fwd_wpkt_len), .wpkt_para(eth1_fwd_wpkt_para)
+      .reset_l       (reset_l),
+      .clk           (clk),
+      .clk_en        (1'b1),
+      .ram_wen       (mac1_rx_en),
+      .ram_wdata     (mac1_rx_data),
+      .ram_waddr     (mac1_rx_en ? eth1_fwd_addr : {cpu_buf_addr_width{1'b0}}),
+      .ram_wpara     ({cpu_buf_para_width{1'b0}}),
+      .ram_wen_permit(),
+      .full          (eth1_fwd_full),
+      .wen           (eth1_fwd_wen),
+      .waddr         (eth1_fwd_waddr),
+      .wdata         (eth1_fwd_wdata),
+      .wpkt_push     (eth1_fwd_wpkt_push_raw),
+      .wpkt_len      (eth1_fwd_wpkt_len),
+      .wpkt_para     (eth1_fwd_wpkt_para)
   );
 
   always @(negedge reset_l or posedge clk) begin
@@ -288,56 +307,102 @@ module cpu_channel_tri #(
       (wl_result_match || (!whitelist_en && default_pass));
 
   package_fifo_v2 #(
-      .dual_clock(0), .addr_width(cpu_buf_addr_width),
+      .dual_clock      (0),
+      .addr_width      (cpu_buf_addr_width),
       .block_addr_width(cpu_buf_block_addr_width),
-      .data_width(cpu_buf_data_width), .para_width(cpu_buf_para_width),
-      .para_ram_type(cpu_buf_para_ram_type), .data_ram_type(cpu_buf_data_ram_type),
-      .max_pkt_length(1518), .block_mode(cpu_buf_block_mode)
+      .data_width      (cpu_buf_data_width),
+      .para_width      (cpu_buf_para_width),
+      .para_ram_type   (cpu_buf_para_ram_type),
+      .data_ram_type   (cpu_buf_data_ram_type),
+      .max_pkt_length  (1518),
+      .block_mode      (cpu_buf_block_mode)
   ) u_pkg_fifo_eth1_fwd (
-      .reset_l(reset_l),
-      .wclk(clk), .wclk_en(1'b1), .full(eth1_fwd_full),
-      .wen(eth1_fwd_wen), .waddr(eth1_fwd_waddr), .wdata(eth1_fwd_wdata),
-      .wpkt_push(eth1_fwd_wpkt_push), .wpkt_len(eth1_fwd_wpkt_len),
+      .reset_l  (reset_l),
+      .wclk     (clk),
+      .wclk_en  (1'b1),
+      .full     (eth1_fwd_full),
+      .wen      (eth1_fwd_wen),
+      .waddr    (eth1_fwd_waddr),
+      .wdata    (eth1_fwd_wdata),
+      .wpkt_push(eth1_fwd_wpkt_push),
+      .wpkt_len (eth1_fwd_wpkt_len),
       .wpkt_para(eth1_fwd_wpkt_para),
-      .rclk(clk), .rclk_en(1'b1), .empty(eth1_fwd_empty),
-      .rpkt_pop(eth1_fwd_rpkt_pop), .rpkt_len(eth1_fwd_rpkt_len),
+      .rclk     (clk),
+      .rclk_en  (1'b1),
+      .empty    (eth1_fwd_empty),
+      .rpkt_pop (eth1_fwd_rpkt_pop),
+      .rpkt_len (eth1_fwd_rpkt_len),
       .rpkt_para(eth1_fwd_rpkt_para),
-      .ren(eth1_fwd_ren), .raddr(eth1_fwd_raddr), .rdata(eth1_fwd_rdata), .reop_pre()
+      .ren      (eth1_fwd_ren),
+      .raddr    (eth1_fwd_raddr),
+      .rdata    (eth1_fwd_rdata),
+      .reop_pre ()
   );
 
   pktfifo2ram_int_v2 #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
-      .para_width(cpu_buf_para_width), .ipg(12), .block_mode(cpu_buf_block_mode)
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
+      .para_width(cpu_buf_para_width),
+      .ipg       (12),
+      .block_mode(cpu_buf_block_mode)
   ) u_pktfifo2ram_eth1_fwd (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .empty(eth1_fwd_empty), .rpkt_pop(eth1_fwd_rpkt_pop),
-      .rpkt_len(eth1_fwd_rpkt_len), .rpkt_para(eth1_fwd_rpkt_para),
-      .ren(eth1_fwd_ren), .raddr(eth1_fwd_raddr),
-      .rdata(eth1_fwd_rdata), .reop_pre(1'b0), .ipg_adjust(0),
-      .ram_wen(eth2_tx_en_s), .ram_wdata(eth2_tx_data_s), .ram_waddr(), .ram_wpara()
+      .reset_l   (reset_l),
+      .clk       (clk),
+      .clk_en    (1'b1),
+      .empty     (eth1_fwd_empty),
+      .rpkt_pop  (eth1_fwd_rpkt_pop),
+      .rpkt_len  (eth1_fwd_rpkt_len),
+      .rpkt_para (eth1_fwd_rpkt_para),
+      .ren       (eth1_fwd_ren),
+      .raddr     (eth1_fwd_raddr),
+      .rdata     (eth1_fwd_rdata),
+      .reop_pre  (1'b0),
+      .ipg_adjust(0),
+      .ram_wen   (eth2_tx_en_s),
+      .ram_wdata (eth2_tx_data_s),
+      .ram_waddr (),
+      .ram_wpara ()
   );
 
-  sop_eop_gen #(.data_width(8)) u_sop_eop_eth2 (
-      .clk(clk), .clk_en(1'b1), .reset_l(reset_l),
-      .i_en(eth2_tx_en_s), .i_err(1'b0), .i_data(eth2_tx_data_s),
-      .o_sop(mac2_tx_sop), .o_en(mac2_tx_en), .o_data(mac2_tx_data),
-      .o_eop(mac2_tx_eop), .o_err(mac2_tx_err)
+  sop_eop_gen #(
+      .data_width(8)
+  ) u_sop_eop_eth2 (
+      .clk    (clk),
+      .clk_en (1'b1),
+      .reset_l(reset_l),
+      .i_en   (eth2_tx_en_s),
+      .i_err  (1'b0),
+      .i_data (eth2_tx_data_s),
+      .o_sop  (mac2_tx_sop),
+      .o_en   (mac2_tx_en),
+      .o_data (mac2_tx_data),
+      .o_eop  (mac2_tx_eop),
+      .o_err  (mac2_tx_err)
   );
 
   // ============================================================
   // eth2 RX → eth1 TX bridge forward (unconditional)
   // ============================================================
   ram2pktfifo_int #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
       .para_width(cpu_buf_para_width)
   ) u_ram2pktfifo_eth2_fwd (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .ram_wen(mac2_rx_en), .ram_wdata(mac2_rx_data),
-      .ram_waddr(mac2_rx_en ? eth2_fwd_addr : {cpu_buf_addr_width{1'b0}}),
-      .ram_wpara({cpu_buf_para_width{1'b0}}), .ram_wen_permit(),
-      .full(eth2_fwd_full), .wen(eth2_fwd_wen), .waddr(eth2_fwd_waddr),
-      .wdata(eth2_fwd_wdata), .wpkt_push(eth2_fwd_wpkt_push),
-      .wpkt_len(eth2_fwd_wpkt_len), .wpkt_para(eth2_fwd_wpkt_para)
+      .reset_l       (reset_l),
+      .clk           (clk),
+      .clk_en        (1'b1),
+      .ram_wen       (mac2_rx_en),
+      .ram_wdata     (mac2_rx_data),
+      .ram_waddr     (mac2_rx_en ? eth2_fwd_addr : {cpu_buf_addr_width{1'b0}}),
+      .ram_wpara     ({cpu_buf_para_width{1'b0}}),
+      .ram_wen_permit(),
+      .full          (eth2_fwd_full),
+      .wen           (eth2_fwd_wen),
+      .waddr         (eth2_fwd_waddr),
+      .wdata         (eth2_fwd_wdata),
+      .wpkt_push     (eth2_fwd_wpkt_push),
+      .wpkt_len      (eth2_fwd_wpkt_len),
+      .wpkt_para     (eth2_fwd_wpkt_para)
   );
 
   always @(negedge reset_l or posedge clk) begin
@@ -347,101 +412,190 @@ module cpu_channel_tri #(
   end
 
   package_fifo_v2 #(
-      .dual_clock(0), .addr_width(cpu_buf_addr_width),
+      .dual_clock      (0),
+      .addr_width      (cpu_buf_addr_width),
       .block_addr_width(cpu_buf_block_addr_width),
-      .data_width(cpu_buf_data_width), .para_width(cpu_buf_para_width),
-      .para_ram_type(cpu_buf_para_ram_type), .data_ram_type(cpu_buf_data_ram_type),
-      .max_pkt_length(1518), .block_mode(cpu_buf_block_mode)
+      .data_width      (cpu_buf_data_width),
+      .para_width      (cpu_buf_para_width),
+      .para_ram_type   (cpu_buf_para_ram_type),
+      .data_ram_type   (cpu_buf_data_ram_type),
+      .max_pkt_length  (1518),
+      .block_mode      (cpu_buf_block_mode)
   ) u_pkg_fifo_eth2_fwd (
-      .reset_l(reset_l),
-      .wclk(clk), .wclk_en(1'b1), .full(eth2_fwd_full),
-      .wen(eth2_fwd_wen), .waddr(eth2_fwd_waddr), .wdata(eth2_fwd_wdata),
-      .wpkt_push(eth2_fwd_wpkt_push), .wpkt_len(eth2_fwd_wpkt_len),
+      .reset_l  (reset_l),
+      .wclk     (clk),
+      .wclk_en  (1'b1),
+      .full     (eth2_fwd_full),
+      .wen      (eth2_fwd_wen),
+      .waddr    (eth2_fwd_waddr),
+      .wdata    (eth2_fwd_wdata),
+      .wpkt_push(eth2_fwd_wpkt_push),
+      .wpkt_len (eth2_fwd_wpkt_len),
       .wpkt_para(eth2_fwd_wpkt_para),
-      .rclk(clk), .rclk_en(1'b1), .empty(eth2_fwd_empty),
-      .rpkt_pop(eth2_fwd_rpkt_pop), .rpkt_len(eth2_fwd_rpkt_len),
+      .rclk     (clk),
+      .rclk_en  (1'b1),
+      .empty    (eth2_fwd_empty),
+      .rpkt_pop (eth2_fwd_rpkt_pop),
+      .rpkt_len (eth2_fwd_rpkt_len),
       .rpkt_para(eth2_fwd_rpkt_para),
-      .ren(eth2_fwd_ren), .raddr(eth2_fwd_raddr), .rdata(eth2_fwd_rdata), .reop_pre()
+      .ren      (eth2_fwd_ren),
+      .raddr    (eth2_fwd_raddr),
+      .rdata    (eth2_fwd_rdata),
+      .reop_pre ()
   );
 
   pktfifo2ram_int_v2 #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
-      .para_width(cpu_buf_para_width), .ipg(12), .block_mode(cpu_buf_block_mode)
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
+      .para_width(cpu_buf_para_width),
+      .ipg       (12),
+      .block_mode(cpu_buf_block_mode)
   ) u_pktfifo2ram_eth2_fwd (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .empty(eth2_fwd_empty), .rpkt_pop(eth2_fwd_rpkt_pop),
-      .rpkt_len(eth2_fwd_rpkt_len), .rpkt_para(eth2_fwd_rpkt_para),
-      .ren(eth2_fwd_ren), .raddr(eth2_fwd_raddr),
-      .rdata(eth2_fwd_rdata), .reop_pre(1'b0), .ipg_adjust(0),
-      .ram_wen(eth1_tx_en_s), .ram_wdata(eth1_tx_data_s), .ram_waddr(), .ram_wpara()
+      .reset_l   (reset_l),
+      .clk       (clk),
+      .clk_en    (1'b1),
+      .empty     (eth2_fwd_empty),
+      .rpkt_pop  (eth2_fwd_rpkt_pop),
+      .rpkt_len  (eth2_fwd_rpkt_len),
+      .rpkt_para (eth2_fwd_rpkt_para),
+      .ren       (eth2_fwd_ren),
+      .raddr     (eth2_fwd_raddr),
+      .rdata     (eth2_fwd_rdata),
+      .reop_pre  (1'b0),
+      .ipg_adjust(0),
+      .ram_wen   (eth1_tx_en_s),
+      .ram_wdata (eth1_tx_data_s),
+      .ram_waddr (),
+      .ram_wpara ()
   );
 
-  sop_eop_gen #(.data_width(8)) u_sop_eop_eth1 (
-      .clk(clk), .clk_en(1'b1), .reset_l(reset_l),
-      .i_en(eth1_tx_en_s), .i_err(1'b0), .i_data(eth1_tx_data_s),
-      .o_sop(mac1_tx_sop), .o_en(mac1_tx_en), .o_data(mac1_tx_data),
-      .o_eop(mac1_tx_eop), .o_err(mac1_tx_err)
+  sop_eop_gen #(
+      .data_width(8)
+  ) u_sop_eop_eth1 (
+      .clk    (clk),
+      .clk_en (1'b1),
+      .reset_l(reset_l),
+      .i_en   (eth1_tx_en_s),
+      .i_err  (1'b0),
+      .i_data (eth1_tx_data_s),
+      .o_sop  (mac1_tx_sop),
+      .o_en   (mac1_tx_en),
+      .o_data (mac1_tx_data),
+      .o_eop  (mac1_tx_eop),
+      .o_err  (mac1_tx_err)
   );
 
   // ============================================================
   // eth0 → CPU packet FIFO (125MHz → 50MHz CDC)
   // ============================================================
   package_fifo_v2 #(
-      .dual_clock(1), .addr_width(cpu_buf_addr_width),
+      .dual_clock      (1),
+      .addr_width      (cpu_buf_addr_width),
       .block_addr_width(cpu_buf_block_addr_width),
-      .data_width(cpu_buf_data_width), .para_width(cpu_buf_para_width),
-      .para_ram_type(cpu_buf_para_ram_type), .data_ram_type(cpu_buf_data_ram_type),
-      .max_pkt_length(1518), .block_mode(cpu_buf_block_mode)
+      .data_width      (cpu_buf_data_width),
+      .para_width      (cpu_buf_para_width),
+      .para_ram_type   (cpu_buf_para_ram_type),
+      .data_ram_type   (cpu_buf_data_ram_type),
+      .max_pkt_length  (1518),
+      .block_mode      (cpu_buf_block_mode)
   ) u_pkg_fifo_cpu_rx (
-      .reset_l(reset_l),
-      .wclk(clk), .wclk_en(1'b1), .full(mac0_in_full),
-      .wen(mac0_in_wen), .waddr(mac0_in_waddr), .wdata(mac0_in_wdata),
-      .wpkt_push(mac0_in_wpkt_push), .wpkt_len(mac0_in_wpkt_len),
+      .reset_l  (reset_l),
+      .wclk     (clk),
+      .wclk_en  (1'b1),
+      .full     (mac0_in_full),
+      .wen      (mac0_in_wen),
+      .waddr    (mac0_in_waddr),
+      .wdata    (mac0_in_wdata),
+      .wpkt_push(mac0_in_wpkt_push),
+      .wpkt_len (mac0_in_wpkt_len),
       .wpkt_para(mac0_in_wpkt_para),
-      .rclk(cpu_clk), .rclk_en(1'b1), .empty(cpu_rd_empty),
-      .rpkt_pop(cpu_rd_rpkt_pop), .rpkt_len(cpu_rd_rpkt_len),
+      .rclk     (cpu_clk),
+      .rclk_en  (1'b1),
+      .empty    (cpu_rd_empty),
+      .rpkt_pop (cpu_rd_rpkt_pop),
+      .rpkt_len (cpu_rd_rpkt_len),
       .rpkt_para(cpu_rd_rpkt_para),
-      .ren(cpu_rd_ren), .raddr(cpu_rd_raddr), .rdata(cpu_rd_rdata), .reop_pre(cpu_rd_reop_pre)
+      .ren      (cpu_rd_ren),
+      .raddr    (cpu_rd_raddr),
+      .rdata    (cpu_rd_rdata),
+      .reop_pre (cpu_rd_reop_pre)
   );
 
   // ============================================================
   // CPU TX → eth0 TX path (50MHz → 125MHz CDC)
   // ============================================================
   package_fifo_v2 #(
-      .dual_clock(1), .addr_width(cpu_buf_addr_width),
+      .dual_clock      (1),
+      .addr_width      (cpu_buf_addr_width),
       .block_addr_width(cpu_buf_block_addr_width),
-      .data_width(cpu_buf_data_width), .para_width(cpu_buf_para_width),
-      .para_ram_type(cpu_buf_para_ram_type), .data_ram_type(cpu_buf_data_ram_type),
-      .max_pkt_length(1518), .block_mode(cpu_buf_block_mode)
+      .data_width      (cpu_buf_data_width),
+      .para_width      (cpu_buf_para_width),
+      .para_ram_type   (cpu_buf_para_ram_type),
+      .data_ram_type   (cpu_buf_data_ram_type),
+      .max_pkt_length  (1518),
+      .block_mode      (cpu_buf_block_mode)
   ) u_pkg_fifo_cpu_tx (
-      .reset_l(reset_l),
-      .wclk(cpu_clk), .wclk_en(1'b1), .full(cpu_wr_full),
-      .wen(cpu_wr_wen), .waddr(cpu_wr_waddr), .wdata(cpu_wr_wdata),
-      .wpkt_push(cpu_wr_wpkt_push), .wpkt_len(cpu_wr_wpkt_len),
+      .reset_l  (reset_l),
+      .wclk     (cpu_clk),
+      .wclk_en  (1'b1),
+      .full     (cpu_wr_full),
+      .wen      (cpu_wr_wen),
+      .waddr    (cpu_wr_waddr),
+      .wdata    (cpu_wr_wdata),
+      .wpkt_push(cpu_wr_wpkt_push),
+      .wpkt_len (cpu_wr_wpkt_len),
       .wpkt_para(cpu_wr_wpkt_para),
-      .rclk(clk), .rclk_en(1'b1), .empty(cpu_wr_empty),
-      .rpkt_pop(cpu_tx_rpkt_pop), .rpkt_len(cpu_wr_rpkt_len),
+      .rclk     (clk),
+      .rclk_en  (1'b1),
+      .empty    (cpu_wr_empty),
+      .rpkt_pop (cpu_tx_rpkt_pop),
+      .rpkt_len (cpu_wr_rpkt_len),
       .rpkt_para(cpu_wr_rpkt_para),
-      .ren(cpu_wr_ren), .raddr(cpu_wr_raddr), .rdata(cpu_wr_rdata), .reop_pre()
+      .ren      (cpu_wr_ren),
+      .raddr    (cpu_wr_raddr),
+      .rdata    (cpu_wr_rdata),
+      .reop_pre ()
   );
 
   pktfifo2ram_int_v2 #(
-      .addr_width(cpu_buf_addr_width), .data_width(cpu_buf_data_width),
-      .para_width(cpu_buf_para_width), .ipg(12), .block_mode(cpu_buf_block_mode)
+      .addr_width(cpu_buf_addr_width),
+      .data_width(cpu_buf_data_width),
+      .para_width(cpu_buf_para_width),
+      .ipg       (12),
+      .block_mode(cpu_buf_block_mode)
   ) u_pktfifo2ram_cpu_tx (
-      .reset_l(reset_l), .clk(clk), .clk_en(1'b1),
-      .empty(cpu_wr_empty), .rpkt_pop(cpu_tx_rpkt_pop),
-      .rpkt_len(cpu_wr_rpkt_len), .rpkt_para(cpu_wr_rpkt_para),
-      .ren(cpu_wr_ren), .raddr(cpu_wr_raddr),
-      .rdata(cpu_wr_rdata), .reop_pre(1'b0), .ipg_adjust(0),
-      .ram_wen(eth0_tx_en_s), .ram_wdata(eth0_tx_data_s), .ram_waddr(), .ram_wpara()
+      .reset_l   (reset_l),
+      .clk       (clk),
+      .clk_en    (1'b1),
+      .empty     (cpu_wr_empty),
+      .rpkt_pop  (cpu_tx_rpkt_pop),
+      .rpkt_len  (cpu_wr_rpkt_len),
+      .rpkt_para (cpu_wr_rpkt_para),
+      .ren       (cpu_wr_ren),
+      .raddr     (cpu_wr_raddr),
+      .rdata     (cpu_wr_rdata),
+      .reop_pre  (1'b0),
+      .ipg_adjust(0),
+      .ram_wen   (eth0_tx_en_s),
+      .ram_wdata (eth0_tx_data_s),
+      .ram_waddr (),
+      .ram_wpara ()
   );
 
-  sop_eop_gen #(.data_width(8)) u_sop_eop_eth0 (
-      .clk(clk), .clk_en(1'b1), .reset_l(reset_l),
-      .i_en(eth0_tx_en_s), .i_err(1'b0), .i_data(eth0_tx_data_s),
-      .o_sop(mac0_tx_sop), .o_en(mac0_tx_en), .o_data(mac0_tx_data),
-      .o_eop(mac0_tx_eop), .o_err(mac0_tx_err)
+  sop_eop_gen #(
+      .data_width(8)
+  ) u_sop_eop_eth0 (
+      .clk    (clk),
+      .clk_en (1'b1),
+      .reset_l(reset_l),
+      .i_en   (eth0_tx_en_s),
+      .i_err  (1'b0),
+      .i_data (eth0_tx_data_s),
+      .o_sop  (mac0_tx_sop),
+      .o_en   (mac0_tx_en),
+      .o_data (mac0_tx_data),
+      .o_eop  (mac0_tx_eop),
+      .o_err  (mac0_tx_err)
   );
 
   // ============================================================
@@ -454,9 +608,7 @@ module cpu_channel_tri #(
     end else begin
       if (eth1_fwd_wpkt_push_raw && !eth1_fwd_wpkt_push)
         eth1_rx_drop_cnt_reg <= eth1_rx_drop_cnt_reg + 1;
-      if (mac0_in_wpkt_push && mac0_in_full)
-        recv_pkt_drop_cnt_reg <= recv_pkt_drop_cnt_reg + 1;
+      if (mac0_in_wpkt_push && mac0_in_full) recv_pkt_drop_cnt_reg <= recv_pkt_drop_cnt_reg + 1;
     end
   end
-
 endmodule

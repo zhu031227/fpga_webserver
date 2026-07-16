@@ -9,8 +9,9 @@
 
 module mac_whitelist_top #(
     parameter int LOOKUP_MODE = 0,
-    parameter int ENTRY_NUM   = 16,
-    parameter int ADDR_WIDTH  = 4
+    parameter int ENTRY_NUM = 16,
+    parameter int ADDR_WIDTH = 4,
+    parameter ILA_NUM_CORES = 2  // 内含 2 核（写口 + 读口）
 ) (
     input clk,
     input reset_l,
@@ -34,46 +35,45 @@ module mac_whitelist_top #(
     input whitelist_en,
     input default_pass,
 
-    // fpga_ila 寄存器总线透传（→ mac_whitelist_seq，2核：写口+读口）
-    input  wire [1:0]  ila_reg_we,
-    input  wire [15:0] ila_reg_addr,
-    input  wire [31:0] ila_reg_wdata,
-    output wire [63:0] ila_reg_rdata,
-    input  wire        ila_cross_in,
-    output wire [1:0]  ila_cross_out,
-    input  wire        ila_ext_trig,
-    output wire [1:0]  ila_trig_out
+    // fpga_ila 调试总线（透传到 mac_whitelist_seq）
+    input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
+    input  wire [                15:0] ila_core_addr,
+    input  wire [                31:0] ila_core_wdata,
+    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
+    output wire [   ILA_NUM_CORES-1:0] ila_core_cross,
+    input  wire                        ila_cross_in,
+    output wire [   ILA_NUM_CORES-1:0] ila_core_trig
 );
 
   generate
     if (LOOKUP_MODE == 0) begin : g_mode_seq
       mac_whitelist_seq #(
-          .ENTRY_NUM (ENTRY_NUM),
-          .ADDR_WIDTH(ADDR_WIDTH)
+          .ENTRY_NUM(ENTRY_NUM),
+          .ADDR_WIDTH(ADDR_WIDTH),
+          .ILA_NUM_CORES(ILA_NUM_CORES)
       ) u_lookup (
-          .clk         (clk),
-          .reset_l     (reset_l),
-          .lookup_req  (lookup_req),
-          .lookup_mac  (lookup_mac),
-          .lookup_match(lookup_match),
-          .lookup_done (lookup_done),
-          .lookup_busy (lookup_busy),
-          .cfg_clk     (cfg_clk),
-          .cfg_reset_l (cfg_reset_l),
-          .cfg_rlwh    (cfg_rlwh),
-          .cfg_addr    (cfg_addr),
-          .cfg_wdata   (cfg_wdata),
-          .cfg_rdata   (cfg_rdata),
-          .whitelist_en(whitelist_en),
-          .default_pass(default_pass),
-          .ila_reg_we    (ila_reg_we),
-          .ila_reg_addr  (ila_reg_addr),
-          .ila_reg_wdata (ila_reg_wdata),
-          .ila_reg_rdata (ila_reg_rdata),
+          .clk           (clk),
+          .reset_l       (reset_l),
+          .lookup_req    (lookup_req),
+          .lookup_mac    (lookup_mac),
+          .lookup_match  (lookup_match),
+          .lookup_done   (lookup_done),
+          .lookup_busy   (lookup_busy),
+          .cfg_clk       (cfg_clk),
+          .cfg_reset_l   (cfg_reset_l),
+          .cfg_rlwh      (cfg_rlwh),
+          .cfg_addr      (cfg_addr),
+          .cfg_wdata     (cfg_wdata),
+          .cfg_rdata     (cfg_rdata),
+          .whitelist_en  (whitelist_en),
+          .default_pass  (default_pass),
+          .ila_core_we   (ila_core_we),
+          .ila_core_addr (ila_core_addr),
+          .ila_core_wdata(ila_core_wdata),
+          .ila_core_rdata(ila_core_rdata),
+          .ila_core_cross(ila_core_cross),
           .ila_cross_in  (ila_cross_in),
-          .ila_cross_out (ila_cross_out),
-          .ila_ext_trig  (ila_ext_trig),
-          .ila_trig_out  (ila_trig_out)
+          .ila_core_trig (ila_core_trig)
       );
     end else begin : g_mode_placeholder
       // Placeholder: tie off lookup outputs

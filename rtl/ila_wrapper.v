@@ -26,8 +26,8 @@
 // ====================================================================
 
 module ila_wrapper #(
-    parameter DATA_DEPTH   = 1024,    // 采样深度: 1024/2048/4096/8192/16384/32768/65536/131072
-    parameter NUM_PROBES   = 1,
+    parameter DATA_DEPTH = 1024,  // 采样深度: 1024/2048/4096/8192/16384/32768/65536/131072
+    parameter NUM_PROBES = 1,
     parameter PROBE0_WIDTH = 1,
     parameter PROBE1_WIDTH = 1,
     parameter PROBE2_WIDTH = 1,
@@ -56,16 +56,16 @@ module ila_wrapper #(
 ) (
     input clk,
 
-    input [PROBE0_WIDTH -1:0] probe0  = '0,
-    input [PROBE1_WIDTH -1:0] probe1  = '0,
-    input [PROBE2_WIDTH -1:0] probe2  = '0,
-    input [PROBE3_WIDTH -1:0] probe3  = '0,
-    input [PROBE4_WIDTH -1:0] probe4  = '0,
-    input [PROBE5_WIDTH -1:0] probe5  = '0,
-    input [PROBE6_WIDTH -1:0] probe6  = '0,
-    input [PROBE7_WIDTH -1:0] probe7  = '0,
-    input [PROBE8_WIDTH -1:0] probe8  = '0,
-    input [PROBE9_WIDTH -1:0] probe9  = '0,
+    input [PROBE0_WIDTH -1:0] probe0 = '0,
+    input [PROBE1_WIDTH -1:0] probe1 = '0,
+    input [PROBE2_WIDTH -1:0] probe2 = '0,
+    input [PROBE3_WIDTH -1:0] probe3 = '0,
+    input [PROBE4_WIDTH -1:0] probe4 = '0,
+    input [PROBE5_WIDTH -1:0] probe5 = '0,
+    input [PROBE6_WIDTH -1:0] probe6 = '0,
+    input [PROBE7_WIDTH -1:0] probe7 = '0,
+    input [PROBE8_WIDTH -1:0] probe8 = '0,
+    input [PROBE9_WIDTH -1:0] probe9 = '0,
     input [PROBE10_WIDTH-1:0] probe10 = '0,
     input [PROBE11_WIDTH-1:0] probe11 = '0,
     input [PROBE12_WIDTH-1:0] probe12 = '0,
@@ -223,5 +223,4 @@ module ila_wrapper #(
       assign dbg24 = probe24;
     end
   endgenerate
-
 endmodule
