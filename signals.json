@@ -1,0 +1,104 @@
+{
+  "project": "fpga_webserver",
+  "cores": [
+    {
+      "core_id": 0,
+      "name": "u_ila_sflash_boot",
+      "sample_clock_hz": 50000000,
+      "data_depth": 1024,
+      "max_windows": 2,
+      "probes": [
+        {
+          "name": "sflash_op_req",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "sflash_wrl_rdh",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "sflash_address",
+          "width": 12,
+          "radix": "hex"
+        },
+        {
+          "name": "sflash_wrdata",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "sflash_rddata",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "sflash_op_ack",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bootloader_trigger_ind",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bootloader_flash_addr",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "bootloader_length",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "bootloader_status",
+          "width": 3,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_pram_wr",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bl_pram_addr",
+          "width": 13,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_pram_wdata",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_spi_op_start",
+          "width": 1,
+          "radix": "bin"
+        },
+        {
+          "name": "bl_spi_channel_len",
+          "width": 16,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_spi_wdata",
+          "width": 64,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_spi_rdata",
+          "width": 32,
+          "radix": "hex"
+        },
+        {
+          "name": "bl_spi_op_done",
+          "width": 1,
+          "radix": "bin"
+        }
+      ]
+    }
+  ]
+}

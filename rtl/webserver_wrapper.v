@@ -32,7 +32,7 @@ module webserver_wrapper #(
     parameter cpu_buf_data_ram_type = "block",
     parameter cpu_buf_para_ram_type = "distributed",
     parameter int stat_cnt_en = 1,
-    parameter ILA_NUM_CORES = 3  // fpga_ila 核数（透传到顶层）
+    parameter ILA_NUM_CORES = 4  // fpga_ila 核数（透传到顶层）
 ) (
     input reset_l,
     input clk_50mhz,
@@ -312,7 +312,7 @@ module webserver_wrapper #(
   // ============================================================
   // ============================================================
   // fpga_ila 调试总线（透传：顶层 ila_hub_top ↔ 子模块 + 本地核）
-  //   mac_whitelist_top 内含 2 核 + 本文件 1 核 = ILA_NUM_CORES=3
+  //   mac_whitelist_top 内含 2 核 + 本文件 1 核 = ILA_NUM_CORES=4
   // ============================================================
 
   // ── fpga_ila 内部总线（始终存在，CORE_EN 控制各核使能）──
@@ -965,7 +965,7 @@ module webserver_wrapper #(
 
   // ILA Core 2: Whitelist lookup monitor (depth=2048, clk=125MHz)
   soft_ila_top #(
-      .CORE_EN       (0),
+      .CORE_EN       (1),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (125_000_000),
@@ -995,6 +995,64 @@ module webserver_wrapper #(
       .reg_addr      (ila_w_addr),
       .reg_wdata     (ila_w_wdata),
       .reg_rdata     (ila_w_rdata[2*32+:32])
+  );
+
+  // ILA Core 3: sflash + bootloader debug (depth=1024, clk=50MHz)
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (1024),
+      .MAX_WINDOWS   (2),
+      .SAMPLE_HZ     (50_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (18),
+      .PROBE0_WIDTH  (1),
+      .PROBE1_WIDTH  (1),
+      .PROBE2_WIDTH  (12),
+      .PROBE3_WIDTH  (32),
+      .PROBE4_WIDTH  (32),
+      .PROBE5_WIDTH  (1),
+      .PROBE6_WIDTH  (1),
+      .PROBE7_WIDTH  (32),
+      .PROBE8_WIDTH  (32),
+      .PROBE9_WIDTH  (3),
+      .PROBE10_WIDTH (1),
+      .PROBE11_WIDTH (13),
+      .PROBE12_WIDTH (32),
+      .PROBE13_WIDTH (1),
+      .PROBE14_WIDTH (16),
+      .PROBE15_WIDTH (64),
+      .PROBE16_WIDTH (32),
+      .PROBE17_WIDTH (1)
+  ) u_ila_sflash_boot (
+      .sample_clk    (clk_50mhz),
+      .rst_in        (reset_l),
+      .probe0        (sflash_op_req),
+      .probe1        (sflash_wrl_rdh),
+      .probe2        (sflash_address),
+      .probe3        (sflash_wrdata),
+      .probe4        (sflash_rddata),
+      .probe5        (sflash_op_ack),
+      .probe6        (bootloader_trigger_ind),
+      .probe7        (bootloader_flash_addr),
+      .probe8        (bootloader_length),
+      .probe9        (bootloader_status),
+      .probe10       (bl_pram_wr),
+      .probe11       (bl_pram_addr),
+      .probe12       (bl_pram_wdata),
+      .probe13       (bl_spi_op_start),
+      .probe14       (bl_spi_channel_len),
+      .probe15       (bl_spi_wdata),
+      .probe16       (bl_spi_rdata),
+      .probe17       (bl_spi_op_done),
+      .ext_trig_in   (1'b0),
+      .trig_out      (ila_w_trig[3]),
+      .cross_trig_in (ila_w_cross_in),
+      .cross_trig_out(ila_w_cross[3]),
+      .reg_we        (ila_w_we[3]),
+      .reg_re        (1'b1),
+      .reg_addr      (ila_w_addr),
+      .reg_wdata     (ila_w_wdata),
+      .reg_rdata     (ila_w_rdata[3*32+:32])
   );
 
   // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──
