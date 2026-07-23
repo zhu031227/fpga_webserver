@@ -38,10 +38,7 @@ module mac_whitelist_seq #(
     input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
     input  wire [                15:0] ila_core_addr,
     input  wire [                31:0] ila_core_wdata,
-    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_cross,
-    input  wire                        ila_cross_in,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_trig
+    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata
 );
 
   // ============================================================
@@ -291,10 +288,6 @@ module mac_whitelist_seq #(
       .probe4        (sh_wr_en),
       .probe5        (sh_wr_addr),
       .probe6        (sh_wr_data),
-      .ext_trig_in   (1'b0),
-      .trig_out      (ila_core_trig[0]),
-      .cross_trig_in (ila_cross_in),
-      .cross_trig_out(ila_core_cross[0]),
       .reg_we        (ila_core_we[0]),
       .reg_re        (1'b1),
       .reg_addr      (ila_core_addr),
@@ -341,10 +334,6 @@ module mac_whitelist_seq #(
       .rst_in        (reset_l),
       .probe0        (bram_rd_addr),
       .probe1        (bram_rd_data),
-      .ext_trig_in   (1'b0),
-      .trig_out      (ila_core_trig[1]),
-      .cross_trig_in (ila_cross_in),
-      .cross_trig_out(ila_core_cross[1]),
       .reg_we        (ila_core_we[1]),
       .reg_re        (1'b1),
       .reg_addr      (ila_core_addr),

@@ -39,10 +39,7 @@ module mac_whitelist_top #(
     input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
     input  wire [                15:0] ila_core_addr,
     input  wire [                31:0] ila_core_wdata,
-    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_cross,
-    input  wire                        ila_cross_in,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_trig
+    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata
 );
 
   generate
@@ -70,10 +67,7 @@ module mac_whitelist_top #(
           .ila_core_we   (ila_core_we),
           .ila_core_addr (ila_core_addr),
           .ila_core_wdata(ila_core_wdata),
-          .ila_core_rdata(ila_core_rdata),
-          .ila_core_cross(ila_core_cross),
-          .ila_cross_in  (ila_cross_in),
-          .ila_core_trig (ila_core_trig)
+          .ila_core_rdata(ila_core_rdata)
       );
     end else begin : g_mode_placeholder
       // Placeholder: tie off lookup outputs

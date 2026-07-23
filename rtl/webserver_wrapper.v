@@ -93,9 +93,6 @@ module webserver_wrapper #(
     input  wire [                15:0] ila_core_addr,
     input  wire [                31:0] ila_core_wdata,
     output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_cross,
-    input  wire                        ila_cross_in,
-    output wire [   ILA_NUM_CORES-1:0] ila_core_trig,
 
     output [3:0] eth_greset,
     output [3:0] led
@@ -320,8 +317,6 @@ module webserver_wrapper #(
   wire [                15:0] ila_w_addr;
   wire [                31:0] ila_w_wdata;
   wire [ILA_NUM_CORES*32-1:0] ila_w_rdata;
-  wire [ILA_NUM_CORES-1:0] ila_w_cross, ila_w_trig;
-  wire ila_w_cross_in;
   assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
   // ============================================================
@@ -937,12 +932,9 @@ module webserver_wrapper #(
   assign debug_ro_1     = eth1_rx_drop_cnt;
 
   assign ila_core_rdata = ila_w_rdata;
-  assign ila_core_cross = ila_w_cross;
-  assign ila_core_trig  = ila_w_trig;
   assign ila_w_we       = ila_core_we;
   assign ila_w_addr     = ila_core_addr;
   assign ila_w_wdata    = ila_core_wdata;
-  assign ila_w_cross_in = ila_cross_in;
 
   // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
@@ -986,10 +978,6 @@ module webserver_wrapper #(
       .probe3        (wl_lookup_done),
       .probe4        (wl_lookup_busy),
       .probe5        (wl_ctrl_125m),
-      .ext_trig_in   (1'b0),
-      .trig_out      (ila_w_trig[2]),
-      .cross_trig_in (ila_w_cross_in),
-      .cross_trig_out(ila_w_cross[2]),
       .reg_we        (ila_w_we[2]),
       .reg_re        (1'b1),
       .reg_addr      (ila_w_addr),
@@ -1044,10 +1032,6 @@ module webserver_wrapper #(
       .probe15       (bl_spi_wdata),
       .probe16       (bl_spi_rdata),
       .probe17       (bl_spi_op_done),
-      .ext_trig_in   (1'b0),
-      .trig_out      (ila_w_trig[3]),
-      .cross_trig_in (ila_w_cross_in),
-      .cross_trig_out(ila_w_cross[3]),
       .reg_we        (ila_w_we[3]),
       .reg_re        (1'b1),
       .reg_addr      (ila_w_addr),
@@ -1080,10 +1064,7 @@ module webserver_wrapper #(
       .ila_core_we   (ila_w_we[1:0]),
       .ila_core_addr (ila_w_addr),
       .ila_core_wdata(ila_w_wdata),
-      .ila_core_rdata(ila_w_rdata[63:0]),
-      .ila_cross_in  (ila_w_cross_in),
-      .ila_core_cross(ila_w_cross[1:0]),
-      .ila_core_trig (ila_w_trig[1:0])
+      .ila_core_rdata(ila_w_rdata[63:0])
   );
 
   // ============================================================

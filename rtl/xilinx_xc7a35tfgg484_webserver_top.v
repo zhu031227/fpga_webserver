@@ -123,8 +123,6 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   wire [                15:0] ila_core_addr;
   wire [                31:0] ila_core_wdata;
   wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
-  wire [ILA_NUM_CORES-1:0] ila_core_cross, ila_core_trig;
-  wire ila_cross_in;
 
   // --- Reset controller ---
   clk_rst_ctrl #(
@@ -240,12 +238,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
           .core_reg_we   (ila_core_we),
           .core_reg_addr (ila_core_addr),
           .core_reg_wdata(ila_core_wdata),
-          .core_reg_rdata(ila_core_rdata),
-          .core_cross_out(ila_core_cross),
-          .core_cross_in (ila_cross_in),
-          .core_trig_out (ila_core_trig),
-          .ext_trig_in   (1'b0),
-          .trig_out      ()
+          .core_reg_rdata(ila_core_rdata)
       );
     end
   endgenerate
@@ -332,9 +325,6 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .ila_core_we   (ila_core_we),
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
-      .ila_core_rdata(ila_core_rdata),
-      .ila_core_cross(ila_core_cross),
-      .ila_cross_in  (ila_cross_in),
-      .ila_core_trig (ila_core_trig)
+      .ila_core_rdata(ila_core_rdata)
   );
 endmodule
