@@ -307,6 +307,7 @@ if {[llength \$sv_files] > 0} {
 }
 set_property include_dirs [list \
     [file normalize "\$proj_dir/rtl"] \
+    [file normalize "\$proj_dir/ip_common/rtl"] \
     [file normalize "\$proj_dir/fpga_ila/rtl"] \
 ] [current_fileset]
 
