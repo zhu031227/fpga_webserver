@@ -265,7 +265,7 @@ module mac_whitelist_seq #(
   //   采样时钟统一用 clk(125MHz)，cfg_clk 域信号被过采样(波形中见连续重复值)
   // ============================================================
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (1024),
       .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (125_000_000),
