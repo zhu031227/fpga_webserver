@@ -88,7 +88,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   // fpga_ila 调试系统（UART 模式，复用顶层 uart_rx/uart_tx）
   // ============================================================
-  localparam ILA_NUM_CORES = 4;  // mac_whitelist 2 核 + wl_lookup 1 核 + sflash_boot 1 核
+  localparam ILA_NUM_CORES = 5;  // mac_whitelist 2 核 + wl_lookup 1 核 + sflash_boot 1 核 + local_time 1 核
 
   // --- Reset / PLL ---
   wire reset_l_synced;
