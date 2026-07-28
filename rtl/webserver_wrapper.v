@@ -987,7 +987,8 @@ module webserver_wrapper #(
   mac_whitelist_top #(
       .LOOKUP_MODE(0),
       .ENTRY_NUM(16),
-      .ADDR_WIDTH(4)
+      .ADDR_WIDTH(4),
+      .ILA_NUM_CORES(2)
   ) u_mac_wl (
       .clk(clk_125mhz),
       .reset_l(reset_l),
@@ -1003,7 +1004,11 @@ module webserver_wrapper #(
       .cfg_wdata(wl_ram_wrdata),
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
-      .default_pass(wl_ctrl_125m[1])
+      .default_pass(wl_ctrl_125m[1]),
+      .ila_core_we   (2'b00),
+      .ila_core_addr (16'h0),
+      .ila_core_wdata(32'h0),
+      .ila_core_rdata()
   );
 
   // ============================================================
