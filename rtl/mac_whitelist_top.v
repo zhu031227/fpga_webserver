@@ -11,7 +11,6 @@ module mac_whitelist_top #(
     parameter int LOOKUP_MODE = 0,
     parameter int ENTRY_NUM = 16,
     parameter int ADDR_WIDTH = 4,
-    parameter ILA_NUM_CORES = 2  // 内含 2 核（写口 + 读口）
 ) (
     input clk,
     input reset_l,
@@ -33,21 +32,14 @@ module mac_whitelist_top #(
 
     // Global control
     input whitelist_en,
-    input default_pass,
-
-    // fpga_ila 调试总线（透传到 mac_whitelist_seq）
-    input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
-    input  wire [                15:0] ila_core_addr,
-    input  wire [                31:0] ila_core_wdata,
-    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata
+    input default_pass
 );
 
   generate
     if (LOOKUP_MODE == 0) begin : g_mode_seq
       mac_whitelist_seq #(
           .ENTRY_NUM(ENTRY_NUM),
-          .ADDR_WIDTH(ADDR_WIDTH),
-          .ILA_NUM_CORES(ILA_NUM_CORES)
+          .ADDR_WIDTH(ADDR_WIDTH)
       ) u_lookup (
           .clk           (clk),
           .reset_l       (reset_l),
@@ -63,11 +55,7 @@ module mac_whitelist_top #(
           .cfg_wdata     (cfg_wdata),
           .cfg_rdata     (cfg_rdata),
           .whitelist_en  (whitelist_en),
-          .default_pass  (default_pass),
-          .ila_core_we   (ila_core_we),
-          .ila_core_addr (ila_core_addr),
-          .ila_core_wdata(ila_core_wdata),
-          .ila_core_rdata(ila_core_rdata)
+          .default_pass  (default_pass)
       );
     end else begin : g_mode_placeholder
       // Placeholder: tie off lookup outputs

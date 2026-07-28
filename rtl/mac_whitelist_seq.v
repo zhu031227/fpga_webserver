@@ -11,7 +11,6 @@
 module mac_whitelist_seq #(
     parameter int ENTRY_NUM = 16,
     parameter int ADDR_WIDTH = 4,  // $clog2(ENTRY_NUM)
-    parameter ILA_NUM_CORES = 2  // fpga_ila 调试核数（写口+读口）
 ) (
     input clk,
     input reset_l,
@@ -34,11 +33,6 @@ module mac_whitelist_seq #(
     input whitelist_en,
     input default_pass,
 
-    // fpga_ila 调试总线
-    input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
-    input  wire [                15:0] ila_core_addr,
-    input  wire [                31:0] ila_core_wdata,
-    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata
 );
 
   // ============================================================
@@ -260,41 +254,6 @@ module mac_whitelist_seq #(
   assign sh_wr_addr = (clear_active) ? clear_cnt : sh_wr_addr_r;
   assign sh_wr_data = (clear_active) ? 49'b0 : sh_wr_data_r;
 
-  // ============================================================
-  // ILA Core 0: BRAM/shadow write port monitor (depth=1024)
-  //   采样时钟统一用 clk(125MHz)，cfg_clk 域信号被过采样(波形中见连续重复值)
-  // ============================================================
-  soft_ila_top #(
-      .CORE_EN       (0),
-      .DATA_DEPTH    (1024),
-      .MAX_WINDOWS   (4),
-      .SAMPLE_HZ     (125_000_000),
-      .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (7),
-      .PROBE0_WIDTH  (1),
-      .PROBE1_WIDTH  (1),
-      .PROBE2_WIDTH  (ADDR_WIDTH),
-      .PROBE3_WIDTH  (49),
-      .PROBE4_WIDTH  (1),
-      .PROBE5_WIDTH  (ADDR_WIDTH),
-      .PROBE6_WIDTH  (49)
-  ) u_ila_wr (
-      .sample_clk    (clk),
-      .rst_in        (reset_l),
-      .probe0        (clear_active),
-      .probe1        (bram_wr_en),
-      .probe2        (bram_wr_addr),
-      .probe3        (bram_wr_data),
-      .probe4        (sh_wr_en),
-      .probe5        (sh_wr_addr),
-      .probe6        (sh_wr_data),
-      .reg_we        (ila_core_we[0]),
-      .reg_re        (1'b1),
-      .reg_addr      (ila_core_addr),
-      .reg_wdata     (ila_core_wdata),
-      .reg_rdata     (ila_core_rdata[0*32+:32])
-  );
-
   assign bram_rd_addr = (state == S_COMPARE) ? cmp_index : {ADDR_WIDTH{1'b0}};
 
   // ============================================================
@@ -315,30 +274,6 @@ module mac_whitelist_seq #(
       .address_a(bram_wr_addr),
       .address_b(bram_rd_addr),
       .q_b(bram_rd_data)
-  );
-
-  // ============================================================
-  // ILA Core 1: BRAM read port monitor (depth=1024, clk=125MHz)
-  // ============================================================
-  soft_ila_top #(
-      .CORE_EN       (0),
-      .DATA_DEPTH    (1024),
-      .MAX_WINDOWS   (4),
-      .SAMPLE_HZ     (125_000_000),
-      .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (2),
-      .PROBE0_WIDTH  (4),
-      .PROBE1_WIDTH  (49)
-  ) u_ila_bram (
-      .sample_clk    (clk),
-      .rst_in        (reset_l),
-      .probe0        (bram_rd_addr),
-      .probe1        (bram_rd_data),
-      .reg_we        (ila_core_we[1]),
-      .reg_re        (1'b1),
-      .reg_addr      (ila_core_addr),
-      .reg_wdata     (ila_core_wdata),
-      .reg_rdata     (ila_core_rdata[1*32+:32])
   );
 
   // ============================================================
