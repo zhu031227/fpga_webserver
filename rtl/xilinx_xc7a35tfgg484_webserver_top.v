@@ -221,7 +221,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   assign gmii1_rx_clk = clk_125m;
   assign gmii2_rx_clk = clk_125m;
 
-  // FPGA debug chain (ila_hub_top, TRANSPORT=JTAG, internal BSCANE2 on USER1)
+  // FPGA debug chain (ila_hub_top, TRANSPORT=JTAG, BSCANE2 on USER4)
   ila_hub_top #(
       .TRANSPORT (2),              // JTAG mode
       .NUM_CORES (ILA_NUM_CORES)
