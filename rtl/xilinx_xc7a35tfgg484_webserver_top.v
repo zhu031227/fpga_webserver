@@ -224,9 +224,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // FPGA debug chain (ila_hub_top, TRANSPORT=JTAG, internal BSCANE2 on USER1)
   ila_hub_top #(
       .TRANSPORT (2),              // JTAG mode
-      .NUM_CORES (ILA_NUM_CORES),
-      .SAMPLE_W  (64),
-      .DEPTH     (1024)
+      .NUM_CORES (ILA_NUM_CORES)
   ) u_ila_debug (
       .clk           (clk_50m),
       .rst           (~reset_l_synced),
