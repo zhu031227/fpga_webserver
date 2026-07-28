@@ -290,7 +290,7 @@ puts "Found [llength \$file_list] source files"
 foreach f \$file_list {
     if {[string match "*.xci" \$f]} { continue }
     set r [file normalize "\$proj_dir/\$f"]
-    if {[file exists \$r]} { add_files -norecurse \$r } else { puts "  [WARN] Not found: \$f" }
+    if {[file exists \$r]} { add_files -norecurse \$r } else { puts "  \\[WARN] Not found: \$f" }
 }
 foreach f \$xci_list {
     set r [file normalize "\$proj_dir/\$f"]
