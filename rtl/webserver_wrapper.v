@@ -987,7 +987,7 @@ module webserver_wrapper #(
   mac_whitelist_top #(
       .LOOKUP_MODE(0),
       .ENTRY_NUM(16),
-      .ADDR_WIDTH(4),
+      .ADDR_WIDTH(4)
   ) u_mac_wl (
       .clk(clk_125mhz),
       .reset_l(reset_l),
