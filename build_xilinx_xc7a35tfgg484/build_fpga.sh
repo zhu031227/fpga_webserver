@@ -388,14 +388,6 @@ if [ -f "${GEN_SIGNALS_PY}" ]; then
         if [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
             cp "${SIGNALS_JSON}" "${PROJ_DIR}/fpga_ila/windows_portable/webserver_signals.json"
             echo "  ✓ webserver_signals.json → windows_portable/"
-            # Sync latest host + GUI Python files to windows_portable
-            rsync -a --delete \
-                "${PROJ_DIR}/fpga_ila/host/" \
-                "${PROJ_DIR}/fpga_ila/windows_portable/host/"
-            rsync -a --delete \
-                "${PROJ_DIR}/fpga_ila/gui/" \
-                "${PROJ_DIR}/fpga_ila/windows_portable/gui/"
-            echo "  ✓ host/ + gui/ → windows_portable/"
         fi
     else
         echo "  [WARN] gen_signals.py ran but no output"
