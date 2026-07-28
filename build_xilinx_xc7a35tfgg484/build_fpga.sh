@@ -170,6 +170,8 @@ clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
 clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
 clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
 clone_repo_full "fpga_ila"
+# Checkout fcapz_ela_enhance branch (fcapz-based ILA with JTAG support)
+cd "${PROJ_DIR}/fpga_ila" && git checkout fcapz_ela_enhance && cd - > /dev/null
 echo "[STEP 3/8] Done."
 
 #--------------------------------------------------------------------
@@ -309,6 +311,8 @@ set_property include_dirs [list \
     [file normalize "\$proj_dir/rtl"] \
     [file normalize "\$proj_dir/ip_common/rtl"] \
     [file normalize "\$proj_dir/fpga_ila/rtl"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl/fcapz"] \
+    [file normalize "\$proj_dir/fpga_ila/rtl/fcapz/jtag"] \
 ] [current_fileset]
 
 set_property top \$top_module [current_fileset]

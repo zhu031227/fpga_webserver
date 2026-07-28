@@ -321,7 +321,7 @@ module mac_whitelist_seq #(
   // ILA Core 1: BRAM read port monitor (depth=1024, clk=125MHz)
   // ============================================================
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (1024),
       .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (125_000_000),

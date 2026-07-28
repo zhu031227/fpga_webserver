@@ -86,9 +86,9 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int stat_cnt_en = 1;
 
   // ============================================================
-  // fpga_ila 调试系统（UART 模式，复用顶层 uart_rx/uart_tx）
+  // fpga_ila 调试系统（JTAG 模式，ila_hub_top_jtag + soft_ila_top_fcapz）
   // ============================================================
-  localparam ILA_NUM_CORES = 5;  // mac_whitelist 2 核 + wl_lookup 1 核 + sflash_boot 1 核 + local_time 1 核
+  localparam ILA_NUM_CORES = 1;  // 仅 local_time 核
 
   // --- Reset / PLL ---
   wire reset_l_synced;
@@ -119,10 +119,13 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   wire eth1_mdc, eth2_mdc;
   wire eth1_mdio, eth2_mdio;
 
-  wire [   ILA_NUM_CORES-1:0] ila_core_we;
-  wire [                15:0] ila_core_addr;
-  wire [                31:0] ila_core_wdata;
-  wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
+  wire        ila_core_we;
+  wire        ila_core_re;
+  wire [15:0] ila_core_addr;
+  wire [31:0] ila_core_wdata;
+  wire [31:0] ila_core_rdata;
+  wire        ila_jtag_clk;
+  wire        ila_jtag_rst;
 
   // --- Reset controller ---
   clk_rst_ctrl #(
@@ -218,30 +221,22 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   assign gmii1_rx_clk = clk_125m;
   assign gmii2_rx_clk = clk_125m;
 
-  generate
-    if (ILA_NUM_CORES > 0) begin : g_ila_debug
-      ila_hub_top #(
-          .TRANSPORT (0),              // 0=UART, 1=ETH
-          .NUM_CORES (ILA_NUM_CORES),
-          .ILA_CLK_HZ(125_000_000),
-          .ILA_BAUD  (115200)
-      ) u_ila_debug (
-          .clk           (clk_125m),
-          .rst           (~reset_l_synced),
-          .uart_rxd      (uart_rx),
-          .uart_txd      (uart_tx),
-          .gmii_rxd      (8'h0),
-          .gmii_rx_dv    (1'b0),
-          .gmii_txd      (),
-          .gmii_tx_en    (),
-          .gmii_gtx_clk  (),
-          .core_reg_we   (ila_core_we),
-          .core_reg_addr (ila_core_addr),
-          .core_reg_wdata(ila_core_wdata),
-          .core_reg_rdata(ila_core_rdata)
-      );
-    end
-  endgenerate
+  // JTAG debug chain (ila_hub_top_jtag uses internal BSCANE2 on USER1)
+  ila_hub_top_jtag #(
+      .NUM_CORES (ILA_NUM_CORES),
+      .SAMPLE_W  (64),         // max sample width (6 probes: 1+1+32+32+32+1=... < 128)
+      .DEPTH     (1024)
+  ) u_ila_debug (
+      .clk           (clk_50m),
+      .rst           (~reset_l_synced),
+      .core_reg_we   (ila_core_we),
+      .core_reg_re   (ila_core_re),
+      .core_reg_addr (ila_core_addr),
+      .core_reg_wdata(ila_core_wdata),
+      .core_reg_rdata(ila_core_rdata),
+      .core_jtag_clk (ila_jtag_clk),
+      .core_jtag_rst (ila_jtag_rst)
+  );
 
   // --- Webserver core ---
   webserver_wrapper #(
@@ -321,8 +316,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
       .led(led_o),
 
-      // fpga_ila 调试总线
+      // fpga_ila JTAG 调试总线
+      .ila_jtag_clk  (ila_jtag_clk),
+      .ila_jtag_rst  (ila_jtag_rst),
       .ila_core_we   (ila_core_we),
+      .ila_core_re   (ila_core_re),
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
       .ila_core_rdata(ila_core_rdata)

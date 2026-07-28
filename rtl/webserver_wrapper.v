@@ -32,7 +32,7 @@ module webserver_wrapper #(
     parameter cpu_buf_data_ram_type = "block",
     parameter cpu_buf_para_ram_type = "distributed",
     parameter int stat_cnt_en = 1,
-    parameter ILA_NUM_CORES = 5  // fpga_ila 核数（透传到顶层）
+    parameter ILA_NUM_CORES = 1  // fpga_ila 核数（仅 local_time，JTAG 模式）
 ) (
     input reset_l,
     input clk_50mhz,
@@ -88,11 +88,14 @@ module webserver_wrapper #(
     output flash_wp_n,
     output flash_rst_n,
 
-    // fpga_ila 调试总线（透传到顶层 ila_hub_top）
-    input  wire [   ILA_NUM_CORES-1:0] ila_core_we,
-    input  wire [                15:0] ila_core_addr,
-    input  wire [                31:0] ila_core_wdata,
-    output wire [ILA_NUM_CORES*32-1:0] ila_core_rdata,
+    // fpga_ila JTAG 调试总线（透传到顶层 ila_hub_top_jtag）
+    input  wire        ila_jtag_clk,
+    input  wire        ila_jtag_rst,
+    input  wire        ila_core_we,
+    input  wire        ila_core_re,
+    input  wire [15:0] ila_core_addr,
+    input  wire [31:0] ila_core_wdata,
+    output wire [31:0] ila_core_rdata,
 
     output [3:0] eth_greset,
     output [3:0] led
@@ -308,15 +311,8 @@ module webserver_wrapper #(
 
   // ============================================================
   // ============================================================
-  // fpga_ila 调试总线（透传：顶层 ila_hub_top ↔ 子模块 + 本地核）
-  //   mac_whitelist_top 内含 2 核 + 本文件 3 核 = ILA_NUM_CORES=5
+  // fpga_ila JTAG 调试（ila_hub_top_jtag → soft_ila_top_fcapz，仅 1 核）
   // ============================================================
-
-  // ── fpga_ila 内部总线（始终存在，CORE_EN 控制各核使能）──
-  wire [   ILA_NUM_CORES-1:0] ila_w_we;
-  wire [                15:0] ila_w_addr;
-  wire [                31:0] ila_w_wdata;
-  wire [ILA_NUM_CORES*32-1:0] ila_w_rdata;
   assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
   // ============================================================
@@ -931,10 +927,7 @@ module webserver_wrapper #(
   assign debug_ro_0     = {24'b0, recv_pkt_drop_cnt};
   assign debug_ro_1     = eth1_rx_drop_cnt;
 
-  assign ila_core_rdata = ila_w_rdata;
-  assign ila_w_we       = ila_core_we;
-  assign ila_w_addr     = ila_core_addr;
-  assign ila_w_wdata    = ila_core_wdata;
+  // ILA reg bus now connects directly to soft_ila_top_fcapz (no internal mux needed)
 
   // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
@@ -955,86 +948,39 @@ module webserver_wrapper #(
       .pulse_b(wl_manual_lookup_pulse)
   );
 
-  // ILA Core 2: Whitelist lookup monitor (depth=2048, clk=125MHz)
-  soft_ila_top #(
-      .CORE_EN       (0),
-      .DATA_DEPTH    (2048),
-      .MAX_WINDOWS   (4),
-      .SAMPLE_HZ     (125_000_000),
-      .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (6),
-      .PROBE0_WIDTH  (1),
-      .PROBE1_WIDTH  (48),
-      .PROBE2_WIDTH  (1),
-      .PROBE3_WIDTH  (1),
-      .PROBE4_WIDTH  (1),
-      .PROBE5_WIDTH  (2)
-  ) u_ila_wl_lookup (
-      .sample_clk    (clk_125mhz),
-      .rst_in        (reset_l),
-      .probe0        (wl_lookup_req_combined),
-      .probe1        (wl_lookup_mac),
-      .probe2        (wl_lookup_match),
-      .probe3        (wl_lookup_done),
-      .probe4        (wl_lookup_busy),
-      .probe5        (wl_ctrl_125m),
-      .reg_we        (ila_w_we[2]),
-      .reg_re        (1'b1),
-      .reg_addr      (ila_w_addr),
-      .reg_wdata     (ila_w_wdata),
-      .reg_rdata     (ila_w_rdata[2*32+:32])
-  );
-
-  // ILA Core 3: sflash + bootloader debug (depth=1024, clk=50MHz)
-  soft_ila_top #(
+  // ILA Core: local_time debug (fcapz_ela, JTAG mode, depth=1024, clk=50MHz)
+  soft_ila_top_fcapz #(
       .CORE_EN       (1),
       .DATA_DEPTH    (1024),
-      .MAX_WINDOWS   (2),
+      .MAX_WINDOWS   (1),
       .SAMPLE_HZ     (50_000_000),
       .RST_ACTIVE_LOW(1),
       .NUM_PROBES    (6),
       .PROBE0_WIDTH  (1),
       .PROBE1_WIDTH  (1),
-      .PROBE2_WIDTH  (12),
+      .PROBE2_WIDTH  (32),
       .PROBE3_WIDTH  (32),
       .PROBE4_WIDTH  (32),
-      .PROBE5_WIDTH  (1)
-  ) u_ila_sflash_boot (
-      .sample_clk    (clk_50mhz),
-      .rst_in        (reset_l),
-      .probe0        (sflash_op_req),
-      .probe1        (sflash_wrl_rdh),
-      .probe2        (sflash_address),
-      .probe3        (sflash_wrdata),
-      .probe4        (sflash_rddata),
-      .probe5        (sflash_op_ack),
-      .reg_we        (ila_w_we[3]),
-      .reg_re        (1'b1),
-      .reg_addr      (ila_w_addr),
-      .reg_wdata     (ila_w_wdata),
-      .reg_rdata     (ila_w_rdata[3*32+:32])
-  );
-
-  // ILA Core 4: local_time debug (depth=1024, clk=50MHz)
-  soft_ila_top #(
-      .CORE_EN       (1),
-      .DATA_DEPTH    (1024),
-      .MAX_WINDOWS   (2),
-      .SAMPLE_HZ     (50_000_000),
-      .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (2),
-      .PROBE0_WIDTH  (1),
-      .PROBE1_WIDTH  (64)
+      .PROBE5_WIDTH  (1),
+      .EXT_TRIG_EN   (1)
   ) u_ila_local_time (
       .sample_clk    (clk_50mhz),
       .rst_in        (reset_l),
-      .probe0        (get_local_time),
-      .probe1        (local_time_counter),
-      .reg_we        (ila_w_we[4]),
-      .reg_re        (1'b1),
-      .reg_addr      (ila_w_addr),
-      .reg_wdata     (ila_w_wdata),
-      .reg_rdata     (ila_w_rdata[4*32+:32])
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (cpu_req),
+      .probe1        (cpu_rhwl),
+      .probe2        (cpu_wdata),
+      .probe3        (cpu_address),
+      .probe4        (cpu_rdata),
+      .probe5        (cpu_ack),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata)
   );
 
   // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──
@@ -1059,10 +1005,10 @@ module webserver_wrapper #(
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
       .default_pass(wl_ctrl_125m[1]),
-      .ila_core_we   (ila_w_we[1:0]),
-      .ila_core_addr (ila_w_addr),
-      .ila_core_wdata(ila_w_wdata),
-      .ila_core_rdata(ila_w_rdata[63:0])
+      .ila_core_we   (2'b00),
+      .ila_core_addr (16'h0),
+      .ila_core_wdata(32'h0),
+      .ila_core_rdata()
   );
 
   // ============================================================
