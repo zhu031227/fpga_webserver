@@ -10,7 +10,7 @@
 module mac_whitelist_top #(
     parameter int LOOKUP_MODE = 0,
     parameter int ENTRY_NUM = 16,
-    parameter int ADDR_WIDTH = 4,
+    parameter int ADDR_WIDTH = 4
 ) (
     input clk,
     input reset_l,

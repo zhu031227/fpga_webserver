@@ -10,7 +10,7 @@
 
 module mac_whitelist_seq #(
     parameter int ENTRY_NUM = 16,
-    parameter int ADDR_WIDTH = 4,  // $clog2(ENTRY_NUM)
+    parameter int ADDR_WIDTH = 4   // $clog2(ENTRY_NUM)
 ) (
     input clk,
     input reset_l,
