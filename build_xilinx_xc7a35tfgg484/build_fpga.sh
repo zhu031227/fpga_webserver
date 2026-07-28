@@ -388,6 +388,10 @@ if [ -f "${GEN_SIGNALS_PY}" ]; then
         if [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
             cp "${SIGNALS_JSON}" "${PROJ_DIR}/fpga_ila/windows_portable/webserver_signals.json"
             echo "  ✓ webserver_signals.json → windows_portable/"
+            # Sync latest GUI + JTAG transport to windows_portable
+            cp "${PROJ_DIR}/fpga_ila/gui/main.py" "${PROJ_DIR}/fpga_ila/windows_portable/gui/main.py"
+            cp "${PROJ_DIR}/fpga_ila/host/fpga_ila/transport_jtag.py" "${PROJ_DIR}/fpga_ila/windows_portable/host/fpga_ila/transport_jtag.py"
+            echo "  ✓ gui/main.py + transport_jtag.py → windows_portable/"
         fi
     else
         echo "  [WARN] gen_signals.py ran but no output"
