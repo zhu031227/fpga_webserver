@@ -384,11 +384,6 @@ if [ -f "${GEN_SIGNALS_PY}" ]; then
     if [ -f "${SIGNALS_JSON}" ]; then
         CORE_COUNT=$(python3 -c "import json; d=json.load(open('${SIGNALS_JSON}')); print(len(d.get('cores',[])))")
         echo "  ✓ ${SIGNALS_JSON}  (${CORE_COUNT} cores)"
-        # Copy to windows_portable for debug kit
-        if [ -d "${PROJ_DIR}/fpga_ila/windows_portable" ]; then
-            cp "${SIGNALS_JSON}" "${PROJ_DIR}/fpga_ila/windows_portable/webserver_signals.json"
-            echo "  ✓ webserver_signals.json → windows_portable/"
-        fi
     else
         echo "  [WARN] gen_signals.py ran but no output"
     fi
