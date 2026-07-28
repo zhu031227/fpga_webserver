@@ -221,14 +221,22 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   assign gmii1_rx_clk = clk_125m;
   assign gmii2_rx_clk = clk_125m;
 
-  // JTAG debug chain (ila_hub_top_jtag uses internal BSCANE2 on USER1)
-  ila_hub_top_jtag #(
+  // FPGA debug chain (ila_hub_top, TRANSPORT=JTAG, internal BSCANE2 on USER1)
+  ila_hub_top #(
+      .TRANSPORT (2),              // JTAG mode
       .NUM_CORES (ILA_NUM_CORES),
-      .SAMPLE_W  (64),         // max sample width (6 probes: 1+1+32+32+32+1=... < 128)
+      .SAMPLE_W  (64),
       .DEPTH     (1024)
   ) u_ila_debug (
       .clk           (clk_50m),
       .rst           (~reset_l_synced),
+      .uart_rxd      (1'b0),
+      .uart_txd      (),
+      .gmii_rxd      (8'h0),
+      .gmii_rx_dv    (1'b0),
+      .gmii_txd      (),
+      .gmii_tx_en    (),
+      .gmii_gtx_clk  (),
       .core_reg_we   (ila_core_we),
       .core_reg_re   (ila_core_re),
       .core_reg_addr (ila_core_addr),
