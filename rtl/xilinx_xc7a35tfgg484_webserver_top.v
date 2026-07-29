@@ -241,7 +241,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .core_reg_addr (ila_core_addr),
       .core_reg_wdata(ila_core_wdata),
       .core_reg_rdata(ila_core_rdata),
-      .jtag_tms     (1'b0),          // TMS auto-routed internally on 7-series
+      .jtag_tms     (),              // auto-connected by Vivado
       .core_jtag_clk (ila_jtag_clk),
       .core_jtag_rst (ila_jtag_rst)
   );
