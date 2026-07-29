@@ -86,9 +86,20 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam int stat_cnt_en = 1;
 
   // ============================================================
-  // fpga_ila 调试系统（JTAG 模式，ila_hub_top_jtag + soft_ila_top_fcapz）
+  // fpga_ila 调试系统
+  //
+  // TRANSPORT 模式:
+  //   0 = UART   (共享 uart_rx/tx，与 LCPU 控制台复用)
+  //   1 = ETH    (GMII + UDP/IP，需独立网口)
+  //   2 = JTAG   (BSCANE2 on USER2)
+  //
+  // 当前使用 UART 模式。JTAG 模式暂不可用：XC7A35T 只有一个 BSCAN
+  // 硬件块，LCPU 的 JTAG2AXI Debug Hub 已独占 BSCANE2，我们的
+  // BSCANE2 物理上冲突（Vivado 告警 [Shape Builder 18-119]）。
+  // 待后续研究 Debug Hub BSCAN 共享方案后再启用 JTAG。
   // ============================================================
-  localparam ILA_NUM_CORES = 1;  // 仅 local_time 核
+  localparam ILA_TRANSPORT  = 0;  // 0=UART  1=ETH  2=JTAG
+  localparam ILA_NUM_CORES  = 1;  // 仅 local_time 核
 
   // --- Reset / PLL ---
   wire reset_l_synced;
@@ -221,9 +232,9 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   assign gmii1_rx_clk = clk_125m;
   assign gmii2_rx_clk = clk_125m;
 
-  // FPGA debug chain (JTAG mode via shared BSCAN — no separate BSCANE2)
+  // FPGA debug chain
   ila_hub_top #(
-      .TRANSPORT (0),              // UART mode
+      .TRANSPORT (ILA_TRANSPORT),
       .NUM_CORES (ILA_NUM_CORES)
   ) u_ila_debug (
       .clk           (clk_50m),
