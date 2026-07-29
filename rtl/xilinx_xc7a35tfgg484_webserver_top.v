@@ -234,8 +234,9 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // FPGA debug chain
   ila_hub_top #(
-      .TRANSPORT (ILA_TRANSPORT),
-      .NUM_CORES (ILA_NUM_CORES)
+      .TRANSPORT  (ILA_TRANSPORT),
+      .NUM_CORES  (ILA_NUM_CORES),
+      .ILA_CLK_HZ (50_000_000)    // match clk_50m
   ) u_ila_debug (
       .clk           (clk_50m),
       .rst           (~reset_l_synced),
