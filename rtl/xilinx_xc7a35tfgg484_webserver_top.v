@@ -223,14 +223,13 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // FPGA debug chain (JTAG mode via shared BSCAN — no separate BSCANE2)
   ila_hub_top #(
-      .TRANSPORT  (2),              // JTAG mode
-      .NUM_CORES  (ILA_NUM_CORES),
-      .JTAG_CHAIN (2)              // USER2 (USER1=debug hub, USER2=ILA)
+      .TRANSPORT (0),              // UART mode
+      .NUM_CORES (ILA_NUM_CORES)
   ) u_ila_debug (
       .clk           (clk_50m),
       .rst           (~reset_l_synced),
-      .uart_rxd      (1'b0),
-      .uart_txd      (),
+      .uart_rxd      (uart_rx),
+      .uart_txd      (uart_tx),
       .gmii_rxd      (8'h0),
       .gmii_rx_dv    (1'b0),
       .gmii_txd      (),
@@ -241,7 +240,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .core_reg_addr (ila_core_addr),
       .core_reg_wdata(ila_core_wdata),
       .core_reg_rdata(ila_core_rdata),
-      .jtag_tms     (),              // auto-connected by Vivado
+      .jtag_tms      (),
       .core_jtag_clk (ila_jtag_clk),
       .core_jtag_rst (ila_jtag_rst)
   );
