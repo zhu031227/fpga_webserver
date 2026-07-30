@@ -98,6 +98,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // BSCANE2 物理上冲突（Vivado 告警 [Shape Builder 18-119]）。
   // 待后续研究 Debug Hub BSCAN 共享方案后再启用 JTAG。
   // ============================================================
+  localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam ILA_TRANSPORT  = 0;  // 0=UART  1=ETH  2=JTAG
   localparam ILA_NUM_CORES  = 1;  // 仅 local_time 核
 
@@ -234,6 +235,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // FPGA debug chain
   ila_hub_top #(
+      .ILA_BAUD   (ILA_BAUD),
       .TRANSPORT  (ILA_TRANSPORT),
       .NUM_CORES  (ILA_NUM_CORES),
       .ILA_CLK_HZ (50_000_000)    // match clk_50m
