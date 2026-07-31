@@ -100,7 +100,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam ILA_TRANSPORT  = 0;  // 0=UART  1=ETH  2=JTAG
-  localparam ILA_NUM_CORES  = 1;  // 仅 local_time 核
+  localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
 
   // --- Reset / PLL ---
   wire reset_l_synced;
@@ -131,11 +131,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   wire eth1_mdc, eth2_mdc;
   wire eth1_mdio, eth2_mdio;
 
-  wire        ila_core_we;
+  wire [ILA_NUM_CORES-1:0] ila_core_we;
   wire        ila_core_re;
   wire [15:0] ila_core_addr;
   wire [31:0] ila_core_wdata;
-  wire [31:0] ila_core_rdata;
+  wire [ILA_NUM_CORES*32-1:0] ila_core_rdata;
   wire        ila_jtag_clk;
   wire        ila_jtag_rst;
 
@@ -259,6 +259,60 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .core_jtag_rst (ila_jtag_rst)
   );
 
+  // --- ILA core 1: GMII eth0 RX debug ---
+  soft_ila_top_fcapz #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (2),
+      .SAMPLE_HZ     (125000000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (2),
+      .PROBE0_WIDTH  (1),
+      .PROBE1_WIDTH  (8),
+      .EXT_TRIG_EN   (1)
+  ) u_ila_gmii (
+      .sample_clk    (gmii0_rx_clk),
+      .rst_in        (reset_l_synced),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (gmii0_rx_dv),
+      .probe1        (gmii0_rxd),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[1]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[1*32+:32])
+  );
+
+  // --- ILA core 2: GMII eth0 TX debug ---
+  soft_ila_top_fcapz #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (4096),
+      .MAX_WINDOWS   (2),
+      .SAMPLE_HZ     (125000000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (2),
+      .PROBE0_WIDTH  (8),
+      .PROBE1_WIDTH  (1),
+      .EXT_TRIG_EN   (1)
+  ) u_ila_gmii_tx (
+      .sample_clk    (clk_125m),
+      .rst_in        (reset_l_synced),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (gmii0_txd),
+      .probe1        (gmii0_tx_en),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[2]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[2*32+:32])
+  );
+
   // --- Webserver core ---
   webserver_wrapper #(
       .sim_mod(sim_mod),
@@ -283,7 +337,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .cpu_buf_data_ram_type(cpu_buf_data_ram_type),
       .cpu_buf_para_ram_type(cpu_buf_para_ram_type),
       .stat_cnt_en(stat_cnt_en),
-      .ILA_NUM_CORES(ILA_NUM_CORES)
+      .ILA_NUM_CORES(1)  // webserver_wrapper 内部只有 1 核
   ) u_webserver (
       .reset_l(reset_l_synced),
       .clk_50mhz(clk_50m),
@@ -303,8 +357,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       // eth0 GMII (from RGMII bridge)
       .gmii_rx_clk(gmii0_rx_clk),
       .gmii_rx_dv(gmii0_rx_dv),
-      .gmii_rx_err(1'b0),
       .gmii_rxd(gmii0_rxd),
+      .gmii_rx_err(1'b0),
       .gmii_txd(gmii0_txd),
       .gmii_tx_en(gmii0_tx_en),
       .gmii_tx_err(),
@@ -340,10 +394,10 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       // fpga_ila JTAG 调试总线
       .ila_jtag_clk  (ila_jtag_clk),
       .ila_jtag_rst  (ila_jtag_rst),
-      .ila_core_we   (ila_core_we),
+      .ila_core_we   (ila_core_we[0]),
       .ila_core_re   (ila_core_re),
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
-      .ila_core_rdata(ila_core_rdata)
+      .ila_core_rdata(ila_core_rdata[0*32+:32])
   );
 endmodule

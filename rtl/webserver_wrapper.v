@@ -950,9 +950,9 @@ module webserver_wrapper #(
 
   // ILA Core: local_time debug (fcapz_ela, JTAG mode, depth=1024, clk=50MHz)
   soft_ila_top_fcapz #(
-      .CORE_EN       (1),
-      .DATA_DEPTH    (1024),
-      .MAX_WINDOWS   (1),
+      .CORE_EN       (0),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (50_000_000),
       .RST_ACTIVE_LOW(1),
       .NUM_PROBES    (6),
