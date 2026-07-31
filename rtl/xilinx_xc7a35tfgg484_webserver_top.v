@@ -84,6 +84,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam cpu_buf_data_ram_type = `LARGER_RAM;
   localparam cpu_buf_para_ram_type = `SMALL_RAM;
   localparam int stat_cnt_en = 1;
+  localparam int eth_mode    = 0;  // 0=webserver  1=ILA debug
 
   // ============================================================
   // fpga_ila 调试系统
@@ -101,6 +102,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam ILA_TRANSPORT  = 0;  // 0=UART  1=ETH  2=JTAG
   localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
+  localparam [47:0] ETH_MAC = 48'h02_00_00_00_00_01;
+  localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
+  localparam [15:0] ETH_PORT = 16'd5000;
+  //localparam ILA_CLK_HZ     = 50_000_000;  // match clk_50m
+  localparam ILA_CLK_HZ     = 125_000_000;  // match clk_125m
 
   // --- Reset / PLL ---
   wire reset_l_synced;
@@ -111,6 +117,26 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   wire [7:0] gmii0_rxd;
   wire       gmii0_tx_en;
   wire [7:0] gmii0_txd;
+
+  // eth_mode mux: route GMII to webserver (mode 0) or ILA debug (mode 1)
+  wire       gmii0_rx_dv_ws;
+  wire [7:0] gmii0_rxd_ws;
+  wire       gmii0_tx_en_ws;
+  wire [7:0] gmii0_txd_ws;
+  wire       gmii0_rx_dv_ila;
+  wire [7:0] gmii0_rxd_ila;
+  wire       gmii0_tx_en_ila;
+  wire [7:0] gmii0_txd_ila;
+
+  // RX: rgmii2gmii drives gmii0_rx_* → mux to ws or ila
+  assign gmii0_rx_dv_ws  = (eth_mode == 0) ? gmii0_rx_dv  : 1'b0;
+  assign gmii0_rxd_ws    = (eth_mode == 0) ? gmii0_rxd    : 8'h0;
+  assign gmii0_rx_dv_ila = (eth_mode == 1) ? gmii0_rx_dv  : 1'b0;
+  assign gmii0_rxd_ila   = (eth_mode == 1) ? gmii0_rxd    : 8'h0;
+
+  // TX: select source (webserver or ILA) → rgmii2gmii
+  assign gmii0_tx_en = (eth_mode == 0) ? gmii0_tx_en_ws : gmii0_tx_en_ila;
+  assign gmii0_txd   = (eth_mode == 0) ? gmii0_txd_ws   : gmii0_txd_ila;
 
   // --- 1000BASE-X wrapper → GMII (eth1, eth2) ---
   wire gmii1_rx_clk, gmii1_rx_dv, gmii1_rx_err;
@@ -235,20 +261,23 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // FPGA debug chain
   ila_hub_top #(
-      .ILA_BAUD   (ILA_BAUD),
       .TRANSPORT  (ILA_TRANSPORT),
+      .ILA_BAUD   (ILA_BAUD),
+      .ETH_MAC    (ETH_MAC),
+      .ETH_IP     (ETH_IP),
+      .ETH_PORT   (ETH_PORT),
       .NUM_CORES  (ILA_NUM_CORES),
-      .ILA_CLK_HZ (50_000_000)    // match clk_50m
+      .ILA_CLK_HZ (ILA_CLK_HZ)
   ) u_ila_debug (
-      .clk           (clk_50m),
+      .clk           (clk_125m), //clk_50m
       .rst           (~reset_l_synced),
       .uart_rxd      (uart_rx),
       .uart_txd      (uart_tx),
-      .gmii_rxd      (8'h0),
-      .gmii_rx_dv    (1'b0),
-      .gmii_txd      (),
-      .gmii_tx_en    (),
-      .gmii_gtx_clk  (),
+      .gmii_rx_clk   (gmii0_rx_clk),
+      .gmii_rxd      (gmii0_rxd_ila),
+      .gmii_rx_dv    (gmii0_rx_dv_ila),
+      .gmii_txd      (gmii0_txd_ila),
+      .gmii_tx_en    (gmii0_tx_en_ila),
       .core_reg_we   (ila_core_we),
       .core_reg_re   (ila_core_re),
       .core_reg_addr (ila_core_addr),
@@ -261,7 +290,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // --- ILA core 1: GMII eth0 RX debug ---
   soft_ila_top_fcapz #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (2),
       .SAMPLE_HZ     (125000000),
@@ -270,7 +299,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .PROBE0_WIDTH  (1),
       .PROBE1_WIDTH  (8),
       .EXT_TRIG_EN   (1)
-  ) u_ila_gmii (
+  ) u_ila_gmii_rx (
       .sample_clk    (gmii0_rx_clk),
       .rst_in        (reset_l_synced),
       .jtag_clk      (ila_jtag_clk),
@@ -356,11 +385,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
       // eth0 GMII (from RGMII bridge)
       .gmii_rx_clk(gmii0_rx_clk),
-      .gmii_rx_dv(gmii0_rx_dv),
-      .gmii_rxd(gmii0_rxd),
+      .gmii_rx_dv(gmii0_rx_dv_ws),
+      .gmii_rxd(gmii0_rxd_ws),
       .gmii_rx_err(1'b0),
-      .gmii_txd(gmii0_txd),
-      .gmii_tx_en(gmii0_tx_en),
+      .gmii_txd(gmii0_tx_en_ws),
+      .gmii_tx_en(gmii0_txd_ws),
       .gmii_tx_err(),
 
       // eth1 GMII (from SFP wrapper)
