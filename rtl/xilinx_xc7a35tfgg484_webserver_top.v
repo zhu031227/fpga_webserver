@@ -88,25 +88,25 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   // fpga_ila 调试系统
   //
-  // TRANSPORT 模式:
-  //   0 = UART   (共享 uart_rx/tx，与 LCPU 控制台复用)
-  //   1 = ETH    (GMII + UDP/IP，需独立网口)
-  //   2 = JTAG   (BSCANE2 on USER2)
+  // ILA_TRANSPORT_EN 位掩码（任意组合，一版固件多通道同时在线）:
+  //   bit0 = UART   (共享 uart_rx/tx，与 LCPU 控制台复用)
+  //   bit1 = ETH    (GMII + UDP/IP，自动占用 eth0 GMII，webserver 让出)
+  //   bit2 = JTAG   (BSCANE2 on USER2 —— 本工程暂不可用：LCPU 的
+  //                  JTAG2AXI Debug Hub 已独占唯一 BSCAN 硬件块，
+  //                  [Shape Builder 18-119] 冲突，故请勿置 bit2)
   //
-  // 当前使用 UART 模式。JTAG 模式暂不可用：XC7A35T 只有一个 BSCAN
-  // 硬件块，LCPU 的 JTAG2AXI Debug Hub 已独占 BSCANE2，我们的
-  // BSCANE2 物理上冲突（Vivado 告警 [Shape Builder 18-119]）。
-  // 待后续研究 Debug Hub BSCAN 共享方案后再启用 JTAG。
+  // GMII 归属自动推导：eth_mode = EN[1]（ETH 使能则 ILA 占用 GMII，
+  // 否则归还 webserver），无需手工同步。
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
-  localparam ILA_TRANSPORT  = 1;  // 0=UART  1=ETH  2=JTAG
-  localparam ILA_NUM_CORES  = 1;  // local_time + gmii rx + gmii tx
+  localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // UART+ETH 同时在线
+  localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
   localparam [15:0] ETH_PORT = 16'd5000;
   //localparam ILA_CLK_HZ     = 50_000_000;  // match clk_50m
   localparam ILA_CLK_HZ     = 125_000_000;  // match clk_125m
-  localparam int eth_mode    = 1;  // 0=webserver  1=ILA debug
+  localparam int eth_mode    = ILA_TRANSPORT_EN[1] ? 1 : 0;  // 自动：ETH 使能→ILA 占 GMII
 
   // --- Reset / PLL ---
   wire reset_l_synced;
@@ -261,7 +261,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // FPGA debug chain
   ila_hub_top #(
-      .TRANSPORT  (ILA_TRANSPORT),
+      .TRANSPORT_EN (ILA_TRANSPORT_EN),
       .ILA_BAUD   (ILA_BAUD),
       .ETH_MAC    (ETH_MAC),
       .ETH_IP     (ETH_IP),
@@ -288,7 +288,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .core_jtag_clk (ila_jtag_clk),
       .core_jtag_rst (ila_jtag_rst)
   );
-/*
+
   // --- ILA core 1: GMII eth0 RX debug ---
   soft_ila_top_fcapz #(
       .CORE_EN       (1),
@@ -318,7 +318,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // --- ILA core 2: GMII eth0 TX debug ---
   soft_ila_top_fcapz #(
-      .CORE_EN       (0),
+      .CORE_EN       (1),
       .DATA_DEPTH    (4096),
       .MAX_WINDOWS   (2),
       .SAMPLE_HZ     (125000000),
@@ -342,7 +342,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .reg_wdata     (ila_core_wdata),
       .reg_rdata     (ila_core_rdata[2*32+:32])
   );
-*/
+
   // --- Webserver core ---
   webserver_wrapper #(
       .sim_mod(sim_mod),
