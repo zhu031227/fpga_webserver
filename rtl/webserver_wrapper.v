@@ -363,8 +363,8 @@ module webserver_wrapper #(
   ) u_cpu_subsystem (
       .clk(clk_50mhz),
       .reset_l(reset_l),
-      .uart_rx(1'b0),
-      .uart_tx(),
+      .uart_rx(uart_rx),
+      .uart_tx(uart_tx),
       .riscv_reset_l(riscv_reset_l),
       .pram_wr(pram_wr),
       .pram_addr(pram_addr),

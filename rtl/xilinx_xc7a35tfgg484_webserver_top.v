@@ -66,7 +66,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   localparam int second_event_period = 50000000;
   localparam int uart_baud_rate = 115200;
-  localparam cpu_vendor = "xilinx";
+  localparam cpu_vendor = "uart";  //"intel";	"xilinx"; "uart"
   localparam int xilinx_idelay_value = 16;
   localparam int riscv_inst_en = 1;
   localparam instr_ram_type = "block";
@@ -99,7 +99,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // 否则归还 webserver），无需手工同步。
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
-  localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // UART+ETH 同时在线
+  localparam [2:0] ILA_TRANSPORT_EN = 3'b110;  // bit0=UART bit1=ETH bit2=JTAG
   localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
@@ -272,8 +272,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .clk           (clk_125m), //clk_50m
       //.clk           (clk_50m),
       .rst           (~reset_l_synced),
-      .uart_rxd      (uart_rx),
-      .uart_txd      (uart_tx),
+      .uart_rxd      (1'b0),
+      .uart_txd      (),
       .gmii_rx_clk   (gmii0_rx_clk),
       .gmii_rxd      (gmii0_rxd_ila),
       .gmii_rx_dv    (gmii0_rx_dv_ila),
