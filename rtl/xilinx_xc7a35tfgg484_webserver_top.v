@@ -66,7 +66,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   localparam int second_event_period = 50000000;
   localparam int uart_baud_rate = 115200;
-  localparam cpu_vendor = "uart";  //"intel";	"xilinx"; "uart"
+  localparam cpu_vendor = "xilinx";  //"intel";	"xilinx"; "uart"
   localparam int xilinx_idelay_value = 16;
   localparam int riscv_inst_en = 1;
   localparam instr_ram_type = "block";
