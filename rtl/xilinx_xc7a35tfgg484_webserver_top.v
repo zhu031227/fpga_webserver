@@ -99,7 +99,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // 否则归还 webserver），无需手工同步。
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
-  localparam [2:0] ILA_TRANSPORT_EN = 3'b110;  // bit0=UART bit1=ETH bit2=JTAG
+  localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // bit0=UART bit1=ETH bit2=JTAG
   localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
@@ -272,8 +272,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .clk           (clk_125m), //clk_50m
       //.clk           (clk_50m),
       .rst           (~reset_l_synced),
-      .uart_rxd      (1'b0),
-      .uart_txd      (),
+      .uart_rxd      (uart_rx),
+      .uart_txd      (uart_tx),
       .gmii_rx_clk   (gmii0_rx_clk),
       .gmii_rxd      (gmii0_rxd_ila),
       .gmii_rx_dv    (gmii0_rx_dv_ila),
@@ -372,8 +372,8 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .reset_l(reset_l_synced),
       .clk_50mhz(clk_50m),
       .clk_125mhz(clk_125m),
-      .uart_rx(uart_rx),
-      .uart_tx(uart_tx),
+      .uart_rx(1'b0),
+      .uart_tx(),
 
       // eth0 MDIO
       .eth0_mdc (eth0_mdc),

@@ -963,7 +963,7 @@ module webserver_wrapper #(
       .PROBE4_WIDTH  (32),
       .PROBE5_WIDTH  (1),
       .EXT_TRIG_EN   (1)
-  ) u_cpu_intf (
+  ) u_ila_cpu_intf (
       .sample_clk    (clk_50mhz),
       .rst_in        (reset_l),
       .jtag_clk      (ila_jtag_clk),
