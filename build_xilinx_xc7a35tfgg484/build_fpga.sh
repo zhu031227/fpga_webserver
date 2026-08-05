@@ -169,10 +169,7 @@ clone_repo_rtl "fpga_cpu"  "${FILES_FPGA_CPU[@]}"
 clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
 clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
 clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
-clone_repo_full "fpga_ila"
-# Checkout fcapz_ela_enhance branch (fcapz-based ILA with JTAG support)
-# --depth 1 only clones default branch; fetch and checkout the target branch
-cd "${PROJ_DIR}/fpga_ila" && git fetch --depth 1 origin fcapz_ela_enhance && git checkout -b fcapz_ela_enhance FETCH_HEAD && cd - > /dev/null
+clone_repo_full "fpga_ila"   # main branch (default), no extra checkout needed
 echo "[STEP 3/8] Done."
 
 #--------------------------------------------------------------------
