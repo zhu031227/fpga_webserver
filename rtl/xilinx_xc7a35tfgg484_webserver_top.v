@@ -88,18 +88,15 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   // fpga_ila 调试系统
   //
-  // ILA_TRANSPORT_EN 位掩码（任意组合，一版固件多通道同时在线）:
+  // ILA_TRANSPORT_EN 位掩码（UART+ETH 同时在线）:
   //   bit0 = UART   (共享 uart_rx/tx，与 LCPU 控制台复用)
   //   bit1 = ETH    (GMII + UDP/IP，自动占用 eth0 GMII，webserver 让出)
-  //   bit2 = JTAG   (BSCANE2 on USER2 —— 本工程暂不可用：LCPU 的
-  //                  JTAG2AXI Debug Hub 已独占唯一 BSCAN 硬件块，
-  //                  [Shape Builder 18-119] 冲突，故请勿置 bit2)
   //
   // GMII 归属自动推导：eth_mode = EN[1]（ETH 使能则 ILA 占用 GMII，
   // 否则归还 webserver），无需手工同步。
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
-  localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // bit0=UART bit1=ETH bit2=JTAG
+  localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // bit0=UART bit1=ETH
   localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
@@ -284,7 +281,6 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .core_reg_addr (ila_core_addr),
       .core_reg_wdata(ila_core_wdata),
       .core_reg_rdata(ila_core_rdata),
-      .jtag_tms      (),
       .core_jtag_clk (ila_jtag_clk),
       .core_jtag_rst (ila_jtag_rst)
   );

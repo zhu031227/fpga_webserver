@@ -88,7 +88,7 @@ module webserver_wrapper #(
     output flash_wp_n,
     output flash_rst_n,
 
-    // fpga_ila JTAG 调试总线（透传到顶层 ila_hub_top_jtag）
+    // fpga_ila 调试总线（透传到顶层 ila_hub_top）
     input  wire        ila_jtag_clk,
     input  wire        ila_jtag_rst,
     input  wire        ila_core_we,
@@ -311,7 +311,7 @@ module webserver_wrapper #(
 
   // ============================================================
   // ============================================================
-  // fpga_ila JTAG 调试（ila_hub_top_jtag → soft_ila_top_fcapz，仅 1 核）
+  // fpga_ila 调试（ila_hub_top → soft_ila_top_fcapz，仅 1 核）
   // ============================================================
   assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
@@ -948,7 +948,7 @@ module webserver_wrapper #(
       .pulse_b(wl_manual_lookup_pulse)
   );
 
-  // ILA Core: local_time debug (fcapz_ela, JTAG mode, depth=1024, clk=50MHz)
+  // ILA Core: local_time debug (fcapz_ela, depth=1024, clk=50MHz)
   soft_ila_top_fcapz #(
       .CORE_EN       (1),
       .DATA_DEPTH    (2048),
