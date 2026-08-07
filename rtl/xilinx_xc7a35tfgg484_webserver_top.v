@@ -286,7 +286,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   );
 
   // --- ILA core 1: GMII eth0 RX debug ---
-  soft_ila_top_fcapz #(
+  soft_ila_top #(
       .CORE_EN       (1),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (2),
@@ -313,7 +313,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   );
 
   // --- ILA core 2: GMII eth0 TX debug ---
-  soft_ila_top_fcapz #(
+  soft_ila_top #(
       .CORE_EN       (1),
       .DATA_DEPTH    (4096),
       .MAX_WINDOWS   (2),

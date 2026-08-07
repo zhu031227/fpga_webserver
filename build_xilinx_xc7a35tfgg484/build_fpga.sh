@@ -309,7 +309,6 @@ set_property include_dirs [list \
     [file normalize "\$proj_dir/rtl"] \
     [file normalize "\$proj_dir/ip_common/rtl"] \
     [file normalize "\$proj_dir/fpga_ila/rtl"] \
-    [file normalize "\$proj_dir/fpga_ila/rtl/fcapz"] \
 ] [current_fileset]
 
 set_property top \$top_module [current_fileset]
@@ -375,7 +374,7 @@ SIGNALS_JSON="${PROJ_DIR}/webserver_signals.json"
 export PYTHONPATH="${PROJ_DIR}/fpga_ila/host:${PYTHONPATH:-}"
 
 if [ -f "${GEN_SIGNALS_PY}" ]; then
-    echo "  Scanning project for soft_ila_top_fcapz instances..."
+    echo "  Scanning project for soft_ila_top instances..."
     python3 "${GEN_SIGNALS_PY}" "${PROJ_DIR}" "${SIGNALS_JSON}"
     if [ -f "${SIGNALS_JSON}" ]; then
         CORE_COUNT=$(python3 -c "import json; d=json.load(open('${SIGNALS_JSON}')); print(len(d.get('cores',[])))")

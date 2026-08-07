@@ -311,7 +311,7 @@ module webserver_wrapper #(
 
   // ============================================================
   // ============================================================
-  // fpga_ila 调试（ila_hub_top → soft_ila_top_fcapz，仅 1 核）
+  // fpga_ila 调试（ila_hub_top → soft_ila_top，仅 1 核）
   // ============================================================
   assign wl_lookup_req_combined = wl_lookup_req | wl_manual_lookup_pulse;
 
@@ -927,7 +927,7 @@ module webserver_wrapper #(
   assign debug_ro_0     = {24'b0, recv_pkt_drop_cnt};
   assign debug_ro_1     = eth1_rx_drop_cnt;
 
-  // ILA reg bus now connects directly to soft_ila_top_fcapz (no internal mux needed)
+  // ILA reg bus now connects directly to soft_ila_top (no internal mux needed)
 
   // ============================================================
   // Whitelist config LCPU bus passthrough (SubBus 0x1500)
@@ -948,8 +948,8 @@ module webserver_wrapper #(
       .pulse_b(wl_manual_lookup_pulse)
   );
 
-  // ILA Core: local_time debug (fcapz_ela, depth=1024, clk=50MHz)
-  soft_ila_top_fcapz #(
+  // ILA Core: local_time debug (ila_ela, depth=1024, clk=50MHz)
+  soft_ila_top #(
       .CORE_EN       (1),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (4),
