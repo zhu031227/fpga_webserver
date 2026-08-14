@@ -53,7 +53,6 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
     // QSPI Flash (MX25L12845)
     output flash_cs_n,
-    output flash_sclk,
     output flash_mosi,
     input  flash_miso,
     output flash_wp_n,
@@ -425,5 +424,31 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
       .ila_core_rdata(ila_core_rdata[2*32-1:0])
+  );
+
+  // ============================================================
+  // QSPI Flash SCK：flash 的时钟脚接在 CCLK（配置专用脚 L12），
+  // 不能当普通 I/O。配置完成后用 STARTUPE2 的 USRCCLKO 驱动 CCLK
+  // 作为 flash 的 SCK；其余 flash 脚在 bank14 可复用为普通 I/O。
+  // ============================================================
+  wire flash_sclk;
+
+  STARTUPE2 #(
+      .PROG_USR      ("FALSE"),
+      .SIM_CCLK_FREQ (0.0)
+  ) u_startup_flash_sck (
+      .CFGCLK    (),
+      .CFGMCLK   (),
+      .EOS       (),
+      .PREQ      (),
+      .CLK       (1'b0),
+      .GSR       (1'b0),
+      .GTS       (1'b0),
+      .KEYCLEARB (1'b0),
+      .PACK      (1'b0),
+      .USRCCLKO  (flash_sclk),
+      .USRCCLKTS (1'b0),
+      .USRDONEO  (1'b1),
+      .USRDONETS (1'b1)
   );
 endmodule

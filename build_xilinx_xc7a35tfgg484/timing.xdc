@@ -134,9 +134,9 @@ set_output_delay -clock c0_pll_50m \
 #   CARRY4+LUT+OBUF (~8.2ns logic + 3.3ns OBUF) on a 20ns clock period.
 #-------------------------------------------------------------------
 set_output_delay -clock c0_pll_50m \
-    -max 6.000 [get_ports {flash_cs_n flash_mosi flash_sclk flash_wp_n flash_rst_n}]
+    -max 6.000 [get_ports {flash_cs_n flash_mosi flash_wp_n flash_rst_n}]
 set_output_delay -clock c0_pll_50m \
-    -min 0.000 [get_ports {flash_cs_n flash_mosi flash_sclk flash_wp_n flash_rst_n}]
+    -min 0.000 [get_ports {flash_cs_n flash_mosi flash_wp_n flash_rst_n}]
 set_input_delay -clock c0_pll_50m \
     -max 10.000 [get_ports flash_miso]
 set_input_delay -clock c0_pll_50m \
