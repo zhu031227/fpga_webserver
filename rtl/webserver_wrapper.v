@@ -91,11 +91,11 @@ module webserver_wrapper #(
     // fpga_ila 调试总线（透传到顶层 ila_hub_top）
     input  wire        ila_jtag_clk,
     input  wire        ila_jtag_rst,
-    input  wire        ila_core_we,
+    input  wire [ 1:0] ila_core_we,      // [0]=cpu_intf, [1]=flash/bootloader
     input  wire        ila_core_re,
     input  wire [15:0] ila_core_addr,
     input  wire [31:0] ila_core_wdata,
-    output wire [31:0] ila_core_rdata,
+    output wire [63:0] ila_core_rdata,
 
     output [3:0] eth_greset,
     output [3:0] led
@@ -950,7 +950,7 @@ module webserver_wrapper #(
 
   // ILA Core: local_time debug (ila_ela, depth=1024, clk=50MHz)
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (4),
       .SAMPLE_HZ     (50_000_000),
@@ -976,11 +976,56 @@ module webserver_wrapper #(
       .trigger_in    (1'b0),
       .trigger_out   (),
       .armed_out     (),
-      .reg_we        (ila_core_we),
+      .reg_we        (ila_core_we[0]),
       .reg_re        (ila_core_re),
       .reg_addr      (ila_core_addr),
       .reg_wdata     (ila_core_wdata),
-      .reg_rdata     (ila_core_rdata)
+      .reg_rdata     (ila_core_rdata[31:0])
+  );
+
+  // ── ILA Core: SPI Flash + bootloader 回搬调试（新增）────────────
+  // 抓 SPI 线上 4 线 + bootloader 状态机 + pram 写入，用于验证
+  // flash 固件烧写与 bootloader 回搬（含 spi_bootloader 位序修复）。
+  soft_ila_top #(
+      .CORE_EN       (1),        // 调试默认使能
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (50_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (10),
+      .PROBE0_WIDTH  (1),        // flash_cs_n
+      .PROBE1_WIDTH  (1),        // flash_sclk
+      .PROBE2_WIDTH  (1),        // flash_mosi
+      .PROBE3_WIDTH  (1),        // flash_miso
+      .PROBE4_WIDTH  (3),        // bootloader_status
+      .PROBE5_WIDTH  (1),        // bl_spi_op_start
+      .PROBE6_WIDTH  (1),        // bl_spi_op_done
+      .PROBE7_WIDTH  (1),        // pram_wr
+      .PROBE8_WIDTH  (14),       // pram_addr（= instr_addr_width，xilinx 1024*16；altera 为 12 需改）
+      .PROBE9_WIDTH  (32),       // pram_wdata
+      .EXT_TRIG_EN   (1)
+  ) u_ila_flash (
+      .sample_clk    (clk_50mhz),
+      .rst_in        (reset_l),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (flash_cs_n),
+      .probe1        (flash_sclk),
+      .probe2        (flash_mosi),
+      .probe3        (flash_miso),
+      .probe4        (bootloader_status),
+      .probe5        (bl_spi_op_start),
+      .probe6        (bl_spi_op_done),
+      .probe7        (pram_wr),
+      .probe8        (pram_addr),
+      .probe9        (pram_wdata),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[1]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[63:32])
   );
 
   // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──

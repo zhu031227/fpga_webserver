@@ -97,7 +97,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam [2:0] ILA_TRANSPORT_EN = 3'b011;  // bit0=UART bit1=ETH
-  localparam ILA_NUM_CORES  = 3;  // local_time + gmii rx + gmii tx
+  localparam ILA_NUM_CORES  = 4;  // cpu_intf + flash/bootloader + gmii rx + gmii tx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
   localparam [15:0] ETH_PORT = 16'd5000;
@@ -287,7 +287,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // --- ILA core 1: GMII eth0 RX debug ---
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (2048),
       .MAX_WINDOWS   (2),
       .SAMPLE_HZ     (125000000),
@@ -305,16 +305,16 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .trigger_in    (1'b0),
       .trigger_out   (),
       .armed_out     (),
-      .reg_we        (ila_core_we[1]),
+      .reg_we        (ila_core_we[2]),
       .reg_re        (ila_core_re),
       .reg_addr      (ila_core_addr),
       .reg_wdata     (ila_core_wdata),
-      .reg_rdata     (ila_core_rdata[1*32+:32])
+      .reg_rdata     (ila_core_rdata[2*32+:32])
   );
 
   // --- ILA core 2: GMII eth0 TX debug ---
   soft_ila_top #(
-      .CORE_EN       (1),
+      .CORE_EN       (0),
       .DATA_DEPTH    (4096),
       .MAX_WINDOWS   (2),
       .SAMPLE_HZ     (125000000),
@@ -332,11 +332,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .trigger_in    (1'b0),
       .trigger_out   (),
       .armed_out     (),
-      .reg_we        (ila_core_we[2]),
+      .reg_we        (ila_core_we[3]),
       .reg_re        (ila_core_re),
       .reg_addr      (ila_core_addr),
       .reg_wdata     (ila_core_wdata),
-      .reg_rdata     (ila_core_rdata[2*32+:32])
+      .reg_rdata     (ila_core_rdata[3*32+:32])
   );
 
   // --- Webserver core ---
@@ -363,7 +363,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .cpu_buf_data_ram_type(cpu_buf_data_ram_type),
       .cpu_buf_para_ram_type(cpu_buf_para_ram_type),
       .stat_cnt_en(stat_cnt_en),
-      .ILA_NUM_CORES(1)  // webserver_wrapper 内部只有 1 核
+      .ILA_NUM_CORES(2)  // webserver_wrapper 内部 2 核：cpu_intf + flash
   ) u_webserver (
       .reset_l(reset_l_synced),
       .clk_50mhz(clk_50m),
@@ -420,10 +420,10 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       // fpga_ila JTAG 调试总线
       .ila_jtag_clk  (ila_jtag_clk),
       .ila_jtag_rst  (ila_jtag_rst),
-      .ila_core_we   (ila_core_we[0]),
+      .ila_core_we   (ila_core_we[1:0]),
       .ila_core_re   (ila_core_re),
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
-      .ila_core_rdata(ila_core_rdata[0*32+:32])
+      .ila_core_rdata(ila_core_rdata[2*32-1:0])
   );
 endmodule

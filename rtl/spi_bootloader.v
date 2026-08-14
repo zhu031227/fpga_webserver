@@ -33,7 +33,7 @@ module spi_bootloader #(
     // SPI master interface (to spi_ctrl, level-triggered op_start)
     output reg        spi_op_start,
     output reg [15:0] spi_channel_len,
-    output reg [63:0] spi_wdata,
+    output     [63:0] spi_wdata,
     input      [31:0] spi_rdata,
     input             spi_op_done
 );
@@ -50,6 +50,18 @@ module spi_bootloader #(
   reg [31:0] bytes_remaining;
   reg [31:0] pram_addr_reg;
 
+  // 内部采用 MSB-first 布局（cmd 在高字节），输出前做全 64bit 位反转。
+  // 原因：spi_ctrl(cpol=0/cpha=0) 是 LSB-first（bit0 先发），反转后线上才是
+  // cmd 在前、MSB-first，与 lcpu_sflash_core 对 TX 的处理完全一致。
+  reg [63:0] spi_wdata_msb;   // [63:56]=cmd, [55:32]=addr, [31:0]=data
+
+  genvar gi;
+  generate
+    for (gi = 0; gi < 64; gi = gi + 1) begin : g_bit_reverse
+      assign spi_wdata[gi] = spi_wdata_msb[63-gi];
+    end
+  endgenerate
+
   always @(posedge clk or negedge reset_l) begin
     if (!reset_l) begin
       state           <= S_IDLE;
@@ -59,7 +71,7 @@ module spi_bootloader #(
       pram_wdata      <= 32'b0;
       spi_op_start    <= 1'b0;
       spi_channel_len <= 16'd0;
-      spi_wdata       <= 64'd0;
+      spi_wdata_msb   <= 64'd0;
       flash_addr_reg  <= 32'd0;
       bytes_remaining <= 32'd0;
       pram_addr_reg   <= 0;
@@ -81,9 +93,9 @@ module spi_bootloader #(
 
         S_READ_CMD: begin
           status[0]        <= 1'b1;  // busy
-          spi_wdata[63:56] <= 8'h03;
-          spi_wdata[55:32] <= flash_addr_reg[23:0];
-          spi_wdata[31:0]  <= 32'h0;
+          spi_wdata_msb[63:56] <= 8'h03;
+          spi_wdata_msb[55:32] <= flash_addr_reg[23:0];
+          spi_wdata_msb[31:0]  <= 32'h0;
           spi_channel_len  <= 16'd64;  // 8 cmd + 24 addr + 32 data
           spi_op_start     <= 1'b1;  // hold until op_done (CDC-safe)
           state            <= S_READ_WAIT;
