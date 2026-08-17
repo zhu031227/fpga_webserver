@@ -110,7 +110,8 @@ altera_ep4ce10f17c6_v*/
 rtl/InstructRAM.v
 rtl/InstructRAM.hex
 tcl/InstructRAM.tcl
-tcl/InstructRAM_flash.tcl
+tcl/Instruct_flash_initial.tcl
+tcl/Instruct_load2fpga.tcl
 
 # C build outputs
 c_build/out/

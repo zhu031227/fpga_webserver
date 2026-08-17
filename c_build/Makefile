@@ -54,7 +54,8 @@ PADS      = $(OUT_DIR)/firmware_pads.bin
 DISASM    = $(OUT_DIR)/firmware.disasm
 BUILD_TIME_H = $(INC_DIR)/build_time.h
 TCL_OUT   = $(TCL_DIR)/InstructRAM.tcl
-FLASH_TCL_OUT = $(TCL_DIR)/InstructRAM_flash.tcl
+FLASH_INIT_TCL_OUT = $(TCL_DIR)/Instruct_flash_initial.tcl
+LOAD2FPGA_TCL_OUT  = $(TCL_DIR)/Instruct_load2fpga.tcl
 VERILOG_OUT = $(RTL_DIR)/InstructRAM.v
 HEX_OUT   = $(RTL_DIR)/InstructRAM.hex
 
@@ -97,7 +98,7 @@ TCL_BASE ?= $(shell bash -c 'read -p "RISCV指令配置RAM的基地址是多少�
 # ---- Flash 固件分区基地址（bootloader 源地址，见设计文档分区规划）----
 FLASH_ADDR ?= 0x400000
 
-all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT) $(FLASH_TCL_OUT)
+all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT) $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT)
 	@echo ""
 	@echo "============================================"
 	@echo "  Build Summary  (platform: $(PLATFORM))"
@@ -179,10 +180,11 @@ $(TCL_OUT): $(PADS) $(SCRIPTS)/bin_to_tcl.py
 	@echo "  COPY $(TCL_COPY)"
 
 # ---- 自包含 Flash TCL（固件字内嵌，可拷贝到任意调试电脑独立运行）----
-flashtcl: $(FLASH_TCL_OUT)
-$(FLASH_TCL_OUT): $(PADS) $(SCRIPTS)/bin_to_flash_tcl.py
-	@echo "  FLASH_TCL  $@"
-	$(PYTHON) $(SCRIPTS)/bin_to_flash_tcl.py $< $@ $(FLASH_ADDR) $(riscv_reset_addr)
+#   生成两个脚本：Instruct_flash_initial.tcl（写 flash）+ Instruct_load2fpga.tcl（加载到 FPGA）
+flashtcl: $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT)
+$(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT) &: $(PADS) $(SCRIPTS)/bin_to_flash_tcl.py
+	@echo "  FLASH_TCL  -> $(TCL_DIR)/Instruct_flash_initial.tcl + Instruct_load2fpga.tcl"
+	$(PYTHON) $(SCRIPTS)/bin_to_flash_tcl.py $< $(TCL_DIR) $(FLASH_ADDR) $(riscv_reset_addr)
 
 # ---- Verilog RAM init ----
 verilog: $(VERILOG_OUT)
