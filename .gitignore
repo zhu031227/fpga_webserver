@@ -118,6 +118,8 @@ c_build/out/
 
 # Verilator simulation output
 sim/obj_dir/
+sim/*.vvp
+sim/spi_ctrl_sim.v
 
 # Vivado strategy files
 *.str

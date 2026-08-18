@@ -44,11 +44,15 @@ module spi_bootloader #(
   localparam S_WRITE_PRAM = 3'd3;
   localparam S_NEXT = 3'd4;
   localparam S_DONE = 3'd5;
+  localparam S_GAP  = 3'd6;
+  localparam S_READ_START = 3'd7;
 
   reg [ 2:0] state;
   reg [31:0] flash_addr_reg;
   reg [31:0] bytes_remaining;
   reg [31:0] pram_addr_reg;
+  reg [ 4:0] gap_cnt;
+  reg [ 1:0] spi_op_done_s;  // spi_op_done 的 2FF 同步（5MHz -> 50MHz）
 
   // 内部采用 MSB-first 布局（cmd 在高字节），输出前做全 64bit 位反转。
   // 原因：spi_ctrl(cpol=0/cpha=0) 是 LSB-first（bit0 先发），反转后线上才是
@@ -61,6 +65,15 @@ module spi_bootloader #(
       assign spi_wdata[gi] = spi_wdata_msb[63-gi];
     end
   endgenerate
+
+  // spi_op_done 是 5MHz(spi_clk_bl) 域信号：空闲保持高、事务中保持低、完成时
+  // 是一个 200ns 窄脉冲。这里用 2FF 同步到 50MHz(clk) 域。
+  // 不能用 pulse_clock_region_pass：它面向单周期脉冲，而 op_done 空闲是常高
+  // 电平，会让 toggle 同步器反复翻转。
+  always @(posedge clk or negedge reset_l) begin
+    if (!reset_l) spi_op_done_s <= 2'b0;
+    else          spi_op_done_s <= {spi_op_done_s[0], spi_op_done};
+  end
 
   always @(posedge clk or negedge reset_l) begin
     if (!reset_l) begin
@@ -75,6 +88,8 @@ module spi_bootloader #(
       flash_addr_reg  <= 32'd0;
       bytes_remaining <= 32'd0;
       pram_addr_reg   <= 0;
+      gap_cnt         <= 5'd0;
+      spi_op_done_s   <= 2'b0;
     end else begin
       pram_wr <= 1'b0;  // default: pulse
 
@@ -98,11 +113,18 @@ module spi_bootloader #(
           spi_wdata_msb[31:0]  <= 32'h0;
           spi_channel_len  <= 16'd64;  // 8 cmd + 24 addr + 32 data
           spi_op_start     <= 1'b1;  // hold until op_done (CDC-safe)
-          state            <= S_READ_WAIT;
+          state            <= S_READ_START;
+        end
+
+        S_READ_START: begin
+          // 等 spi_ctrl 拉低 op_done（即检测到 op_start 上升沿、开始事务）。
+          // op_start 在此期间保持为高，确保 5MHz 域能采到上升沿，
+          // 否则 op_done 仍是上一次的电平，op_start 只高 20ns 就被清掉。
+          if (!spi_op_done_s[1]) state <= S_READ_WAIT;
         end
 
         S_READ_WAIT: begin
-          if (spi_op_done) begin
+          if (spi_op_done_s[1]) begin
             spi_op_start <= 1'b0;
             pram_wr      <= 1'b1;
             pram_addr    <= pram_addr_reg;
@@ -119,8 +141,19 @@ module spi_bootloader #(
         end
 
         S_NEXT: begin
-          if (bytes_remaining <= 32'd4) state <= S_DONE;
-          else state <= S_READ_CMD;
+          if (bytes_remaining == 32'd0) state <= S_DONE;
+          else begin
+            state   <= S_GAP;
+            gap_cnt <= 5'd0;
+          end
+        end
+
+        S_GAP: begin
+          // 保持 spi_op_start=0 足够久（>1 个 5MHz 周期），确保 spi_ctrl
+          // 能检测到下一次 op_start 上升沿；否则 40ns 的低脉冲会被漏采，
+          // 后续读会一直采到上一次的旧数据。
+          if (gap_cnt >= 5'd20) state <= S_READ_CMD;
+          else gap_cnt <= gap_cnt + 5'd1;
         end
 
         S_DONE: begin

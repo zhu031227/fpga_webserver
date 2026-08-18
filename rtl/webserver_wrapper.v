@@ -652,18 +652,8 @@ module webserver_wrapper #(
   // ============================================================
   // SPI Bootloader: Flash → InstructRAM
   // ============================================================
-  // CDC：bl_spi_op_done 是 5MHz(spi_clk_bl) 域的单周期脉冲，跨到
-  // 50MHz(clk_50mhz) 域时用 pulse_clock_region_pass 做脉冲同步，
-  // 否则 bootloader 在 50MHz 直接采样会读到错误/残留数据。
-  wire bl_spi_op_done_synced;
-  pulse_clock_region_pass u_bl_spi_op_done_cdc (
-      .reset_l (reset_l),
-      .clk_a   (spi_clk_bl),
-      .pulse_a (bl_spi_op_done),
-      .clk_b   (clk_50mhz),
-      .pulse_b (bl_spi_op_done_synced)
-  );
-
+  // bl_spi_op_done 是 5MHz 域窄脉冲，跨时钟域同步（2FF）在 spi_bootloader
+  // 内部完成，这里直接连原始信号即可。
   spi_bootloader #(
       .PRAM_ADDR_WIDTH(instr_addr_width)
   ) u_spi_bootloader (
@@ -680,7 +670,7 @@ module webserver_wrapper #(
       .spi_channel_len(bl_spi_channel_len),
       .spi_wdata(bl_spi_wdata),
       .spi_rdata(bl_spi_rdata),
-      .spi_op_done(bl_spi_op_done_synced)
+      .spi_op_done(bl_spi_op_done)
   );
 
   // ============================================================
