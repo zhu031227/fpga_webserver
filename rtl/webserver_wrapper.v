@@ -305,9 +305,10 @@ module webserver_wrapper #(
   wire [                31:0] eth1_rx_drop_cnt_src;
   wire [                31:0] eth1_rx_drop_cnt;
 
-  // SPI clock divider: 50MHz → 5MHz (divide by 10)
-  reg  [                 3:0] spi_clk_div;
-  reg                         spi_clk_bl;
+  // SPI clock: 50MHz → 5MHz. 用 clock_frequency_divider（与 lcpu_sflash 同款、
+  // 已验证可用），不用手写 divide-by-10 计数器 —— 手写计数器产生的寄存器型
+  // 时钟在硬件上可能不被正确识别/翻转，导致 bootloader 的 op_done 握手卡死。
+  wire                        spi_clk_bl;
 
   // ============================================================
   // ============================================================
@@ -628,19 +629,16 @@ module webserver_wrapper #(
       .miso(flash_miso),
       .cs(spi_cs_n_bl)
   );
-  always @(posedge clk_50mhz or negedge reset_l) begin
-    if (!reset_l) begin
-      spi_clk_div <= 0;
-      spi_clk_bl  <= 0;
-    end else begin
-      if (spi_clk_div == 4'd4) begin
-        spi_clk_div <= 0;
-        spi_clk_bl  <= ~spi_clk_bl;
-      end else begin
-        spi_clk_div <= spi_clk_div + 1;
-      end
-    end
-  end
+  clock_frequency_divider #(
+      .div_Mbits(28),
+      .div_Nbits(28)
+  ) u_spi_clk_div (
+      .reset_l(reset_l),
+      .clk_in (clk_50mhz),
+      .div_M  (50000000),  // 50MHz input
+      .div_N  (5000000),   // 5MHz output
+      .clk_out(spi_clk_bl)
+  );
 
   // ============================================================
   // SPI output mux: bootloader takes priority when busy
@@ -652,12 +650,14 @@ module webserver_wrapper #(
   // ============================================================
   // SPI Bootloader: Flash → InstructRAM
   // ============================================================
-  // bl_spi_op_done 是 5MHz 域窄脉冲，跨时钟域同步（2FF）在 spi_bootloader
-  // 内部完成，这里直接连原始信号即可。
+  // SPI 控制已搬到 5MHz 域（spi_clk_bl），与 u_bl_spi 同域，op_done 在
+  // spi_bootloader 内部同域直采；读回字经 word_valid/word_ack 握手跨回
+  // 50MHz 域写 pram，彻底消除 op_done 的 CDC 竞态。
   spi_bootloader #(
       .PRAM_ADDR_WIDTH(instr_addr_width)
   ) u_spi_bootloader (
       .clk(clk_50mhz),
+      .spi_clk(spi_clk_bl),
       .reset_l(reset_l),
       .trigger(bootloader_trigger_ind),
       .flash_addr(bootloader_flash_addr),
@@ -994,7 +994,7 @@ module webserver_wrapper #(
       .MAX_WINDOWS   (1),
       .SAMPLE_HZ     (50_000_000),
       .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (10),
+      .NUM_PROBES    (11),
       .PROBE0_WIDTH  (1),        // flash_cs_n
       .PROBE1_WIDTH  (1),        // flash_sclk
       .PROBE2_WIDTH  (1),        // flash_mosi
@@ -1005,6 +1005,7 @@ module webserver_wrapper #(
       .PROBE7_WIDTH  (1),        // pram_wr
       .PROBE8_WIDTH  (14),       // pram_addr（= instr_addr_width，xilinx 1024*16；altera 为 12 需改）
       .PROBE9_WIDTH  (32),       // pram_wdata
+      .PROBE10_WIDTH (1),        // spi_clk_bl（bootloader 5MHz 自由时钟，诊断用）
       .EXT_TRIG_EN   (1)
   ) u_ila_flash (
       .sample_clk    (clk_50mhz),
@@ -1020,6 +1021,7 @@ module webserver_wrapper #(
       .probe7        (pram_wr),
       .probe8        (pram_addr),
       .probe9        (pram_wdata),
+      .probe10       (spi_clk_bl),
       .trigger_in    (1'b0),
       .trigger_out   (),
       .armed_out     (),
