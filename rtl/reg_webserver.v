@@ -716,7 +716,7 @@ module reg_webserver (
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      bootloader_length <= 32'h00004000;
+      bootloader_length <= 32'h00008000;  // 上电自动加载用 32KB（= BIN_SIZE，覆盖整颗固件）
     end else begin
       if (req == 1'b1 && rhwl == 1'b0 && address == 16'h313) begin
         bootloader_length <= wdata[31:0];

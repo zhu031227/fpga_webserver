@@ -19,7 +19,7 @@ void arp_reply() {
     }
 
     // Accept only ARP packets sent to local MAC or broadcast MAC
-    if (!((dst_mac_high == Local_MAC_HIGH && dst_mac_low == Local_MAC_LOW) ||
+    if (!((dst_mac_high == g_local_mac_high && dst_mac_low == g_local_mac_low) ||
           (dst_mac_high == 0xFFFFFFFFu && dst_mac_low == 0xFFFFu))) {
         return;
     }
@@ -50,10 +50,10 @@ void arp_reply() {
 
     // Section 2: Write local MAC as source MAC (bytes 6-11)
     for (i = 0; i < 4; i++) {
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + i, (Local_MAC_HIGH >> (24 - i * 8)) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + i, (g_local_mac_high >> (24 - i * 8)) & 0xFF);
     }
     for (i = 0; i < 2; i++) {
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4 + i, (Local_MAC_LOW >> (8 - i * 8)) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4 + i, (g_local_mac_low >> (8 - i * 8)) & 0xFF);
     }
 
     // Section 3: Copy Ethernet type (bytes 12-13) unchanged
@@ -74,10 +74,10 @@ void arp_reply() {
 
     // Section 6: Write local MAC as sender MAC (bytes 22-27)
     for (i = 0; i < 4; i++) {
-        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + i, (Local_MAC_HIGH >> (24 - i * 8)) & 0xFF);
+        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + i, (g_local_mac_high >> (24 - i * 8)) & 0xFF);
     }
     for (i = 0; i < 2; i++) {
-        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + 4 + i, (Local_MAC_LOW >> (8 - i * 8)) & 0xFF);
+        LCPU_WR_BYTE(OFF_ARP_SENDER_MAC + 4 + i, (g_local_mac_low >> (8 - i * 8)) & 0xFF);
     }
 
     // Section 7: Write local IP as sender IP (bytes 28-31)

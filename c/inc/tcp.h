@@ -101,6 +101,7 @@ void close_connection(int conn_idx);
 void send_syn_ack(int conn_idx);
 void tcp_handle_syn(uint16 src_port, uint16 dst_port, uint32 src_ip, uint32 seq_num);
 void send_http_response(int conn_idx, const char *response);
+void send_http_buffer(int conn_idx, const uint8 *payload, uint32 payload_len);
 void parse_post_data(const char *post_data);
 void http_request_handler(int conn_idx, uint16_t tcp_data_len);
 void send_ack(int conn_idx);

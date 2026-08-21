@@ -6,9 +6,9 @@
 
 /*
  * HTTP routing:
- *   GET  /              → main page
- *   GET  /wlconfig      → whitelist config page
- *   GET  /localconfig   → local config page
+ *   GET  /              → main page          （flash 固化，见 web_pages.c）
+ *   GET  /wlconfig      → whitelist config page  （flash 固化）
+ *   GET  /localconfig   → local config page      （flash 固化）
  *   POST /api/wl/add    → add MAC
  *   POST /api/wl/delete → delete entry
  *   POST /api/wl/clear  → clear all
@@ -18,153 +18,11 @@
  *   GET  /api/wl/list   → list all entries
  *   GET  /api/local/status → local config
  *   POST /api/local/save   → save local config
+ *
+ * 页面内容已从固件内嵌字符串迁到 SPI Flash 0x420000（方案 B：flash_mem_reader
+ * 内存映射读），本文件只保留 API 的 JSON 响应模板，页面路由在 tcp.c 里改调
+ * send_web_page()。
  */
-
-const char *main_page =
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 1077\r\n"
-    "Content-Type: text/html\r\n\r\n"
-    "<meta charset='UTF-8'><html><head><title>Web@RiscV@FPGA</title>"
-    "<style>"
-    "body{text-align:center;margin:30px;font-family:Arial;}"
-    ".banner{border:2px solid #2196F3;padding:20px;margin-bottom:20px;display:inline-block;}"
-    ".banner h2{color:#2196F3;margin:5px;}"
-    ".banner p{color:#666;margin:3px;font-size:12px;}"
-    "button{width:200px;padding:12px;margin:8px;font-size:16px;"
-    "border:1px solid #2196F3;background:#fff;color:#2196F3;cursor:pointer;}"
-    "button:hover{background:#2196F3;color:#fff;}"
-    ".info{margin-top:20px;font-size:13px;color:#888;line-height:1.6;}"
-    "</style></head><body>"
-    "<div class='banner'>"
-    "<h2>RiscV@FPGA 嵌入式网关</h2>"
-    "<p>MAC 白名单上网控制系统</p>"
-    "<p>基于 RISC-V + FPGA 硬件加速 | 千兆线速 MAC 白名单过滤</p>"
-    "<p>Layer-2 Transparent Bridge | 即插即用</p>"
-    "</div><br>"
-    "<button onclick=\"location='/localconfig'\">本机配置</button><br>"
-    "<button onclick=\"location='/wlconfig'\">白名单配置</button>"
-    "<div class='info'>"
-    "FPGA: Xilinx XC7A35T-FGG484 | CPU: RISC-V RV32IC @ 50MHz<br>"
-    "接口: 1xRGMII + 2x1000BASE-X (全千兆)<br>"
-    "Copy Right @ Buck 2026"
-    "</div></body></html>";
-
-const char *wlconfig_page =
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 3205\r\n"
-    "Content-Type: text/html\r\n\r\n"
-    "<meta charset='UTF-8'><html><head><title>MAC Whitelist</title>"
-    "<style>"
-    "body{font-family:Arial;margin:20px;}"
-    "h3{color:#2196F3;}"
-    ".bar{background:#f0f0f0;padding:10px;margin-bottom:10px;font-size:13px;}"
-    "input{padding:5px;margin:2px;font-size:14px;}"
-    "button{padding:6px 12px;margin:3px;font-size:14px;cursor:pointer;}"
-    "table{border-collapse:collapse;width:100%%;margin-top:10px;}"
-    "th,td{border:1px solid #ddd;padding:6px;text-align:center;font-size:13px;}"
-    "th{background:#2196F3;color:#fff;}"
-    ".btn-del{background:#f44336;color:#fff;border:none;padding:4px 8px;cursor:pointer;}"
-    ".btn-save{background:#4CAF50;color:#fff;border:none;padding:6px 14px;}"
-    ".btn-back{background:#888;color:#fff;border:none;padding:6px 14px;}"
-    "</style></head><body>"
-    "<h3>MAC 白名单配置</h3>"
-    "<div class='bar'>"
-    "白名单: <span id='wlState'>--</span> | "
-    "条目: <span id='wlCount'>--</span> | "
-    "默认策略: <span id='dpState'>--</span> | "
-    "查找模式: BRAM顺序"
-    "</div>"
-    "<div>"
-    "<button onclick='toggleWL()' id='btnToggle'>启用/禁用</button>"
-    "<button onclick='toggleDefPass()' id='btnDefPass'>切换默认策略</button>"
-    "</div>"
-    "<div style='margin:10px 0;'>"
-    "<input id='macInput' placeholder='XX:XX:XX:XX:XX:XX' style='width:200px;'>"
-    "<button onclick='addMAC()'>添加</button>"
-    "</div>"
-    "<table><thead><tr><th>#</th><th>MAC 地址</th><th>状态</th><th>操作</th></tr></thead>"
-    "<tbody id='wlTable'></tbody></table>"
-    "<div style='margin-top:10px;'>"
-    "<button class='btn-save' onclick='clearAll()'>清空全部</button>"
-    "<button class='btn-save' onclick='saveWL()'>保存到Flash</button>"
-    "<button class='btn-back' onclick=\"location='/'\">返回首页</button>"
-    "</div>"
-    "<script>"
-    "function loadStatus(){"
-    "fetch('/api/wl/status').then(r=>r.json()).then(j=>{"
-    "document.getElementById('wlState').innerText=j.enabled?'已启用':'已禁用';"
-    "document.getElementById('dpState').innerText=j.defpass?'全放':'全断';"
-    "document.getElementById('wlCount').innerText=j.used+'/'+j.max;"
-    "});}"
-    "function loadList(){"
-    "fetch('/api/wl/list').then(r=>r.json()).then(j=>{"
-    "let t=document.getElementById('wlTable');t.innerHTML='';"
-    "j.forEach((e,i)=>{t.innerHTML+='<tr><td>'+e.idx+'</td><td>'+e.mac+'</td><td>'+(e.valid?'有效':'--')+'</td><td><button class=btn-del onclick=delMAC('+e.idx+')>删除</button></td></tr>';});"
-    "});}"
-    "function addMAC(){"
-    "let m=document.getElementById('macInput').value;"
-    "fetch('/api/wl/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({mac:m})}).then(r=>r.json()).then(j=>{alert(j.msg);loadList();loadStatus();});}"
-    "function delMAC(i){"
-    "fetch('/api/wl/delete',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({index:''+i})}).then(r=>r.json()).then(j=>{alert(j.msg);loadList();loadStatus();});}"
-    "function clearAll(){if(confirm('清空全部白名单?')){fetch('/api/wl/clear',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadList();loadStatus();});}}"
-    "function toggleWL(){fetch('/api/wl/toggle',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadStatus();});}"
-    "function toggleDefPass(){fetch('/api/wl/defpass',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);loadStatus();});}"
-    "function saveWL(){fetch('/api/wl/save',{method:'POST'}).then(r=>r.json()).then(j=>{alert(j.msg);});}"
-    "loadStatus();loadList();"
-    "</script></body></html>";
-
-const char *localconfig_page =
-    "HTTP/1.1 200 OK\r\n"
-    "Content-Length: 2304\r\n"
-    "Content-Type: text/html\r\n\r\n"
-    "<meta charset='UTF-8'><html><head><title>Local Config</title>"
-    "<style>"
-    "body{font-family:Arial;margin:20px;}"
-    "h3{color:#2196F3;}"
-    ".row{margin:8px 0;}"
-    "label{display:inline-block;width:80px;font-size:14px;}"
-    "input{padding:5px;font-size:14px;width:180px;}"
-    "button{padding:6px 14px;margin:4px;font-size:14px;cursor:pointer;}"
-    ".btn-save{background:#4CAF50;color:#fff;border:none;}"
-    ".btn-back{background:#888;color:#fff;border:none;}"
-    ".tip{font-size:12px;color:#888;margin-top:15px;line-height:1.6;}"
-    "</style></head><body>"
-    "<h3>本机网络配置</h3>"
-    "<div class='row'><label>MAC 地址:</label><input id='mac' placeholder='00:00:01:02:04:06'></div>"
-    "<div class='row'><label>IP 地址:</label><input id='ip' placeholder='192.168.1.88'></div>"
-    "<div class='row'><label>子网掩码:</label><input id='netmask' placeholder='255.255.255.0'></div>"
-    "<div class='row'><label>网关地址:</label><input id='gateway' placeholder='192.168.1.1'></div>"
-    "<div style='margin-top:15px;'>"
-    "<button class='btn-save' onclick='saveCfg()'>保存配置</button>"
-    "<button class='btn-save' onclick='loadCfg()'>从Flash重新加载</button>"
-    "<button class='btn-back' onclick=\"location='/'\">返回首页</button>"
-    "</div>"
-    "<div class='tip'>"
-    "提示:<br>"
-    "* 修改 IP 后需要用新 IP 重新访问本页面<br>"
-    "* 配置保存到 Flash，断电不丢失<br>"
-    "* MAC 格式: XX:XX:XX:XX:XX:XX<br>"
-    "* IP 格式: XXX.XXX.XXX.XXX"
-    "</div>"
-    "<script>"
-    "function macToStr(mh,ml){"
-    "let m=[];m[0]=(mh>>8)&0xFF;m[1]=mh&0xFF;m[2]=(ml>>24)&0xFF;m[3]=(ml>>16)&0xFF;m[4]=(ml>>8)&0xFF;m[5]=ml&0xFF;"
-    "return m.map(b=>(b<16?'0':'')+b.toString(16).toUpperCase()).join(':');}"
-    "function ipToStr(ip){return ((ip>>24)&0xFF)+'.'+((ip>>16)&0xFF)+'.'+((ip>>8)&0xFF)+'.'+(ip&0xFF);}"
-    "function loadCfg(){"
-    "fetch('/api/local/status').then(r=>r.json()).then(j=>{"
-    "document.getElementById('mac').value=j.mac;"
-    "document.getElementById('ip').value=j.ip;"
-    "document.getElementById('netmask').value=j.netmask;"
-    "document.getElementById('gateway').value=j.gateway;"
-    "});}"
-    "function saveCfg(){"
-    "fetch('/api/local/save',{method:'POST',headers:{'Content-Type':'application/json'},"
-    "body:JSON.stringify({mac:document.getElementById('mac').value,ip:document.getElementById('ip').value,"
-    "netmask:document.getElementById('netmask').value,gateway:document.getElementById('gateway').value})})"
-    ".then(r=>r.json()).then(j=>{alert(j.msg);});}"
-    "loadCfg();"
-    "</script></body></html>";
 
 // POST response template
 const char *post_response =

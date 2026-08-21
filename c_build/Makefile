@@ -56,11 +56,12 @@ BUILD_TIME_H = $(INC_DIR)/build_time.h
 TCL_OUT   = $(TCL_DIR)/InstructRAM.tcl
 FLASH_INIT_TCL_OUT = $(TCL_DIR)/Instruct_flash_initial.tcl
 LOAD2FPGA_TCL_OUT  = $(TCL_DIR)/Instruct_load2fpga.tcl
+PAGES_TCL_OUT      = $(TCL_DIR)/html_flash_initial.tcl
 VERILOG_OUT = $(RTL_DIR)/InstructRAM.v
 HEX_OUT   = $(RTL_DIR)/InstructRAM.hex
 
 # ---- Targets ----
-.PHONY: all elf bin pads tcl flashtcl verilog hex clean disasm info
+.PHONY: all elf bin pads tcl flashtcl pages verilog hex clean disasm info
 
 # ---- Platform selection ----
 # Usage: make PLATFORM=xilinx  (or PLATFORM=intel)
@@ -98,7 +99,7 @@ TCL_BASE ?= $(shell bash -c 'read -p "RISCV指令配置RAM的基地址是多少�
 # ---- Flash 固件分区基地址（bootloader 源地址，见设计文档分区规划）----
 FLASH_ADDR ?= 0x400000
 
-all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT) $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT)
+all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT) $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT) $(PAGES_TCL_OUT)
 	@echo ""
 	@echo "============================================"
 	@echo "  Build Summary  (platform: $(PLATFORM))"
@@ -185,6 +186,13 @@ flashtcl: $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT)
 $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT) &: $(PADS) $(SCRIPTS)/bin_to_flash_tcl.py
 	@echo "  FLASH_TCL  -> $(TCL_DIR)/Instruct_flash_initial.tcl + Instruct_load2fpga.tcl"
 	$(PYTHON) $(SCRIPTS)/bin_to_flash_tcl.py $< $(TCL_DIR) $(FLASH_ADDR) $(riscv_reset_addr)
+
+# ---- Web 页面打包（html/*.html → tcl/html_flash_initial.tcl）----
+#   依赖 html 源文件：改 html 后 make pages（或 make）自动重新生成，没改则跳过。
+pages: $(PAGES_TCL_OUT)
+$(PAGES_TCL_OUT): $(SCRIPTS)/pages_to_flash_tcl.py $(SCRIPTS)/bin_to_flash_tcl.py $(wildcard $(C_DIR)/../html/*.html)
+	@echo "  PAGES -> $(TCL_DIR)/html_flash_initial.tcl"
+	$(PYTHON) $(SCRIPTS)/pages_to_flash_tcl.py $@
 
 # ---- Verilog RAM init ----
 verilog: $(VERILOG_OUT)

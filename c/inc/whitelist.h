@@ -2,6 +2,7 @@
 #define _WHITELIST_H_
 
 #include <stdint.h>
+#include "flash_cfg.h"
 
 // mac_whitelist SubBus base address (reg_webserver SubBus range: 0x5000-0x5FFF)
 #define WL_SUBBUS_ADDR  0x5000
@@ -48,5 +49,9 @@ int      whitelist_hw_diag(char *buf, int buf_size);
 // Flash persistence
 int  whitelist_save_to_flash(void);
 int  whitelist_load_from_flash(void);
+
+// 供 flash_cfg 层读取/恢复白名单快照（sw cache + wl_ctrl）
+void whitelist_get_snapshot(flash_cfg_wl_t *wl);
+void whitelist_apply_snapshot(const flash_cfg_wl_t *wl);
 
 #endif

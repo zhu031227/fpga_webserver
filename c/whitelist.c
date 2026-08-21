@@ -1,6 +1,7 @@
 // whitelist.c — MAC whitelist management via SubBus 0x1500
 #include "inc/lcpu_general.h"
 #include "inc/whitelist.h"
+#include "inc/local_config.h"
 
 // SubBus write helper: write a 32-bit word to a SubBus address
 // Must wait for SubBus ack to ensure transaction completes before next write
@@ -67,11 +68,20 @@ static uint16_t sw_wl_count;
 void whitelist_init(void)
 {
     int i;
+    flash_cfg_local_t lc;
+    flash_cfg_wl_t wl;
+
     for (i = 0; i < WL_SW_CACHE_SIZE; i++) {
         sw_wl_valid[i] = 0;
     }
     sw_wl_count = 0;
-    lcpu_baseaddr->wl_ctrl = 0x0;  // [0]=enable=0 (off), [1]=default_pass=0 (block all)
+
+    // 启动时从 Flash 自动加载白名单 + wl_ctrl（magic/checksum 校验失败则保持默认：禁用、空表）
+    if (flash_cfg_load(&lc, &wl) == 0) {
+        whitelist_apply_snapshot(&wl);
+    } else {
+        lcpu_baseaddr->wl_ctrl = 0x0;  // [0]=enable=0 (off), [1]=default_pass=0 (block all)
+    }
 }
 
 void whitelist_enable(uint8_t enable)
@@ -272,14 +282,65 @@ int whitelist_hw_diag(char *buf, int buf_size)
     buf[p++]= '}'; buf[p]=0; return p;
 }
 
+// 从 sw cache + wl_ctrl 填充快照（供 flash_cfg 层保存）
+void whitelist_get_snapshot(flash_cfg_wl_t *wl)
+{
+    int i;
+    if (!wl) return;
+    wl->ctrl = lcpu_baseaddr->wl_ctrl & 0x3u;
+    wl->valid_mask = 0;
+    for (i = 0; i < FLASH_CFG_WL_MAX; i++) {
+        if (sw_wl_valid[i]) {
+            wl->valid_mask |= (uint16_t)(1u << i);
+            wl->mac_h[i] = ((uint32_t)sw_wl_mac[i][0] << 24) | ((uint32_t)sw_wl_mac[i][1] << 16) |
+                           ((uint32_t)sw_wl_mac[i][2] << 8)  | sw_wl_mac[i][3];
+            wl->mac_l[i] = ((uint32_t)sw_wl_mac[i][4] << 8)  | sw_wl_mac[i][5];
+        } else {
+            wl->mac_h[i] = 0;
+            wl->mac_l[i] = 0;
+        }
+    }
+}
+
+// 用快照恢复 sw cache + HW BRAM + wl_ctrl
+void whitelist_apply_snapshot(const flash_cfg_wl_t *wl)
+{
+    int i;
+    if (!wl) return;
+
+    // 清空现有（sw cache + HW BRAM）
+    whitelist_clear_all();
+    lcpu_baseaddr->wl_ctrl = wl->ctrl & 0x3u;
+
+    // 逐条恢复
+    for (i = 0; i < FLASH_CFG_WL_MAX; i++) {
+        if (wl->valid_mask & (uint16_t)(1u << i)) {
+            uint8_t mac[6];
+            mac[0] = (uint8_t)(wl->mac_h[i] >> 24);
+            mac[1] = (uint8_t)(wl->mac_h[i] >> 16);
+            mac[2] = (uint8_t)(wl->mac_h[i] >> 8);
+            mac[3] = (uint8_t)wl->mac_h[i];
+            mac[4] = (uint8_t)(wl->mac_l[i] >> 8);
+            mac[5] = (uint8_t)wl->mac_l[i];
+            whitelist_add(mac);
+        }
+    }
+}
+
 int whitelist_save_to_flash(void)
 {
-    // Placeholder: Flash save not yet implemented in HW
-    return 0;
+    flash_cfg_local_t lc;
+    flash_cfg_wl_t wl;
+    local_config_get_snapshot(&lc);
+    whitelist_get_snapshot(&wl);
+    return flash_cfg_save(&lc, &wl);
 }
 
 int whitelist_load_from_flash(void)
 {
-    // Placeholder: Flash load not yet implemented in HW
+    flash_cfg_local_t lc;
+    flash_cfg_wl_t wl;
+    if (flash_cfg_load(&lc, &wl) != 0) return -1;
+    whitelist_apply_snapshot(&wl);
     return 0;
 }

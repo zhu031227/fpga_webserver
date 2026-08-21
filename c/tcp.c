@@ -3,6 +3,7 @@
 #include "inc/ip.h"
 #include "inc/tcp.h"
 #include "inc/http.h"
+#include "inc/web_pages.h"
 #include "inc/eth.h"
 #include "inc/whitelist.h"
 #include "inc/local_config.h"
@@ -493,15 +494,15 @@ static void tcp_run_reg_access(
     }
 }
 
-void send_http_response(int conn_idx, const char *response) {
-    uint16_t response_len = strlen(response);
-    uint16_t offset = 0;
+// 按「指针 + 长度」发送一段响应体（不 strlen，可用于 flash 内存映射区）。
+void send_http_buffer(int conn_idx, const uint8 *payload, uint32 payload_len) {
+    uint32 offset = 0;
 
-    while (offset < response_len) {
+    while (offset < payload_len) {
         uint8 tcp_header[tcp_header_len];
         uint16_t checksum;
-        uint16_t data_to_send = (response_len - offset > MSS) ? MSS : (response_len - offset);
-        const uint8 *payload_ptr = (const uint8 *)(response + offset);
+        uint16_t data_to_send = (uint16_t)((payload_len - offset > MSS) ? MSS : (payload_len - offset));
+        const uint8 *payload_ptr = payload + offset;
 
         fill_tcp_header(conn_idx, TCP_FLAG_ACK, tcp_header);
 
@@ -520,6 +521,10 @@ void send_http_response(int conn_idx, const char *response) {
         offset += data_to_send;
     }
     connection_last_activity[conn_idx] = LCPU_LOCAL_TIME_L();
+}
+
+void send_http_response(int conn_idx, const char *response) {
+    send_http_buffer(conn_idx, (const uint8 *)response, strlen(response));
 }
 
 static void tcp_send_post_response(int conn_idx, uint32 address, uint32 data, const char *mode) {
@@ -996,13 +1001,18 @@ static void api_local_save(int conn_idx, uint16_t tcp_data_len) {
         if (field[0] != ' ') { cfg.gateway = parse_ip_str(field); }
     }
 
-    // Send response FIRST — before local_config_set changes g_local_ip,
-    // so the TCP source IP matches the existing connection
-    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"saved\"}");
+    // 先把新配置写 flash（不改 g_local_ip，保持下面响应的源 IP 不变），
+    // 按写入结果回响应，最后才 local_config_set 应用运行时（改 g_local_ip/HW 寄存器）。
+    int save_rc = local_config_save_snapshot_to_flash(&cfg);
 
-    // Then apply config (changes g_local_ip, HW registers) and save to Flash
+    // Send response with OLD source IP (local_config_set not yet called)
+    if (save_rc == 0)
+        api_send_json(conn_idx, "{\"code\":0,\"msg\":\"saved\"}");
+    else
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"flash error\"}");
+
+    // Then apply config (changes g_local_ip, HW registers)
     local_config_set(&cfg);
-    local_config_save_to_flash();
 }
 
 // Simple URL path match: compare packet data starting at current RD position
@@ -1041,18 +1051,18 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
 
                         if (sub_char == ' ' || sub_char == '\r') {
                             // "GET /" → main page
-                            send_http_response(conn_idx, main_page);
+                            send_web_page(conn_idx, WEB_ROUTE_MAIN);
                             handled = 1;
                         } else if (sub_char == 'w') {
                             // /wlconfig or /wl...
                             if (match_path("lconfig")) {
-                                send_http_response(conn_idx, wlconfig_page);
+                                send_web_page(conn_idx, WEB_ROUTE_WLCONFIG);
                                 handled = 1;
                             }
                         } else if (sub_char == 'l') {
                             // /localconfig
                             if (match_path("ocalconfig")) {
-                                send_http_response(conn_idx, localconfig_page);
+                                send_web_page(conn_idx, WEB_ROUTE_LOCALCONFIG);
                                 handled = 1;
                             }
                         } else if (sub_char == 'a') {
@@ -1166,8 +1176,10 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                             if (!handled) {
                                 lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
                                 if (match_path("pi/wl/save")) {
-                                    whitelist_save_to_flash();
-                                    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"saved\"}");
+                                    int save_rc = whitelist_save_to_flash();
+                                    api_send_json(conn_idx, save_rc == 0
+                                        ? "{\"code\":0,\"msg\":\"saved\"}"
+                                        : "{\"code\":-1,\"msg\":\"flash error\"}");
                                     handled = 1;
                                 }
                             }

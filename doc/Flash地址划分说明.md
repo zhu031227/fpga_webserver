@@ -50,7 +50,7 @@
 |------|-----------|---------|---------|------|------|
 | FPGA Bitstream | `0x000000` | 4MB | 0（当前未用） | ⏳ 预留 | Vivado SPI x4 配置数据（自举） |
 | Firmware | `0x400000` | 128KB | `0x5D70` 字节（5980 字） | ✅ **已实现** | RISC-V 可执行固件 |
-| Web 页面 | `0x420000` | 8MB | 0（当前未用） | ⏳ 规划 | HTML/CSS/JS 页面文件 |
+| Web 页面 | `0x420000` | 8MB | 3 页 + TOC（~16KB） | ✅ **已实现** | HTML 页面（flash_mem_reader 内存映射读） |
 | 本机+白名单配置 | `0xC20000` | 4KB | 1 个扇区 | ✅ **已实现** | 本机 IP/MAC + 白名单表 + CRC |
 | 预留 | `0xC21000` | ~3.87MB | 0 | ⏳ 预留 | 日志 / 固件备份 / 扩展 |
 
@@ -109,11 +109,13 @@
 
 | 项 | 说明 |
 |----|------|
-| 保存什么 | 规划中：HTML/CSS/JS/Logo 页面文件（多页面 + 图片） |
-| 谁来操作 | 规划中：RISC-V 固件经 `lcpu_sflash` 读取后发给客户端 |
-| 如何操作 | **当前未使用**。现有 Web 页面（主页、白名单配置页）是**内嵌在固件 C 代码里**的（`c/http.c` 的 `main_page`、`wlconfig_page` 字符串），未放到 Flash |
+| 保存什么 | HTML 页面（当前 3 页：`/`、`/wlconfig`、`/localconfig`），TOC + 内容 |
+| 谁来操作 | **读**：RISC-V 固件经硬件 `flash_mem_reader` 内存映射读（`0x90000000` 段）；**写**：PC(JTAG) 经 `lcpu_sflash` |
+| 如何操作 | 已实现（方案 B，见 `doc/HTTP页面Flash固化设计方案.md`）。TOC 存 `0x420000`（第 0 扇区），每页各占一个 4KB 扇区 |
 
-> 此分区是为「页面文件过大、放不进固件」时预留的。当前页面很小，直接编译进固件即可。
+> 布局：`0x420000` TOC（magic "WEBP" + 版本 + 计数 + N×16B 条目，条目含 route_id/content_type/offset/length）；
+> `0x421000`/`0x422000`/`0x423000` 为 3 页内容。打包工具 `c_build/pages_to_flash_tcl.py` 生成
+> `tcl/html_flash_initial.tcl` 烧写，只擦用到的 4 个扇区。
 
 ### 3.4 本机配置 + MAC 白名单 —— `0xC20000 ~ 0xC20FFF`（4KB）
 

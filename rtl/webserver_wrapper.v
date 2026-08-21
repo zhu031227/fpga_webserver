@@ -201,6 +201,19 @@ module webserver_wrapper #(
   wire [                31:0] bootloader_flash_addr;
   wire [                31:0] bootloader_length;
 
+  // Auto-boot (上电自动加载固件)：自动触发 + 钳 RISC-V 复位
+  wire                        auto_boot_trigger;
+  wire                        auto_boot_active;
+
+  // RISC-V 软件复位（reg_webserver 输出，默认 1=释放）
+  wire                        riscv_reset_l;
+
+  // bootloader 触发 = 手工 WC 触发 | 上电自动触发
+  wire                        bootloader_trigger_combined = bootloader_trigger_ind | auto_boot_trigger;
+
+  // RISC-V 复位 = 软件复位 & ~自动加载进行中（自动加载期间钳复位）
+  wire                        cpu_reset_l = riscv_reset_l & ~auto_boot_active;
+
   // Bootloader pram interface (muxed with LCPU pram)
   wire                        bl_pram_wr;
   wire [instr_addr_width-1:0] bl_pram_addr;
@@ -218,6 +231,20 @@ module webserver_wrapper #(
   // SPI mux: bootloader vs lcpu_sflash
   wire spi_sclk_bl, spi_mosi_bl, spi_cs_n_bl;
   wire spi_sclk_sf, spi_mosi_sf, spi_cs_n_sf;
+
+  // Flash memory-mapped reader (方案 B) — 0x90000000 段只读映射
+  wire                        flash_mem_window;   // cpu_address 命中 0x90000000 段
+  wire                        flash_mem_sel;      // 该段总线访问（读或写）
+  wire [                23:0] flash_mem_addr;     // flash 字节地址（整 16MB）
+  wire                        reg_ws_ack;         // reg_webserver 拆出的 ack
+  wire [                31:0] reg_ws_rdata;       // reg_webserver 拆出的 rdata
+  wire                        fmr_ack, fmr_busy;
+  wire [                31:0] fmr_rddata;         // flash_mem_reader → CPU 读数据
+  wire                        fmr_op_start, fmr_op_done;
+  wire [                15:0] fmr_channel_len;
+  wire [                63:0] fmr_wdata;
+  wire [                31:0] fmr_spi_rdata;
+  wire                        spi_sclk_fmr, spi_mosi_fmr, spi_cs_n_fmr;
 
   // ============================================================
   // Eth statistics (125MHz domain, from gmii2mac)
@@ -366,7 +393,7 @@ module webserver_wrapper #(
       .reset_l(reset_l),
       .uart_rx(uart_rx),
       .uart_tx(uart_tx),
-      .riscv_reset_l(riscv_reset_l),
+      .riscv_reset_l(cpu_reset_l),
       .pram_wr(pram_wr),
       .pram_addr(pram_addr),
       .pram_wdata(pram_wdata),
@@ -541,12 +568,12 @@ module webserver_wrapper #(
       .RAMIF_program_ram_Ram_RdData(pram_rdata),
       .clk(clk_50mhz),
       .rst_n(reset_l),
-      .req(cpu_req),
+      .req(cpu_req & ~flash_mem_window),
       .rhwl(cpu_rhwl),
       .wdata(cpu_wdata),
       .address(cpu_address[15:0]),
-      .rdata(cpu_rdata),
-      .ack(cpu_ack)
+      .rdata(reg_ws_rdata),
+      .ack(reg_ws_ack)
   );
 
   // ============================================================
@@ -641,11 +668,11 @@ module webserver_wrapper #(
   );
 
   // ============================================================
-  // SPI output mux: bootloader takes priority when busy
+  // SPI output mux: bootloader > flash_mem_reader > lcpu_sflash
   // ============================================================
-  assign flash_sclk = bootloader_status[0] ? spi_sclk_bl : spi_sclk_sf;
-  assign flash_mosi = bootloader_status[0] ? spi_mosi_bl : spi_mosi_sf;
-  assign flash_cs_n = bootloader_status[0] ? spi_cs_n_bl : spi_cs_n_sf;
+  assign flash_sclk = bootloader_status[0] ? spi_sclk_bl : (fmr_busy ? spi_sclk_fmr : spi_sclk_sf);
+  assign flash_mosi = bootloader_status[0] ? spi_mosi_bl : (fmr_busy ? spi_mosi_fmr : spi_mosi_sf);
+  assign flash_cs_n = bootloader_status[0] ? spi_cs_n_bl : (fmr_busy ? spi_cs_n_fmr : spi_cs_n_sf);
 
   // ============================================================
   // SPI Bootloader: Flash → InstructRAM
@@ -659,7 +686,7 @@ module webserver_wrapper #(
       .clk(clk_50mhz),
       .spi_clk(spi_clk_bl),
       .reset_l(reset_l),
-      .trigger(bootloader_trigger_ind),
+      .trigger(bootloader_trigger_combined),
       .flash_addr(bootloader_flash_addr),
       .length(bootloader_length),
       .status(bootloader_status),
@@ -671,6 +698,73 @@ module webserver_wrapper #(
       .spi_wdata(bl_spi_wdata),
       .spi_rdata(bl_spi_rdata),
       .spi_op_done(bl_spi_op_done)
+  );
+
+  // ============================================================
+  // Auto-boot：上电延迟后自动触发 bootloader，加载完释放 RISC-V 复位
+  // ============================================================
+  auto_boot #(
+      .DELAY_CYCLES(5000000)  // 100ms @ 50MHz
+  ) u_auto_boot (
+      .clk               (clk_50mhz),
+      .reset_l           (reset_l),
+      .bootloader_status (bootloader_status),
+      .auto_boot_active  (auto_boot_active),
+      .auto_boot_trigger (auto_boot_trigger)
+  );
+
+  // ============================================================
+  // Flash 内存映射读（方案 B）：0x90000000 段 → 整颗 16MB Flash 只读映射
+  // ============================================================
+  // 译码：cpu_address 是字地址 = {3'b0, byte_addr[30:2]}（riscv_reg.v 丢 bit31、
+  // riscv32_top.v:76 高3位补0）。字节 0x90000000 = (0x90000000&0x7FFFFFFF)>>2 =
+  // 0x04000000（不是 0x24000000！）。0x90000000~0x90FFFFFF 共 16MB = 整颗 Flash，
+  // 对应字 0x04000000~0x043FFFFF（[31:22]==10'd16，共 0x400000 字；若只比 [31:24]
+  // 会误含 0x04400000~0x04FFFFFF 的 4 倍镜像）。flash 字节地址 = {cpu_address[21:0],2'b00}
+  //（cpu_address 是字地址，低 22 位 = flash字节地址>>2，左移 2 位恢复字节地址）。
+  // reg_webserver 只看到 address[15:0]，0x90000000 会截断成 0x8000 假命中 program_ram，
+  // 故这里在截断前单独译码，并把该段从 reg_webserver 屏蔽。
+  assign flash_mem_window = (cpu_address[31:22] == 10'd16);
+  assign flash_mem_sel    = cpu_req & flash_mem_window;
+  assign flash_mem_addr   = {cpu_address[21:0], 2'b00};
+
+  // CPU 应答多路：0x90000000 段由 flash_mem_reader 独享，其余走 reg_webserver。
+  assign cpu_ack   = reg_ws_ack | fmr_ack;
+  assign cpu_rdata = flash_mem_window ? fmr_rddata : reg_ws_rdata;
+
+  flash_mem_reader u_flash_mem_reader (
+      .clk            (clk_50mhz),
+      .spi_clk        (spi_clk_bl),
+      .reset_l        (reset_l),
+      .op_req         (flash_mem_sel),
+      .rhwl           (cpu_rhwl),
+      .address        (flash_mem_addr),
+      .rddata         (fmr_rddata),
+      .op_ack         (fmr_ack),
+      .busy           (fmr_busy),
+      .spi_op_start   (fmr_op_start),
+      .spi_channel_len(fmr_channel_len),
+      .spi_wdata      (fmr_wdata),
+      .spi_rdata      (fmr_spi_rdata),
+      .spi_op_done    (fmr_op_done)
+  );
+
+  // flash_mem_reader 的 SPI 主控（与 u_bl_spi 同款 spi_ctrl，5MHz 域）
+  spi_ctrl #(
+      .cpol(0),
+      .cpha(0)
+  ) u_fmr_spi (
+      .reset_l    (reset_l),
+      .clk        (spi_clk_bl),
+      .op_start   (fmr_op_start),
+      .channel_len(fmr_channel_len),
+      .wdata      (fmr_wdata),
+      .rdata      (fmr_spi_rdata),
+      .op_done    (fmr_op_done),
+      .sck        (spi_sclk_fmr),
+      .mosi       (spi_mosi_fmr),
+      .miso       (flash_miso),
+      .cs         (spi_cs_n_fmr)
   );
 
   // ============================================================
@@ -994,7 +1088,7 @@ module webserver_wrapper #(
       .MAX_WINDOWS   (1),
       .SAMPLE_HZ     (50_000_000),
       .RST_ACTIVE_LOW(1),
-      .NUM_PROBES    (11),
+      .NUM_PROBES    (15),
       .PROBE0_WIDTH  (1),        // flash_cs_n
       .PROBE1_WIDTH  (1),        // flash_sclk
       .PROBE2_WIDTH  (1),        // flash_mosi
@@ -1006,6 +1100,10 @@ module webserver_wrapper #(
       .PROBE8_WIDTH  (14),       // pram_addr（= instr_addr_width，xilinx 1024*16；altera 为 12 需改）
       .PROBE9_WIDTH  (32),       // pram_wdata
       .PROBE10_WIDTH (1),        // spi_clk_bl（bootloader 5MHz 自由时钟，诊断用）
+      .PROBE11_WIDTH (1),        // fmr_busy（flash_mem_reader 是否占用引脚）
+      .PROBE12_WIDTH (1),        // fmr_op_start（SPI 事务启动脉冲）
+      .PROBE13_WIDTH (1),        // fmr_op_done（SPI 事务完成）
+      .PROBE14_WIDTH (32),       // fmr_spi_rdata（SPI 读回字，字节交换前）
       .EXT_TRIG_EN   (1)
   ) u_ila_flash (
       .sample_clk    (clk_50mhz),
@@ -1022,6 +1120,10 @@ module webserver_wrapper #(
       .probe8        (pram_addr),
       .probe9        (pram_wdata),
       .probe10       (spi_clk_bl),
+      .probe11       (fmr_busy),
+      .probe12       (fmr_op_start),
+      .probe13       (fmr_op_done),
+      .probe14       (fmr_spi_rdata),
       .trigger_in    (1'b0),
       .trigger_out   (),
       .armed_out     (),

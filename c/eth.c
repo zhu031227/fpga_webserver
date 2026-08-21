@@ -36,17 +36,17 @@ uint16 eth_proc()
         dst_mac_low |= (uint32)LCPU_RD_DATA8();
 
         // Single comparison for all 6 bytes
-        if (dst_mac_high != Local_MAC_HIGH || dst_mac_low != (uint32)Local_MAC_LOW) {
+        if (dst_mac_high != g_local_mac_high || dst_mac_low != (uint32)g_local_mac_low) {
             return NO_PROC;
         }
 
         // Write local MAC as source MAC (bytes 6-11)
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 0, (Local_MAC_HIGH >> 24) & 0xFF);
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 1, (Local_MAC_HIGH >> 16) & 0xFF);
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 2, (Local_MAC_HIGH >> 8) & 0xFF);
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 3, (Local_MAC_HIGH >> 0) & 0xFF);
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4, (Local_MAC_LOW >> 8) & 0xFF);
-        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 5, (Local_MAC_LOW >> 0) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 0, (g_local_mac_high >> 24) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 1, (g_local_mac_high >> 16) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 2, (g_local_mac_high >> 8) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 3, (g_local_mac_high >> 0) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4, (g_local_mac_low >> 8) & 0xFF);
+        LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 5, (g_local_mac_low >> 0) & 0xFF);
 
         // Swap source MAC → destination MAC (copy RX[6..11] to TX[0..5])
         uint32 i;
@@ -75,12 +75,12 @@ void eth_tx_header_fill(void) {
     uint32 fifo_data;
 
     // Source MAC = local MAC
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 0, (Local_MAC_HIGH >> 24) & 0xFF);
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 1, (Local_MAC_HIGH >> 16) & 0xFF);
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 2, (Local_MAC_HIGH >> 8) & 0xFF);
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 3, (Local_MAC_HIGH >> 0) & 0xFF);
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4, (Local_MAC_LOW >> 8) & 0xFF);
-    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 5, (Local_MAC_LOW >> 0) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 0, (g_local_mac_high >> 24) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 1, (g_local_mac_high >> 16) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 2, (g_local_mac_high >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 3, (g_local_mac_high >> 0) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 4, (g_local_mac_low >> 8) & 0xFF);
+    LCPU_WR_BYTE(OFF_ETH_SRC_MAC + 5, (g_local_mac_low >> 0) & 0xFF);
 
     // Destination MAC = incoming packet's source MAC (swap)
     for (i = 0; i < 6; i++) {

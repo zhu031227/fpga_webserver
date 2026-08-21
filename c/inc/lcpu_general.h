@@ -294,13 +294,19 @@ struct lcpu_registers
 #define LCPU_REG32_WRITE(word_addr, data) do { *((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))) = (uint32)(data); } while (0)
 #define LCPU_REG32_READ(word_addr)       (*((volatile uint32 *)((uintptr_t)lcpu_baseaddr + ((word_addr) * sizeof(uint32)))))
 
+// Flash 内存映射读（方案 B）：整颗 16MB Flash 映射到 0x90000000 段。
+// flash_mem_reader 硬件做了 32bit 字节交换，flash 呈现为小端内存（flash[addr] 落在
+// 字节 0）。固件按字读、再按需取字节即可。只读。byte_addr 需 4 字节对齐。
+#define FLASH_MEM_BASE   0x90000000u
+#define FLASH_MEM_RD32(byte_addr)  (*((volatile uint32 *)(FLASH_MEM_BASE + (uint32)(byte_addr))))
+
 // Runtime local config globals (cached from registers at init)
 extern uint32 g_local_ip;
 extern uint32 g_local_mac_high;
 extern uint32 g_local_mac_low;
 
-// Whitelist SubBus address base
-#define WL_SUBBUS_BASE    0x1500
-#define SFLASH_SUBBUS_BASE 0x1400
+// SubBus 基址（0x1400/0x1500 是过时值，实际 RTL 译码：sflash=0x4000、whitelist=0x5000）
+#define WL_SUBBUS_BASE     0x5000
+#define SFLASH_SUBBUS_BASE 0x4000
 
 #endif /* _LCPU_GEN_H_ */
