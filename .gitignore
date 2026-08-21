@@ -112,6 +112,7 @@ rtl/InstructRAM.hex
 tcl/InstructRAM.tcl
 tcl/Instruct_flash_initial.tcl
 tcl/Instruct_load2fpga.tcl
+tcl/html_flash_initial.tcl
 
 # C build outputs
 c_build/out/
