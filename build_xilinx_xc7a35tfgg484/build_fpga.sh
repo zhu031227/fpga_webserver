@@ -337,6 +337,15 @@ wait_on_run synth_1
 	set bit_dst "\$proj_dir/\$proj_name.bit"
 	if {[file exists \$bit_src]} { file copy -force \$bit_src \$bit_dst }
 
+	# Generate update .bin（SPI x1 bit-swap）供 fpga_golden 恢复页上传烧到 0x400000
+	set bin_dst "\$proj_dir/\$proj_name.bin"
+	if {[file exists \$bit_dst]} {
+		write_cfgmem -format bin -interface SPIx1 -size 4 \
+			-loadbit [list up 0x00000000 \$bit_dst] \
+			-force -file \$bin_dst
+		puts "  update .bin : \$bin_dst"
+	}
+
 	# Timing / utilization reports (open the implemented design from the run)
 	open_run impl_1
 	report_timing_summary -file "\$proj_dir/timing_summary.rpt"
@@ -391,6 +400,7 @@ echo "============================================"
 echo " Build Complete"
 echo " Project : ${PROJ_DIR}"
 echo " Bitfile : ${PROJ_DIR}/${PROJ_NAME}.bit"
+echo " Binfile : ${PROJ_DIR}/${PROJ_NAME}.bin  (upload via fpga_golden recovery page -> update 0x400000)"
 echo " Signals : ${PROJ_DIR}/webserver_signals.json"
 echo ""
 echo " Self-contained.  To rebuild:"

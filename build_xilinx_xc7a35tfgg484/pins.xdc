@@ -2,6 +2,18 @@
 # pins.xdc — Xilinx XC7A35T-FGG484 pin assignments (ACX750 dev board)
 #===================================================================
 
+# --- 配置模式：SPI x1 + MultiBoot Fallback ---
+# 本工程作为 fpga_golden 的 update 镜像，被 golden 经 ICAP IPROG 跳到 0x400000 自举。
+# 必须与 fpga_golden 的 pins.xdc 一致（XAPP1247：fallback 只走 x1）：
+#   - SPIx1：golden 把 update 位流按 x1 bit-swap 写进 flash，update 自身也要 x1 读回。
+#   - CONFIGFALLBACK：update 位流本身坏/缺失时，硬件弹回 0x0 的 golden。
+set_property CONFIG_MODE SPIx1 [current_design]
+set_property BITSTREAM.CONFIG.CONFIGRATE 33 [current_design]
+set_property BITSTREAM.CONFIG.SPI_BUSWIDTH 1 [current_design]
+set_property BITSTREAM.CONFIG.CONFIGFALLBACK Enable [current_design]
+set_property CFGBVS VCCO [current_design]
+set_property CONFIG_VOLTAGE 3.3 [current_design]
+
 # --- 50 MHz clock input ---
 set_property PACKAGE_PIN W19 [get_ports clk_50m_in]
 
