@@ -1,0 +1,229 @@
+# ============================================================================
+# Makefile — RISC-V firmware build for FPGA WebServer
+# ============================================================================
+# Usage:
+#   make            — full build (elf → bin → pads → tcl/hex/verilog)
+#   make elf        — compile + link only (firmware.elf)
+#   make bin        — firmware.bin
+#   make pads       — firmware_pads.bin
+#   make tcl        — generate ../tcl/InstructRAM.tcl
+#   make verilog    — generate ../rtl/InstructRAM.v
+#   make hex        — generate ../rtl/InstructRAM.hex
+#   make clean      — remove all build outputs
+#   make disasm     — disassemble firmware.elf
+#   make info       — show toolchain info
+
+# ---- Toolchain ----
+CROSS     = riscv64-unknown-elf
+CC        = $(CROSS)-gcc
+OBJCOPY   = $(CROSS)-objcopy
+OBJDUMP   = $(CROSS)-objdump
+PYTHON    = python3
+
+# ---- Build configuration ----
+BIN_SIZE  = 32768
+ARCH      = rv32ic
+ABI       = ilp32
+
+# Sysroot from system picolibc (provides stdlib.h, string.h, etc.)
+SYSROOT   = /usr/lib/picolibc/riscv64-unknown-elf
+SYS_INC   = -isystem $(SYSROOT)/include
+SYS_LIB   = -L$(SYSROOT)/lib/rv32iac/ilp32
+
+CFLAGS    = -march=$(ARCH) -mabi=$(ABI) -msmall-data-limit=0 -mno-save-restore \
+            -O2 -ffunction-sections -fdata-sections -Wall -Wextra $(SYS_INC)
+LDFLAGS   = -march=$(ARCH) -mabi=$(ABI) -nostdlib -Wl,--gc-sections $(SYS_LIB)
+
+# ---- Paths ----
+C_DIR     = ../c
+INC_DIR   = $(C_DIR)/inc
+RTL_DIR   = ../rtl
+TCL_DIR   = ../tcl
+OUT_DIR   = out
+LINKER    = linker.ld
+SCRIPTS   = .
+
+# ---- Sources & objects ----
+C_SRCS    = $(wildcard $(C_DIR)/*.c)
+C_OBJS    = $(patsubst $(C_DIR)/%.c, $(OUT_DIR)/%.o, $(C_SRCS))
+
+# ---- Outputs ----
+ELF       = $(OUT_DIR)/firmware.elf
+BIN       = $(OUT_DIR)/firmware.bin
+PADS      = $(OUT_DIR)/firmware_pads.bin
+DISASM    = $(OUT_DIR)/firmware.disasm
+BUILD_TIME_H = $(INC_DIR)/build_time.h
+TCL_OUT   = $(TCL_DIR)/InstructRAM.tcl
+FLASH_INIT_TCL_OUT = $(TCL_DIR)/Instruct_flash_initial.tcl
+LOAD2FPGA_TCL_OUT  = $(TCL_DIR)/Instruct_load2fpga.tcl
+PAGES_TCL_OUT      = $(TCL_DIR)/html_flash_initial.tcl
+VERILOG_OUT = $(RTL_DIR)/InstructRAM.v
+HEX_OUT   = $(RTL_DIR)/InstructRAM.hex
+
+# ---- Targets ----
+.PHONY: all elf bin pads tcl flashtcl pages verilog hex clean disasm info
+
+# ---- Platform selection ----
+# Usage: make PLATFORM=xilinx  (or PLATFORM=intel)
+#        make                  (interactive prompt, default: xilinx)
+# Skip prompt for non-build targets (clean, disasm, info, etc.)
+NEED_PLATFORM := $(if $(filter clean disasm info,$(MAKECMDGOALS)),,1)
+ifeq ($(NEED_PLATFORM),1)
+  ifndef PLATFORM
+    PLATFORM := $(shell bash -c 'read -p "Select platform [xilinx/intel] (default: xilinx): " p; echo $${p:-xilinx}')
+  endif
+else
+  PLATFORM := none
+endif
+
+ifeq ($(PLATFORM),intel)
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/haitaoz/work/FPGA_Prj/fpga_webserver-whitelist_dev/rtl/altera_ep4ce10f17c6_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+else
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/haitaoz/work/FPGA_Prj/fpga_webserver-whitelist_dev/rtl/xilinx_xc7a35tfgg484_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+endif
+
+ifeq ($(INSTR_ADDR_DEPTH),)
+  INSTR_ADDR_DEPTH := 12288
+else
+  INSTR_ADDR_DEPTH := $(shell echo $$(($(INSTR_ADDR_DEPTH))))
+endif
+
+# ---- RISC-V reset control address (JTAG RAM write enable) ----
+#   Prompt user; press Enter to accept default
+riscv_reset_addr ?= $(shell bash -c 'read -p "RISCV复位地址是多少（16进制地址），默认是0xf: " input; echo $${input:-0xf}')
+
+# ---- TCL base address (word address in instruction RAM) ----
+#   Prompt user; press Enter to accept default
+TCL_BASE ?= $(shell bash -c 'read -p "RISCV指令配置RAM的基地址是多少（16进制地址）,默认是0x8000: " input; echo $${input:-0x8000}')
+
+# ---- Flash 固件分区基地址（bootloader 源地址，见设计文档分区规划）----
+FLASH_ADDR ?= 0x400000
+
+all: $(BUILD_TIME_H) $(PADS) $(VERILOG_OUT) $(HEX_OUT) $(TCL_OUT) $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT) $(PAGES_TCL_OUT)
+	@echo ""
+	@echo "============================================"
+	@echo "  Build Summary  (platform: $(PLATFORM))"
+	@echo "============================================"
+	@echo "  Instruction space : $(INSTR_ADDR_DEPTH) x 32-bit words ($(shell echo $$(($(INSTR_ADDR_DEPTH) * 4))) bytes)"
+	@$(PYTHON) -c "import pathlib,os; \
+	sz=pathlib.Path('$(BIN)').stat().st_size; \
+	w=(sz+3)//4; \
+	d=int('$(INSTR_ADDR_DEPTH)'); \
+	pct=w*100//d; \
+	print(f'  Firmware size     : {sz} bytes, {w} words ({pct}% of {d} words)')"
+	@echo "  ELF  : $(ELF)"
+	@echo "  BIN  : $(BIN)"
+	@echo "  PADS : $(PADS)"
+	@echo "  VERILOG: $(VERILOG_OUT)"
+	@echo "  HEX  : $(HEX_OUT)"
+	@echo "  TCL  : $(TCL_OUT)"
+	@echo "  COPY : $(TCL_COPY)"
+
+# ---- Generate build_time.h (stamp BUILD_DATE / BUILD_TIME) ----
+$(OUT_DIR):
+	mkdir -p $(OUT_DIR)
+
+FORCE:
+
+$(BUILD_TIME_H): FORCE | $(OUT_DIR)
+	@echo "  GEN  $@"
+	@echo "#ifndef _BUILD_TIME_H_" > $@
+	@echo "#define _BUILD_TIME_H_" >> $@
+	@echo "#define BUILD_DATE      0x$$(date +%Y%m%d)" >> $@
+	@echo "#define BUILD_TIME      0x$$(date +%H%M%S)00" >> $@
+	@echo "#endif // _BUILD_TIME_H_" >> $@
+
+# ---- Compile ----
+$(OUT_DIR)/%.o: $(C_DIR)/%.c $(BUILD_TIME_H) | $(OUT_DIR)
+	@echo "  CC   $<"
+	$(CC) -c $< -I$(INC_DIR) -I$(OUT_DIR) $(CFLAGS) -o $@
+
+# ---- Link ----
+elf: $(ELF)
+$(ELF): $(C_OBJS) $(LINKER) | $(OUT_DIR)
+	@echo "  LD   $@"
+	$(CC) $(C_OBJS) -T $(LINKER) $(LDFLAGS) -lc -lgcc -o $@
+
+# ---- Binary ----
+bin: $(BIN)
+$(BIN): $(ELF)
+	@echo "  OBJCOPY $@"
+	$(OBJCOPY) -O binary $< $@
+
+# ---- Pad ----
+pads: $(PADS)
+$(PADS): $(BIN)
+	@echo "  PAD  $@ ($(BIN_SIZE) bytes)"
+	$(PYTHON) -c "\
+import pathlib, sys; \
+BIN_SIZE=$(BIN_SIZE); \
+src=pathlib.Path('$<').read_bytes(); \
+src_len=len(src); \
+print(f'  size: {src_len} bytes (limit {BIN_SIZE})'); \
+assert src_len <= BIN_SIZE, f'Firmware too large: {src_len} > {BIN_SIZE}'; \
+pathlib.Path('$@').write_bytes(src + b'\x00' * (BIN_SIZE - src_len)); \
+print(f'  words: {(src_len+3)//4} used / {BIN_SIZE//4} total'); \
+"
+
+# ---- Build timestamp strings (for file naming) ----
+BUILD_DATE_STR := $(shell date +%Y%m%d)
+BUILD_TIME_STR := $(shell date +%H%M%S)
+
+# ---- TCL JTAG load script ----
+# Copy with timestamp: webserver_riscv_instruct_<DATE>_<TIME>.tcl
+TCL_COPY = $(TCL_DIR)/webserver_riscv_instruct_$(BUILD_DATE_STR)_$(BUILD_TIME_STR).tcl
+
+tcl: $(TCL_OUT)
+$(TCL_OUT): $(PADS) $(SCRIPTS)/bin_to_tcl.py
+	@echo "  TCL  $@"
+	$(PYTHON) $(SCRIPTS)/bin_to_tcl.py $< $@ $(TCL_BASE) $(riscv_reset_addr)
+	@cp $@ $(TCL_COPY)
+	@echo "  COPY $(TCL_COPY)"
+
+# ---- 自包含 Flash TCL（固件字内嵌，可拷贝到任意调试电脑独立运行）----
+#   生成两个脚本：Instruct_flash_initial.tcl（写 flash）+ Instruct_load2fpga.tcl（加载到 FPGA）
+flashtcl: $(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT)
+$(FLASH_INIT_TCL_OUT) $(LOAD2FPGA_TCL_OUT) &: $(PADS) $(SCRIPTS)/bin_to_flash_tcl.py
+	@echo "  FLASH_TCL  -> $(TCL_DIR)/Instruct_flash_initial.tcl + Instruct_load2fpga.tcl"
+	$(PYTHON) $(SCRIPTS)/bin_to_flash_tcl.py $< $(TCL_DIR) $(FLASH_ADDR) $(riscv_reset_addr)
+
+# ---- Web 页面打包（html/*.html → tcl/html_flash_initial.tcl）----
+#   依赖 html 源文件：改 html 后 make pages（或 make）自动重新生成，没改则跳过。
+pages: $(PAGES_TCL_OUT)
+$(PAGES_TCL_OUT): $(SCRIPTS)/pages_to_flash_tcl.py $(SCRIPTS)/bin_to_flash_tcl.py $(wildcard $(C_DIR)/../html/*.html)
+	@echo "  PAGES -> $(TCL_DIR)/html_flash_initial.tcl"
+	$(PYTHON) $(SCRIPTS)/pages_to_flash_tcl.py $@
+
+# ---- Verilog RAM init ----
+verilog: $(VERILOG_OUT)
+$(VERILOG_OUT): $(PADS) $(SCRIPTS)/bin_to_verilog_para.py
+	@echo "  VERILOG $@"
+	$(PYTHON) $(SCRIPTS)/bin_to_verilog_para.py $< $@ $(BIN_SIZE)
+
+# ---- Quartus HEX ----
+hex: $(HEX_OUT)
+$(HEX_OUT): $(PADS) $(SCRIPTS)/bin_to_quartus_hex.py
+	@echo "  HEX  $@"
+	$(PYTHON) $(SCRIPTS)/bin_to_quartus_hex.py $< $@ $(BIN_SIZE)
+
+# ---- Disassemble ----
+disasm: $(DISASM)
+$(DISASM): $(ELF)
+	@echo "  OBJDUMP $@"
+	$(OBJDUMP) -d -M no-aliases $< > $@
+	@echo "  Disassembly written to $@"
+
+# ---- Clean ----
+clean:
+	rm -rf $(OUT_DIR)
+	@echo "  Cleaned c_build/out/"
+
+# ---- Info ----
+info:
+	@echo "Toolchain : $(CC)"
+	@echo "  version : $$($(CC) --version | head -1)"
+	@echo "Arch/ABI  : $(ARCH) / $(ABI)"
+	@echo "ROM size  : $(BIN_SIZE) bytes"
+	@echo "C sources : $(words $(C_SRCS)) files"
+	@echo "Linker    : $(LINKER)"
+	@$(foreach s,$(C_SRCS),echo "           $(notdir $s)";)

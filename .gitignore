@@ -1,0 +1,133 @@
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Python cache
+__pycache__/
+*.pyc
+
+# Backup directories
+*_bk/
+*_backup/
+
+# Build toolchain (very large)
+toolchain/riscv_win32/
+toolchain/out/
+toolchain/out_*/
+
+# Build outputs
+*.elf
+*.o
+*.bin
+*.map
+*.lst
+*.hex
+
+# Simulation artifacts
+sim/work/
+*.log
+*.jou
+*.wlf
+*.tmp
+transcript
+*.gtkw
+*.fst
+*.vcd
+*.vvp
+
+# ============================================================
+# FPGA 布局布线工程 — 仅提交工程文件和约束文件等必须文件
+# 工程编译中的过程文件和数据库不要去提交，忽略掉！
+# ============================================================
+
+# --- Quartus/Intel FPGA: 只保留 .qpf .qsf .sdc .tcl .v/.sv/.vhd 等源文件 ---
+# 过程文件 / 数据库 / 编译产物 — 全部忽略
+par_intel/
+par/
+db/
+incremental_db/
+output_files/
+greybox_tmp/
+hwcos/
+*.qws
+*.ddb
+*.bak
+*.qdf
+*.sof
+*.pof
+*.jdi
+*.sld
+*.ipinfo
+*.summary
+*.done
+*.pin
+*.qarlog
+*.smsg
+*.pin_assignment
+*.rpt
+*.chk
+*.stp
+*.qsf_org
+*.prev.si
+*.qst
+*.qsf_bak
+*.tcl~
+
+# --- Xilinx/Vivado: 只保留 .xpr .srcs/ (源码) .constrs_1/ (约束) .tcl 等源文件 ---
+# Vivado 自动管理目录 / 过程文件 / 编译产物 — 全部忽略
+par_xilinx/
+.xil/
+vivado_*.backup.jou
+vivado_*.backup.log
+*.cache/
+*.gen/
+*.hw/
+*.ip_user_files/
+*.runs/
+*.sim/
+*.srcs/
+NAMEDATABASE/
+*.jou
+*.log
+*.xpr
+*.xdc
+!pins.xdc
+!timing.xdc
+*.strategy
+*.backup.jou
+*.backup.log
+usage_statistics_webtalk.*
+
+# Versioned build directories
+webserver_xilinx_xc7a35tfgg484_v*/
+webserver_altera_ep4ce10f17c6_v*/
+xilinx_xc7a35tfgg484_v*/
+altera_ep4ce10f17c6_v*/
+
+# Generated instruction RAM files
+rtl/InstructRAM.v
+rtl/InstructRAM.hex
+tcl/InstructRAM.tcl
+tcl/Instruct_flash_initial.tcl
+tcl/Instruct_load2fpga.tcl
+tcl/html_flash_initial.tcl
+
+# C build outputs
+c_build/out/
+
+# Verilator simulation output
+sim/obj_dir/
+sim/*.vvp
+sim/spi_ctrl_sim.v
+
+# Vivado strategy files
+*.str
+sim/obj_dir_wave/
+tcl/webserver_riscv_instruct_*.tcl
+*.pcapng
+.~lock.*
+*.7z
+py2aspVar.dat
+c/inc/build_time.h
