@@ -493,6 +493,55 @@ tb 技巧：SubBus 写任务直接 `cfg_rlwh=1; cfg_addr=..; #30; cfg_rlwh=0;`�
 
 **验证标准**：8 用例全 PASS；用例 7 的 18 拍是强校验。
 
+### 步骤 7B：两级集成仿真（L2）—— 白名单 × cpu_channel_tri 联合 tb
+
+> **为什么需要这一级**：L1 只证明查找引擎本身正确，但"包到来→提取 SrcMAC→触发查找→结果门控转发"这条链路跨了两个模块。链路要通，这一级必须仿真过才允许上板——尤其是 **busy 期间的请求撞车**和**门控 push 语义**，L1 覆盖不到。
+
+**新建** `sim/tb_wl_integration.sv`，例化两个真实模块：
+
+```
+tb_wl_integration
+ ├─ mac_whitelist_seq        (DUT1，照 L1 方式例化)
+ ├─ cpu_channel_tri          (DUT2，eth0/eth2 口悬空，只用 eth1 RX 口 + whitelist 口)
+ │    连线：DUT2 的 wl_lookup_req/mac → DUT1 的 lookup 口
+ │          DUT1 的 match/done/busy → DUT2
+ │          whitelist_en/default_pass 由 tb 直接驱动
+ └─ 激励：直接驱动 mac1_rx_sop/en/data/eop，逐字节喂最小以太网帧
+          （14B 头 + 46B padding + 伪 CRC，共 64B）
+```
+
+**仿真文件依赖清单**（iverilog 直接命令行，**不进 sim/Makefile**——那是系统级仿真用的，依赖 OLD_RTL 别碰）：
+
+```bash
+iverilog -g2012 -o tb_wl.vvp \
+    sim/tb_wl_integration.sv \
+    rtl/cpu_channel_tri.v \
+    rtl/mac_whitelist_seq.v \
+    ip_common/rtl/ram2pktfifo_int.v \
+    ip_common/rtl/package_fifo_v2.v \
+    ip_common/rtl/pktfifo2ram_int_v2.v \
+    ip_common/rtl/sop_eop_gen.v \
+    ip_common/rtl/dual_clock_simple_dual_port_ram.v \
+    ip_common/rtl/single_clock_simple_dual_port_ram.v \
+    rtl/define.sv
+# 若报 undefined module，按报错从 ip_common/rtl/ 逐个补文件即可；
+# define.sv 的 DEVICE_VENDOR/LARGER_RAM 宏保证 RAM 走行为级实现，仿真可用。
+vvp tb_wl.vvp
+```
+
+**集成用例矩阵（6 条）**：
+
+| # | 用例 | 期望 |
+|---|------|------|
+| 1 | 白名单加 MAC_A → 喂 SrcMAC=MAC_A 的帧 | `wl_lookup_req` 打一拍 → done 后 `mac2_tx_en` 出现波形（转发），drop 计数不变 |
+| 2 | 喂 SrcMAC=MAC_B（不在表）的帧 | req→done 正常，`mac2_tx_en` 无波形，`eth1_rx_drop_cnt` +1 |
+| 3 | enable=0 + defpass=0 → 喂 MAC_A 帧 | 不查表（match 恒 0），帧被丢弃 |
+| 4 | enable=0 + defpass=1 → 喂任意帧 | 无条件转发 |
+| 5 | **背靠背两帧**（第一帧 header_done 后立即第二帧 SOP） | 第一帧 done 前第二帧的 req 被 busy 挡住但不丢；两帧依次得到正确门控 |
+| 6 | **搬移/清表并发**（CLEAR 进行中喂帧） | 查找不挂死、done 最终到来（结果允许任意——中间态语义） |
+
+**验证标准**：6 条全过 → 才允许进入步骤 8 上板（见第 5 章门禁表）。
+
 ### 步骤 8：系统集成与上板
 
 1. `mac_whitelist_top.v`：`LOOKUP_MODE==0` 分支把 placeholder 换成例化你的模块（其余分支不动）；
@@ -543,10 +592,64 @@ tb 技巧：SubBus 写任务直接 `cfg_rlwh=1; cfg_addr=..; #30; cfg_rlwh=0;`�
 
 | 里程碑 | 完成判据 |
 |--------|---------|
-| M0-1 RTL 完成 | 步骤 7 仿真 8 用例 PASS |
+| M0-1 RTL 完成 | 步骤 7 单元 tb 8 用例 PASS |
+| M0-1b 集成仿真通过 | 步骤 7B 集成 tb 6 用例 PASS（L2，上板前置条件） |
 | M0-2 集成完成 | MODE=0 出 bit，`/api/wl/diag` 寄存器快照正常 |
 | M0-3 上板验收 | 步骤 8 板测 5 项过 + ILA（可选）实测 req→done=18 拍 |
 | 收尾 | git commit/tag `mode0-verified`，进入姐妹篇《模式 1》 |
+
+---
+
+## 第 5 章 仿真链路总览、上板门禁与已知问题
+
+### 5.1 整链路仿真分层（哪几层仿真过了才许上板）
+
+```
+L0 编译层   RTL 0 error / 0 critical warning，无 implicit wire
+            └─ 工具：iverilog -g2012 或 Vivado 综合 quick check
+L1 单元层   mac_whitelist_seq 单元 tb（步骤 7，8 用例）
+            └─ 覆盖：查找算法/周期数/配置通路/CLEAR/边界
+L2 集成层   mac_whitelist × cpu_channel_tri 联合 tb（步骤 7B，6 用例）
+            └─ 覆盖：触发时序/busy 撞车/门控语义/drop 计数 ← 链路能不能通的关键
+L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver）
+            └─ 【可选，本期跳过】：依赖 OLD_RTL + vendor_stubs，门槛高；
+               L2 + 板测已能覆盖白名单链路，不要陷进去
+```
+
+**不单独仿真的模块及理由**（避免模型瞎扩展范围）：
+
+| 模块 | 为什么不单测 | 靠什么保证 |
+|------|-------------|-----------|
+| `reg_webserver.v` SubBus 译码 | 1308 行大模块，白名单只占一小段 | 已由现有板测覆盖（0x5000 链路实测工作） |
+| `ramintf` | 纯透传 | L2 tb 间接覆盖（cfg 口行为由 tb 模拟，其真实行为已被板测验证） |
+| `dual_clock_simple_dual_port_ram` | ip_common 成熟件 | L1 tb 例化了它，顺带覆盖 |
+| `gmii2mac`/MAC 层 | 与白名单改动无关 | 工程现状已有板测（eth0 Web 正常） |
+| C 驱动算法 | 纯软件 | （模式 1 建议 x86 单测，模式 0 简单无需） |
+
+### 5.2 上板门禁（Gate）——不满足不许碰板子
+
+| Gate | 内容 | 通过标准 |
+|------|------|---------|
+| G1 | L0 编译干净 | 0 error / 0 critical warning |
+| G2 | L1 单元 tb | 8 用例全过（含 ==18 拍断言） |
+| G3 | L2 集成 tb | 6 用例全过 |
+| G4 | 产物齐套 | `.bit` + `tcl/InstructRAM.tcl`（固定名最新版）+ 烧录/加载脚本可用 |
+| G5 | 板测 | 步骤 8 的 5 项板测全过 → 打 tag `mode0-verified` |
+
+> G1~G3 全绿才允许执行 `build_fpga.sh`（半小时起步，别用板子当仿真器调试 RTL）。
+
+### 5.3 已知问题与待处理细节（干活前必读的避坑清单）
+
+| # | 问题 | 现状/影响 | 处理建议 | 时机 |
+|---|------|----------|---------|------|
+| 1 | **已存在的时序违例**：`c1_pll_50m`(125MHz) 域 32 端点 WNS −2.731ns，路径在 `u_ila_debug → u_ila_flash`（fpga_ila 调试链） | 已实测不影响功能（板上 ping/网页正常） | **不是你的问题，不要去修**。看 timing report 时：violating path 的 Source/Destination 含 `u_ila_` 前缀 = 已知违例，忽略；出现**其他**路径的新违例才需要处理 | 每次 build 后 |
+| 2 | **`wl_status`(0x301) 全工程无驱动** | Web 读 lookup_mode 恒 0；模式 0 下读数恰好也是 0，**无法区分"正常"和"断线"** | 模式 0 阶段可缓修（读数凑巧正确）；**模式 1 必修**（见姐妹篇 2.4） | 模式 1 集成时 |
+| 3 | **`whitelist_add` 无查重** | 同一 MAC 加两次占两个槽位，浪费容量 | 顺手修：add 开头线性扫影子表，已存在直接返回其 index | 模式 0 C 驱动编写时 |
+| 4 | **固件加载用错文件的风险**：`tcl/` 下有 `webserver_riscv_instruct_<时间戳>.tcl` 历史副本 | 加载了旧固件 → 板行为与代码对不上，白费排查时间 | **永远 source 固定名 `tcl/InstructRAM.tcl`**（每次 make 重新生成覆盖） | 每次上板 |
+| 5 | **板上免打流单次查表的调试通道**：wrapper 已把 `debug_wc_0` 脉冲（CDC 后）并入 `lookup_req` | 可通过 JTAG 写 `debug_wc_0` 寄存器+MAC 寄存器手动触发一次查找，无需真实以太网帧 | 调试查找 FSM 时优先用它，比搭打流环境快得多 | 板级调试时 |
+| 6 | **sim/Makefile 是系统级仿真的**（内部 OLD_RTL 指向旧版单口 RTL） | 单元/集成 tb 走它会把无关文件全拉进来编译失败 | L1/L2 tb 一律用 5.1/7B 的 iverilog 命令行，**不改 sim/Makefile** | 仿真阶段 |
+| 7 | **CLEAR 期间写口被序列器独占** | CLEAR 的 16 拍内普通 WR/DEL 写会被吞 | C 侧 clear_all 后等待（现有 subbus_write 的 flush 天然等待）；tb 用例 4 覆盖 | 已在设计中处理，知悉即可 |
+| 8 | **125MHz 与 50MHz 域信号严禁直连** | en/defpass/查找请求若跨域直连=偶发错 | wrapper 的 CDC（`wl_ctrl_125m`）已就位；自查时确认用的是 `_125m` 后缀信号 | 集成自查 |
 
 ---
 

@@ -375,9 +375,49 @@ endfunction
 // 每次 lookup：DUT match（done 拍采样）异或 model_lookup → mismatch 计数
 ```
 
+### 4.4 集成仿真（L2）：mac_whitelist_bin × cpu_channel_tri
+
+**沿用模式 0 文档「步骤 7B」的集成 tb（`sim/tb_wl_integration.sv`）**——它例化真实 cpu_channel_tri + 查找引擎，覆盖"提取 SrcMAC→触发→门控"整条链路。模式 1 阶段这样用：
+
+1. **参数化**：tb 的 MODE parameter 改成可传（`MODE=1` 时例化 `mac_whitelist_bin`）；
+2. **命令行替换**：iverilog 文件清单里 `mac_whitelist_seq.v` → `mac_whitelist_bin.v`（其余 7 个 ip_common 文件不变）；
+3. **回归双跑**：
+   - `MODE=0` + seq：6 用例过（证明共用代码没被本次改动弄坏）；
+   - `MODE=1` + bin：6 用例过 + **周期数断言改为 ≤10**（tb 里原 ==18 的断言点参数化）；
+4. **模式 1 特有加测一条**：
+
+| # | 用例 | 期望 |
+|---|------|------|
+| 7 | tb 直接驱动 DUT1（bin）做**有序表随机对拍**（复用 4.3 金模型），同时 cpu_channel_tri 侧持续喂帧 | 增删的每一笔写之间查找结果都符合金模型（INV3 在集成级验证——这是"搬移期间不关过滤"设计的最终证据） |
+
+**文件依赖**：与模式 0 文档步骤 7B 完全一致（9 个文件，只换 seq→bin）。
+
 ---
 
 ## 第 5 章 上板验证
+
+### 5.0 上板门禁（Gate）——不满足不许烧板
+
+| Gate | 内容 | 通过标准 |
+|------|------|---------|
+| G1 | L0 编译干净 | bin.v + wrapper 0 error / 0 critical warning |
+| G2 | L1 单元 tb | MODE=1 的 14 用例 + 500 次对拍 0 mismatch |
+| G2b | L1 回归 | MODE=0 重跑 8 用例全过（共用代码未被改坏） |
+| G3 | L2 集成 tb | 双模式各 6 用例过 + 模式 1 特有用例 7 过 |
+| G4 | 产物齐套 | MODE=1 的 `.bit` + **固定名 `tcl/InstructRAM.tcl`**（勿拿时间戳历史副本） |
+| G5 | 板测 | 5.2~5.4 全过 → tag `mode1-verified` |
+
+### 5.0.1 已知问题（干活前必读，与模式 0 文档第 5.3 节共 8 条）
+
+公共 8 条见《模式 0》文档 5.3 节（已知时序违例=u_ila 路径忽略、固件加载只用固定名 InstructRAM.tcl、sim/Makefile 别碰等）。**模式 1 额外注意**：
+
+| # | 问题 | 处理 |
+|---|------|------|
+| 9 | `wl_status` 未驱动在本模式**必须修**（模式 0 读数凑巧=0 可缓，模式 1 读不出 1 就无法验收 G5 第 1 项） | 本文 2.4，方案 a/b 任选 |
+| 10 | C 搬移的 16 条×4 笔写全部要过 `subbus_write()`（内含 flush） | 漏一笔 flush = 中间条目丢失，5.3 并发测试必炸 |
+| 11 | 全零 MAC 校验别忘（1.4 细节 3） | add 开头一行 |
+
+### 5.1 模式切换与烧录
 
 ### 5.1 模式切换与烧录
 
