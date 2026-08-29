@@ -170,7 +170,34 @@ webserver_wrapper (518/1033/1152 行)：     Ram_Addr = address[11:0]
 ```
 > **图 1** LCPU 写寄存器时序（Master 视角）。**来源**：`ip_common/doc/常用LRIP接口时序.md`「LCPU写寄存器时序(Master)」，信号名未改。
 
-**下游（你的 cfg 口）看到的写事务形态**（图 2，自设计）：经 ramintf 直通后，**没有 REQ/ACK 握手**——SubBus 写事务期间 `cfg_rlwh=1` 电平持续约 3 拍，你的译码逻辑会被同一笔写命中多次：
+**读事务**（C 侧回读 0x06/07/08、flush 读 0x500A 走的就是它，图 2）：
+
+```wavedrom
+{ "signal": [
+	{ "name": "CLK", "wave": "10P......" },
+	{ "name": "RH_WL", "wave": "xx1x....." },
+	{ "name": "REQ", "wave": "0.10....." },
+	{ "name": "ACK", "wave": "0......10" },
+	{ "name": "ADDR", "wave": "x.3x.....",
+		"data": [
+			"Addr"
+		]
+	},
+	{ "name": "RDATA", "wave": "x......3x",
+		"data": [
+			"rdata"
+		]
+	},
+	{ "name": "WDATA", "wave": "x........",
+		"data": [
+			"wdata"
+		]
+	}
+]}
+```
+> **图 2** LCPU 读寄存器时序（Master 视角）。**来源**：`ip_common/doc/常用LRIP接口时序.md`「LCPU读寄存器时序(Master)」，信号名未改。读数据在 ACK 拍有效；白名单侧的读是组合 mux（`cfg_rdata` 零延迟，模式0-步骤5.3），比上游协议更快收敛——C 侧 flush 读 0x500A 顺带起到"等前一笔写落地"的间隔作用（特性 2）。
+
+**下游（你的 cfg 口）看到的写事务形态**（图 3，自设计）：经 ramintf 直通后，**没有 REQ/ACK 握手**——SubBus 写事务期间 `cfg_rlwh=1` 电平持续约 3 拍，你的译码逻辑会被同一笔写命中多次：
 
 ```wavedrom
 { "signal": [
@@ -184,7 +211,7 @@ webserver_wrapper (518/1033/1152 行)：     Ram_Addr = address[11:0]
 ], "head": { "text": "白名单 cfg 口电平敏感写：rlwh 持续约 3 拍，同一笔写被译码 3 次" },
    "foot": { "text": "写内容恒定 → 重复执行无害（幂等）。禁止在此通路用边沿检测/计数式逻辑" } }
 ```
-> **图 2** 白名单 cfg 口电平敏感写采样（自设计）。`*_r` 脉冲寄存器结构见 模式0-步骤4。
+> **图 3** 白名单 cfg 口电平敏感写采样（自设计）。`*_r` 脉冲寄存器结构见 模式0-步骤4。
 
 **三个必须遵守的特性**（违反任何一条都会出诡异 bug）：
 
@@ -203,7 +230,7 @@ webserver_wrapper (518/1033/1152 行)：     Ram_Addr = address[11:0]
 | — | — | `whitelist_en / default_pass`（wl_ctrl 2bit，reg_webserver 0x300） | wrapper 里 `cdc_bus_sync`（972~982 行，已存在，输出 `wl_ctrl_125m`） |
 | — | — | 手动触发 `debug_wc_0_ind` 脉冲 | wrapper 里 `pulse_clock_region_pass`（1039 行起，已存在） |
 
-手动调试触发的跨域脉冲传递（图 3）：50MHz 域的 `debug_wc_0` 单拍脉冲经 `pulse_clock_region_pass` 变成 125MHz 域单拍脉冲，并入 `lookup_req`——这是已知问题 5 的"免打流单次查表"调试通道：
+手动调试触发的跨域脉冲传递（图 4）：50MHz 域的 `debug_wc_0` 单拍脉冲经 `pulse_clock_region_pass` 变成 125MHz 域单拍脉冲，并入 `lookup_req`——这是已知问题 5 的"免打流单次查表"调试通道：
 
 ```wavedrom
 { "signal": [
@@ -215,7 +242,7 @@ webserver_wrapper (518/1033/1152 行)：     Ram_Addr = address[11:0]
 ], "head": { "text": "pulse_clock_region_pass 跨时钟域脉冲传递" },
    "foot": { "text": "延迟约 3~4 个目的域周期；两次脉冲间隔须大于 4~5 个目的域周期" } }
 ```
-> **图 3** 脉冲跨域传递。**来源**：`ip_common/doc/常用LRIP接口时序.md`「pulse_clock_region_pass跨时钟域脉冲传递时序」，仅改信号名。
+> **图 4** 脉冲跨域传递。**来源**：`ip_common/doc/常用LRIP接口时序.md`「pulse_clock_region_pass跨时钟域脉冲传递时序」，仅改信号名。
 
 复位：`reset_l` 低有效、异步 assert；125MHz 域用它，50MHz 域用 `cfg_reset_l`（wrapper 里同源）。**BRAM 和 shadow_rf 不做复位**（BRAM 无法异步复位；FPGA 上电存储器即零）。
 
@@ -690,7 +717,7 @@ assign lookup_busy = (state != S_IDLE);
 
 （`bram_rd_valid`/`bram_rd_mac` 即 `q_b` 的 valid 判断与 [47:0] 切片，按 3.2 实例化信号名接线。）
 
-**6.3** 逐拍时序核对——先把图 4 画进注释，再逐拍对照你的代码走一遍：
+**6.3** 逐拍时序核对——先把图 5 画进注释，再逐拍对照你的代码走一遍：
 
 ```wavedrom
 { "signal": [
@@ -706,7 +733,7 @@ assign lookup_busy = (state != S_IDLE);
 ], "head": { "text": "模式 0 顺序查找：req→done = 18 拍（16 条全表扫，无提前退出）" },
    "foot": { "text": "BRAM 同步读 1 拍：c1 发地址 0 → c2 数据 d0 有效；cmp_index>0 守卫对齐；d15 在 S_DONE 拍补比 → 拍 17 done（req 在拍 0）" } }
 ```
-> **图 4** 顺序查找 FSM 逐拍时序（自设计）。每列一拍：地址 c1~c16 发 0~15，数据 c2~c17 回 d0~d15，比较 c2~c17 共 16 次，done 在 c17。
+> **图 5** 顺序查找 FSM 逐拍时序（自设计）。每列一拍：地址 c1~c16 发 0~15，数据 c2~c17 回 d0~d15，比较 c2~c17 共 16 次，done 在 c17。
 
 周期数验算（与 1.4 推导闭环）：req 在拍 0，done 在拍 17 → **req→done 共 18 拍 = 144ns** ✓。
 
@@ -768,7 +795,7 @@ iverilog -g2012 -o tb_seq.vvp \
 vvp tb_seq.vvp
 ```
 
-**7.5** 判读要点：查找结果检查**必须等 `lookup_done` 再采 `lookup_match`**，别在 req 后固定延时；用例 7 的 18 拍是强校验，FSM 任何拍错都会在这里现形（对照图 4 定位错拍）。
+**7.5** 判读要点：查找结果检查**必须等 `lookup_done` 再采 `lookup_match`**，别在 req 后固定延时；用例 7 的 18 拍是强校验，FSM 任何拍错都会在这里现形（对照图 5 定位错拍）。
 
 **产出物**：`sim/tb_mac_whitelist_seq.sv` + 全 PASS 的仿真记录。
 
@@ -784,7 +811,7 @@ vvp tb_seq.vvp
 
 **操作步骤**：
 
-**8.1** 新建 `sim/tb_wl_integration.sv`，例化两个真实模块，连线关系见图 5：
+**8.1** 新建 `sim/tb_wl_integration.sv`，例化两个真实模块，连线关系见图 6：
 
 ```mermaid
 flowchart LR
@@ -794,9 +821,9 @@ flowchart LR
     DUT1["mac_whitelist_seq<br/>(DUT1, 照 L1 方式例化)"] -->|"lookup_match / done / busy"| DUT2
     DUT2 -->|"检查: mac2_tx_en 波形<br/>eth1_rx_drop_cnt 计数"| CHK["tb 断言"]
 ```
-> **图 5** L2 集成 tb 连线结构。
+> **图 6** L2 集成 tb 连线结构。
 
-**8.2** 喂帧方法：tb 直接驱动 `mac1_rx_sop/en/data/eop`，逐字节喂最小以太网帧——**14B 头 + 46B padding + 伪 CRC = 64B**。帧字节布局与包流接口时序见图 6（注意源 MAC 占字节 6~11，正是 1.1 ① cpu_channel_tri 提取的段落，白名单查的就是它）：
+**8.2** 喂帧方法：tb 直接驱动 `mac1_rx_sop/en/data/eop`，逐字节喂最小以太网帧——**14B 头 + 46B padding + 伪 CRC = 64B**。帧字节布局与包流接口时序见图 7（注意源 MAC 占字节 6~11，正是 1.1 ① cpu_channel_tri 提取的段落，白名单查的就是它）：
 
 | 字节 | 内容 |
 |------|------|
@@ -817,7 +844,7 @@ flowchart LR
     {}
 ]}
 ```
-> **图 6** MAC 侧包流接口时序（tb 喂帧即按此驱动）。**来源**：`ip_common/doc/常用LRIP接口时序.md`「MAC侧包流接口时序」，信号名加 `1` 前缀对齐 cpu_channel_tri 端口。
+> **图 7** MAC 侧包流接口时序（tb 喂帧即按此驱动）。**来源**：`ip_common/doc/常用LRIP接口时序.md`「MAC侧包流接口时序」，信号名加 `1` 前缀对齐 cpu_channel_tri 端口。
 
 **8.3** 编译运行——文件依赖清单（iverilog 直接命令行；与 L1 同理**不进 sim/Makefile**。路径均为仓库相对路径，`../ip_common` 是仓库外层共享库，已核实 6 个依赖文件与构建时新克隆副本逐字节一致）：
 
@@ -1015,7 +1042,7 @@ L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver�
 | 2 | **`wl_status`(0x301) 全工程无驱动** | Web 读 lookup_mode 恒 0；模式 0 下读数恰好也是 0，**无法区分"正常"和"断线"** | 模式 0 阶段可缓修（读数凑巧正确）；**模式 1 必修**（见姐妹篇 模式1-步骤4） | 模式 1 集成时 |
 | 3 | **`whitelist_add` 无查重** | 同一 MAC 加两次占两个槽位，浪费容量 | 顺手修：add 开头线性扫影子表，已存在直接返回其 index | 模式0-步骤9.4 |
 | 4 | **固件加载用错文件的风险**：`tcl/` 下有 `webserver_riscv_instruct_<时间戳>.tcl` 历史副本 | 加载了旧固件 → 板行为与代码对不上，白费排查时间 | **永远 source 固定名 `tcl/InstructRAM.tcl`**（每次 make 重新生成覆盖）；走仓库脚本 `scripts/load_firmware_vivado.tcl` | 每次上板 |
-| 5 | **板上免打流单次查表的调试通道**：wrapper 已把 `debug_wc_0` 脉冲（CDC 后）并入 `lookup_req`（时序见图 3） | 可通过 JTAG 写 `debug_wc_0` 寄存器+MAC 寄存器手动触发一次查找，无需真实以太网帧 | 调试查找 FSM 时优先用它，比搭打流环境快得多 | 板级调试时 |
+| 5 | **板上免打流单次查表的调试通道**：wrapper 已把 `debug_wc_0` 脉冲（CDC 后）并入 `lookup_req`（时序见图 4） | 可通过 JTAG 写 `debug_wc_0` 寄存器+MAC 寄存器手动触发一次查找，无需真实以太网帧 | 调试查找 FSM 时优先用它，比搭打流环境快得多 | 板级调试时 |
 | 6 | **sim/Makefile 是系统级仿真的**（内部 OLD_RTL 指向旧版单口 RTL） | 单元/集成 tb 走它会把无关文件全拉进来编译失败 | L1/L2 tb 一律用 模式0-步骤7.4/8.3 的 iverilog 命令行，**不改 sim/Makefile** | 仿真阶段 |
 | 7 | **CLEAR 期间写口被序列器独占** | CLEAR 的 16 拍内普通 WR/DEL 写会被吞 | C 侧 clear_all 后等待（现有 subbus_write 的 flush 天然等待）；tb 用例 4 覆盖 | 已在设计中处理，知悉即可 |
 | 8 | **125MHz 与 50MHz 域信号严禁直连** | en/defpass/查找请求若跨域直连=偶发错 | wrapper 的 CDC（`wl_ctrl_125m`）已就位；自查时确认用的是 `_125m` 后缀信号 | 集成自查（模式0-步骤9.2） |
@@ -1052,11 +1079,12 @@ L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver�
 | 图 | 内容 | 来源 |
 |----|------|------|
 | 图 1 | LCPU 写寄存器时序（Master） | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，信号名未改 |
-| 图 2 | 白名单 cfg 口电平敏感写采样 | 自设计（本模式特有，共享库无对应文档） |
-| 图 3 | pulse_clock_region_pass 脉冲跨域 | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，仅改信号名 |
-| 图 4 | 顺序查找 FSM 逐拍时序（18 拍） | 自设计（本模式特有） |
-| 图 5 | L2 集成 tb 连线结构 | 自设计（Mermaid） |
-| 图 6 | MAC 侧包流接口时序 | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，信号名加 `1` 前缀 |
+| 图 2 | LCPU 读寄存器时序（Master） | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，信号名未改 |
+| 图 3 | 白名单 cfg 口电平敏感写采样 | 自设计（本模式特有，共享库无对应文档） |
+| 图 4 | pulse_clock_region_pass 脉冲跨域 | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，仅改信号名 |
+| 图 5 | 顺序查找 FSM 逐拍时序（18 拍） | 自设计（本模式特有） |
+| 图 6 | L2 集成 tb 连线结构 | 自设计（Mermaid） |
+| 图 7 | MAC 侧包流接口时序 | 拷贝自 `ip_common/doc/常用LRIP接口时序.md`，信号名加 `1` 前缀 |
 
 ---
 *下一步：《MAC白名单查找引擎实现指南_模式1_二分查找.md》（前置条件：本文 tag `mode0-verified`）*
