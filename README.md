@@ -97,6 +97,59 @@ fpga_webserver/
 └── doc/                         # Documentation
 ```
 
+## 环境准备（新机器一次性配置）
+
+工程内**无任何绝对路径**，clone 后在任意目录均可构建。需要先装好：
+
+### 1) 工具链
+
+```bash
+# RISC-V 交叉编译器 + picolibc（Ubuntu/Debian）
+sudo apt install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+# 仿真（可选）
+sudo apt install verilator iverilog gtkwave
+
+# 烧录（可选，也可用 Vivado Hardware Manager）
+sudo apt install openfpgaloader
+```
+
+FPGA 综合工具：Vivado 2024.1（Xilinx）/ Quartus II 13.1（Altera），确保 `vivado`/`quartus` 在 PATH 中，或设 `QUARTUS_ROOT` 环境变量。
+
+### 2) GitHub SSH 权限（必须）
+
+`build_fpga.sh` 构建时会自动从 GitHub 克隆 5 个依赖仓库（`fpga_cpu`/`ip_lcpu`/`ip_riscv`/`ip_common`/`fpga_ila`，均为 `git@github.com:HuanghmBuck/*`）。因此每台机器需要：
+
+1. 生成 SSH key：`ssh-keygen -t ed25519`
+2. 公钥添加到 GitHub 账号：https://github.com/settings/keys
+3. 账号需有 `HuanghmBuck` 组织上述 5 个仓库的协作者权限
+4. 验证：`ssh -T git@github.com` 返回认证成功即 OK
+
+### 3) 克隆即跑
+
+```bash
+git clone git@github.com:zhu031227/fpga_webserver.git
+cd fpga_webserver
+```
+
+之后按 Quick Start 三步走即可，无需修改任何路径。
+
+### 4) 烧录与固件加载（上板时）
+
+```bash
+# 1. 烧 bitstream（或用 Vivado Hardware Manager）
+openFPGALoader -c digilent_hs2 webserver_xilinx_xc7a35tfgg484_v0001_xxxx/webserver_....bit
+
+# 2. JTAG 加载固件到片内指令 RAM（仓库自带脚本，clone 任何位置都能用）
+vivado -mode batch -source scripts/load_firmware_vivado.tcl
+
+# 3. （可选）把 Web 页面固化到 SPI Flash 0x420000
+vivado -mode batch -source scripts/flash_web_vivado.tcl
+```
+
+验证：PC 与板子同网段后 `ping 192.168.1.88`，浏览器访问 `http://192.168.1.88/`。
+注意：`scripts/` 下脚本要求 `.bit` 已经烧进 FPGA（`hw_axi_1` 通道由 bitstream 提供）。
+
 ## Quick Start
 
 ### 1. Build RISC-V Firmware
