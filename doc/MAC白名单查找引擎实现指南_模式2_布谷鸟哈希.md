@@ -5,7 +5,7 @@
 > 适用工程：`fpga_webserver-whitelist_dev`（whitelist_dev 分支）
 > 平台：Xilinx XC7A35T-FGG484-2（ACX750 开发板）
 > 性质：**从零实现指南（作业指导书）**。模式 2 当前在工程中**不存在任何实现**（`mac_whitelist_top.v` 的 `g_mode_placeholder` 分支即为本模式预留位），本文即完整设计稿与实施步骤。
-> **前置条件**：《MAC白名单查找引擎实现指南_模式0_顺序查找.md》（ED003R02-A）已全部完成并上板（tag `mode0-verified`，**必须**——框架机制/配置通路/tb 模板全部继承它）；《…_模式1_二分查找.md》（ED003R02-B）已收官（**强烈建议**——参数化 tb 框架与软件维护契约经验直接复用）。本文细节回引两份前置文档编号（如"模式0-§1.2"、"模式1-步骤8"）。
+> **前置条件**：《MAC白名单查找引擎实现指南_模式0_顺序查找.md》（ED003R02-A）已全部完成并上板（tag `mode0-verified`，**必须**——框架机制/配置通路/tb 模板全部继承它）。《…_模式1_二分查找.md》（ED003R02-B）**不是本模式的前置**——项目实施主线为 模式 0 → 模式 2（见 0.2 节主线说明），模式 1 为备选路线；若已实现模式 1，其参数化 tb 可选复用（模式2-步骤5.1 的省事路线）。本文程序性回引仅指向模式 0 文档编号（如"模式0-§1.2"），对模式 1 的引用均为可选参考。
 > 本文可直接交给 AI 模型或工程师逐步执行；执行前必读 0.4 节「执行须知」。
 
 ---
@@ -15,6 +15,7 @@
 | 日期 | 版本 | 修改描述 | 作者 |
 |------|------|---------|------|
 | 2026-08-29 | R02（ED003R02-C） | 初稿（模式 2 布谷鸟哈希，从零实现）：双哈希 + 双 bank 并行读、查找 2 拍、插入含 bounded eviction（软件执行）；沿用模式 0/1 框架与配置通路零改动原则 | Claude |
+| 2026-08-29 | R02a（ED003R02-C） | 主线调整：项目主线定为 模式 0 → 模式 2，解除对模式 1 的前置依赖——wl_status 修复收编为本模式步骤 4.6、C 工具函数改为本文自包含（8.1）、tb 模板改从模式 0 派生（5.1）、回归改为 MODE=0 必跑 + MODE=1 视实现选跑 | Claude |
 
 ## 目录
 
@@ -61,6 +62,8 @@
 | 配置通路/寄存器表/wrapper/CDC | 完全复用，RTL 零改动 | 同左 | 复用 + INDEX 位宽扩展（0x00 语义见 2.2） |
 | C 驱动接口签名 | — | 完全复用 | 完全复用 |
 
+**主线说明**：项目实施主线为 **模式 0 → 模式 2**（顺序查找打地基 → 布谷鸟哈希冲容量与性能）；模式 1（二分）为备选路线，其后置实施与本模式**无先后依赖**（两者的前置都只有模式 0）。
+
 ### 0.3 白名单位置（简版，详见模式 0 文档 0.3 节）
 
 ```
@@ -75,7 +78,7 @@ eth1 RX ─► 提取SrcMAC ─► lookup_req ─► [mac_whitelist_top MODE=2 �
 2. **每步固定六段结构**：目的 / 前置条件 / 操作步骤 / 产出物 / 完成判据 / 常见错误。**判据不过，不得进入下一步**。
 3. **执行顺序强约束**：步骤 1→10 顺序执行。C 驱动改造（步骤 8）仍刻意排在仿真（步骤 5~7）之后——先用 tb 把 RTL 与哈希一致性验透，再动软件。
 4. **门禁规则**：第 6.2 节定义 G1~G5。**G1~G3 全绿之前，禁止执行 `build_fpga.sh`**。
-5. **与前置文档的关系**：配置通路三特性、tb 模板（L1 参数化框架 + L2 集成 tb）、公共已知问题 8 条全部指向模式 0/1 文档的步骤编号；**执行前先通读模式 0 文档 5.3 节**（公共避坑清单）。
+5. **与前置文档的关系**：配置通路三特性、tb 模板（L1 单元 + L2 集成）、公共已知问题 8 条全部指向**模式 0 文档**的步骤编号；**执行前先通读模式 0 文档 5.3 节**（公共避坑清单）。对模式 1 文档的引用均为可选参考，不构成执行依赖。
 6. **图表规范**：时序图用 Wavedrom，结构图保留 ASCII；来源见附录 C。
 
 ---
@@ -466,7 +469,20 @@ wire [7:0] used_cnt_comb = used_cnt_partial[SLOTS];
 
 **4.5** `build_xilinx_xc7a35tfgg484/filelist.cfg` 加一行：`../rtl/mac_whitelist_cuckoo.v`。
 
-**4.6** `webserver_wrapper.v`：`wl_status` 驱动沿用模式 1 的修复（模式1-步骤4.1）；本步 wrapper 模式号**不改**（保持 0，上板才切）。
+**4.6** `wl_status` 未驱动修复（本模式职责）。现状：`webserver_wrapper.v` 168 行声明 `wl_status`（[7:0]=lookup_mode，[15:8]=used_cnt），480 行连进 reg_webserver（0x301，Web `/api/wl/status` 的 lookup_mode 字段），但全工程无驱动、读回恒 0——不修则 G5 第 1 项无法验收。二选一：
+
+```verilog
+// 方案 a（最小改动）：wrapper 里直接 assign 常量模式号
+assign wl_status = {8'b0, 8'd2};            // LOOKUP_MODE=2
+
+// 方案 b（完整，推荐）：给 mac_whitelist_top 加输出口
+//   top:  output [7:0] used_cnt_o   →  assign used_cnt_o = used_cnt_comb;
+//   cuckoo/seq 各加同名输出口透传
+//   wrapper:  assign wl_status = {u_mac_wl_used, 8'd2};
+//   → Web 状态栏同时显示 模式号 + 实时条目数（tcp.c 的 status 接口已在读 wl_status）
+```
+
+（若模式 1 路线已实施过方案 b，本步只需把模式号字节改为 2。）本步 wrapper 模式号**不改**（保持 1139 行 `.LOOKUP_MODE(0)`，上板才切）。
 
 **产出物**：改造后的 `mac_whitelist_cuckoo.v`、`mac_whitelist_top.v`、`filelist.cfg`。
 
@@ -478,11 +494,16 @@ wire [7:0] used_cnt_comb = used_cnt_partial[SLOTS];
 
 **目的**：把模式 1 建立的参数化 tb 框架扩展到 MODE=2，并增加布谷鸟特有部件：C 侧哈希副本（金模型内复算 h0/h1）、槽一致性检查器（INV-B 的机器裁判）。
 
-**前置条件**：模式2-步骤4 完成；`sim/tb_mac_whitelist_bin.sv` 存在（模式1-步骤5 产物）。
+**前置条件**：模式2-步骤4 完成；`sim/tb_mac_whitelist_seq.sv` 存在（模式0-步骤7 产物）。
 
 **操作步骤**：
 
-**5.1** 新建 `sim/tb_mac_whitelist_cuckoo.sv`：以 bin 的参数化 tb 为模板，DUT 分支加 `MODE=2 → mac_whitelist_cuckoo`；时钟/SubBus 写任务照抄（模式0-步骤7.1/7.2）。
+**5.1** 新建 `sim/tb_mac_whitelist_cuckoo.sv`，两条路线二选一：
+
+- **主线（从模式 0 派生）**：以 `sim/tb_mac_whitelist_seq.sv`（模式0-步骤7 产物）为模板，顶层加 `parameter MODE`，DUT 例化按 MODE 选择 seq/cuckoo；
+- **省事路线（仅当模式 1 已实现）**：在 `sim/tb_mac_whitelist_bin.sv`（模式1-步骤5 产物）上加 `MODE=2 → mac_whitelist_cuckoo` 分支。
+
+时钟/SubBus 写任务两条路线都照抄（模式0-步骤7.1/7.2）。
 
 **5.2** 金模型改为**无序集合**（哈希表无序，比模式 1 的有序模型更简单）：
 
@@ -560,7 +581,7 @@ iverilog -g2012 -o tb_ck.vvp -Ptb_mac_whitelist_cuckoo.MODE=2 \
 vvp tb_ck.vvp
 ```
 
-**6.3** 跑 MODE=0/1 回归（用例 1~8，共用代码验证；命令行把文件与 MODE 参数对应替换，模板见模式1-步骤6.3）。
+**6.3** 跑 MODE=0 回归（用例 1~8，共用代码验证）：iverilog 命令行里 `rtl/mac_whitelist_cuckoo.v` 换 `rtl/mac_whitelist_seq.v`、`-Ptb_mac_whitelist_cuckoo.MODE=0`，其余不变。若模式 1 已实现，追加 MODE=1 回归。
 
 **产出物**：三份全 PASS 的仿真记录（对拍 mismatch=0、INV-B 违例=0）。
 
@@ -576,9 +597,9 @@ vvp tb_ck.vvp
 
 **操作步骤**：
 
-**7.1** tb 参数化扩展：MODE=2 分支接入（同模式1-步骤7.1 手法）；iverilog 文件清单换 `rtl/mac_whitelist_cuckoo.v`（其余 `../ip_common/rtl/` 文件不变，完整清单见模式0-步骤8.3）。
+**7.1** tb 参数化扩展：给 `sim/tb_wl_integration.sv`（模式0-步骤8 产物）加 `parameter MODE`，DUT1 例化按 MODE 选择 seq/cuckoo；iverilog 文件清单里 `rtl/mac_whitelist_seq.v` 换 `rtl/mac_whitelist_cuckoo.v`（其余 `../ip_common/rtl/` 文件不变，完整清单见模式0-步骤8.3）。
 
-**7.2** 回归三跑：MODE=0/1/2 各 6 用例过（哈希模式周期断言改为 `==2`）。
+**7.2** 回归双跑：MODE=0/2 各 6 用例过（哈希模式周期断言改为 `==2`）；模式 1 已实现时追加 MODE=1。
 
 **7.3** 模式 2 特有加测一条：
 
@@ -613,8 +634,19 @@ static uint64 wl_mac_u64(const uint8 mac[6]);    // 6 字节拼 48bit（大端�
 static uint8  wl_hash0_of(const uint8 mac[6]) { return wl_fold(wl_mac_u64(mac)); }
 static uint8  wl_hash1_of(const uint8 mac[6]) { return wl_fold(bswap48(wl_mac_u64(mac))); }
 #define WL_SLOT(bank, row)  ((uint8)(((bank) << 6) | (row)))    // 槽位号 {bank,row[5:0]}
-// wl_hw_write_entry(slot, mac) / wl_hw_delete_entry(slot)：
-// 与模式1-步骤8.1 同款，仅 INDEX 参数变为 7bit 槽位号
+
+// HW 写/删一条（结构继承模式 0 的 subbus_write 纪律，INDEX 参数为 7bit 槽位号）
+static void wl_hw_write_entry(uint8 slot, const uint8 mac[6]) {
+    uint32 mac_h = ((uint32)mac[0]<<24)|((uint32)mac[1]<<16)|((uint32)mac[2]<<8)|mac[3];
+    uint32 mac_l = ((uint32)mac[4]<<8)|mac[5];
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32)slot);
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_H, mac_h);
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_L, mac_l);
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_WR, 1);
+}
+static void wl_hw_delete_entry(uint8 slot) {
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, 0x80000000u | (uint32)slot);
+}
 ```
 
 **8.2** 影子表扩容改造：`sw_wl_mac` 扩为 128 槽 + 新增 `sw_wl_slot[128]`（每条记录其槽位号）；判满改用 `MAX_ENTRIES(0x0A)` 读回值（=96）与 `WL_CAP` 宏双保险，**不得硬编码 16**（2.4 节）。
@@ -745,7 +777,7 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 | CLEAR 后 bank1 残留条目 | clear_cnt 位宽不够 / bank 路由漏 clear 分支 | 核对 2.4 CLEAR 三行 | 模式2-步骤2.4 |
 | USED_CNT 上限 63 | popcount 链仍按 64 级 / valid_bits 没扩到 128 | 核对 4.1 位宽清单 | 模式2-步骤4.1 |
 | 全零槽被误判命中 | hit 比较丢 valid 位（48bit 比较） | 核对 3.2 的 49bit 全等 | 模式2-步骤3.2 |
-| `/api/wl/status` lookup_mode 不对 | wrapper 模式号没切 / wl_status 驱动缺失 | 模式1-步骤4.1 / 模式2-步骤9.1 | 模式2-步骤9.1 |
+| `/api/wl/status` lookup_mode 不对 | wrapper 模式号没切 / wl_status 驱动缺失 | 先核模式2-步骤4.6 的驱动，再核 9.1 模式号 | 模式2-步骤4.6/9.1 |
 | Flash 重启后条目齐但槽位变了 | 哈希表布局本就不持久 | 属预期，判据是条目齐+查得对（10.2） | 模式2-步骤10.2 |
 
 ---
@@ -755,7 +787,7 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 | 里程碑 | 完成判据 | 对应步骤 |
 |--------|---------|---------|
 | M2-1 RTL 完成 | cuckoo.v 编译干净；MODE=2 仿真 14 用例 + 500 对拍 0 mismatch + INV-B 违例 0 | 模式2-步骤1~6 |
-| M2-1b 回归 | MODE=0/1 重跑用例 1~8 全过（共用代码没被改坏） | 模式2-步骤6.3 |
+| M2-1b 回归 | MODE=0 重跑用例 1~8 全过（模式 1 已实现时含 MODE=1） | 模式2-步骤6.3 |
 | M2-2 上板 | 9.3 功能回归 5 项过 | 模式2-步骤9 |
 | M2-3 并发与恢复 | 10.1 eviction 窗口并发 + 10.2 掉电恢复过 | 模式2-步骤10 |
 | M2-4（选做） | ILA 实测 req→done 恒 2 拍（空表/满表同拍数） | 模式2-步骤10.3 |
@@ -767,7 +799,7 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 
 ### 6.1 整链路仿真分层
 
-分层定义（L0~L3）与"不单独仿真的模块"清单见模式 0 文档 5.1 节。模式 2 的差异：tb 三模式参数化，**每层三跑**（MODE=2 验证新算法，MODE=0/1 回归共用代码）；新增 INV-B 槽一致性检查器作为 L1 常驻裁判。
+分层定义（L0~L3）与"不单独仿真的模块"清单见模式 0 文档 5.1 节。模式 2 的差异：tb 参数化，**主线双跑**（MODE=2 验证新算法，MODE=0 回归共用代码；模式 1 已实现时三跑）；新增 INV-B 槽一致性检查器作为 L1 常驻裁判。
 
 ### 6.2 上板门禁（Gate）——不满足不许烧板
 
@@ -775,8 +807,8 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 |------|------|---------|--------|
 | G1 | L0 编译干净 | cuckoo.v + top + wrapper 0 error / 0 critical warning | 模式2-步骤2/4 |
 | G2 | L1 单元 tb | MODE=2 14 用例 + 500 对拍 0 mismatch + INV-B 违例 0 | 模式2-步骤6.2 |
-| G2b | L1 回归 | MODE=0/1 重跑 8 用例全过 | 模式2-步骤6.3 |
-| G3 | L2 集成 tb | 三模式各 6 用例 + 模式 2 特有用例 7 过 | 模式2-步骤7 |
+| G2b | L1 回归 | MODE=0 重跑 8 用例全过（模式 1 已实现时加跑 MODE=1） | 模式2-步骤6.3 |
+| G3 | L2 集成 tb | MODE=0/2 各 6 用例 + 模式 2 特有用例 7 过（模式 1 已实现时含 MODE=1） | 模式2-步骤7 |
 | G4 | 产物齐套 | MODE=2 的 `.bit` + 固定名 `tcl/InstructRAM.tcl`（勿拿时间戳历史副本） | 模式2-步骤9.1/9.2 |
 | G5 | 板测 | 9.3 + 10.1/10.2 全过 → tag `mode2-verified` | 模式2-步骤9/10 |
 
@@ -784,7 +816,7 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 
 ### 6.3 已知问题（干活前必读）
 
-**公共 8 条**见《模式 0》文档 5.3 节；模式 1 附加 3 条见《模式 1》文档 6.3 节（问题 9 wl_status 在本模式同样必修、问题 10 flush 纪律同样适用）。**模式 2 额外注意**：
+**公共 8 条**见《模式 0》文档 5.3 节（执行前先通读）。`wl_status` 修复由本模式**步骤 4.6 直接落实**（不再经由模式 1）；模式 1 的附加 3 条（其 6.3 节）为可选参考，其中问题 10 的 flush 纪律同样适用于本模式 eviction 的每一笔写。**模式 2 额外注意**：
 
 | # | 问题 | 处理 | 相关步骤 |
 |---|------|------|---------|
@@ -819,13 +851,13 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 | `rtl/mac_whitelist_cuckoo.v` | 本模式待新建（设计稿=第 1、3 章） |
 | `rtl/mac_whitelist_seq.v` | 复制起点（配置通路/写仲裁结构继承） |
 | `rtl/mac_whitelist_top.v` | MODE 分支（60~66 行 placeholder 替换为 g_mode_cuckoo） |
-| `rtl/webserver_wrapper.v` | 1139 行模式号；wl_status 驱动（模式1-步骤4.1 产物） |
+| `rtl/webserver_wrapper.v` | 1139 行模式号；wl_status 驱动（本模式步骤 4.6 落实） |
 | `c/whitelist.c` | 模式2-步骤8：哈希副本 + bounded eviction + 无序快照灌入 |
 | `sim/define_sim.sv` | 仿真专用宏（模式0-步骤3.5 创建，三模式共用） |
 | `sim/tb_mac_whitelist_cuckoo.sv` | L1 参数化 tb（MODE=0/1/2 三模式） |
 | `../ip_common/rtl/` | 仓库外层共享库（仿真依赖路径前缀） |
 | `doc/MAC白名单查找引擎实现指南_模式0_顺序查找.md` | 前置文档（框架机制 + L1/L2 tb 模板） |
-| `doc/MAC白名单查找引擎实现指南_模式1_二分查找.md` | 前置文档（参数化 tb 框架 + 软件维护契约先例） |
+| `doc/MAC白名单查找引擎实现指南_模式1_二分查找.md` | 备选路线文档（可选参考：参数化 tb 框架先例、INV3 保序先例） |
 
 ### C. 时序图来源索引
 
