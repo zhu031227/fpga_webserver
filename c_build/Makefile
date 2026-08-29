@@ -77,9 +77,9 @@ else
 endif
 
 ifeq ($(PLATFORM),intel)
-  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/huamingh/work/fpga_webserver/rtl/altera_ep4ce10f17c6_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' $(HOME)/work/fpga_webserver/rtl/altera_ep4ce10f17c6_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
 else
-  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' /home/huamingh/work/fpga_webserver/rtl/xilinx_xc7a35tfgg484_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
+  INSTR_ADDR_DEPTH := $(shell grep -oP 'instr_addr_depth\s*=\s*\K[0-9 *]+' $(HOME)/work/fpga_webserver/rtl/xilinx_xc7a35tfgg484_webserver_top.v 2>/dev/null | head -1 | sed 's/ //g')
 endif
 
 ifeq ($(INSTR_ADDR_DEPTH),)

@@ -391,7 +391,7 @@ eth0 RX (Management)
 
 ### 4.2 现有 Flash 基础设施
 
-项目已有完整的 SPI Flash 操作模块（位于 `/home/huamingh/work/ip_common/rtl/`）：
+项目已有完整的 SPI Flash 操作模块（位于 `~/work/ip_common/rtl/`）：
 
 | 模块 | 功能 | 兼容性 |
 |------|------|--------|
@@ -614,7 +614,7 @@ reg_webserver (LCPU bus slave @ 50MHz)
 ### 5.6 生成命令
 
 ```bash
-python3 /home/huamingh/wwwroot/python/regGenAll.py \
+python3 ~/wwwroot/python/regGenAll.py \
     --RegFilePath "fpga_webserver/rtl/" \
     --ExcelFile "reg_webserver.xls"
 ```

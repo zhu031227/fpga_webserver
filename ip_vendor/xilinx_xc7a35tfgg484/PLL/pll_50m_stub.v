@@ -5,7 +5,7 @@
 // Date        : Mon Jun 29 10:23:43 2026
 // Host        : huamingh-XT12-Pro running 64-bit Ubuntu 26.04 LTS
 // Command     : write_verilog -force -mode synth_stub
-//               /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0001_20260629_095848/ip_vendor/xilinx_xc7a35tfgg484/PLL/pll_50m_stub.v
+//               ~/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0001_20260629_095848/ip_vendor/xilinx_xc7a35tfgg484/PLL/pll_50m_stub.v
 // Design      : pll_50m
 // Purpose     : Stub declaration of top-level module interface
 // Device      : xc7a35tfgg484-2

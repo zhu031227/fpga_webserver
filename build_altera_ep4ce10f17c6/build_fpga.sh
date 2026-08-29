@@ -57,7 +57,7 @@ PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
 GH_REMOTE="git@github.com:HuanghmBuck"
 
-QUARTUS_ROOT="${QUARTUS_ROOT:-/home/huamingh/tools/altera/13.1/quartus}"
+QUARTUS_ROOT="${QUARTUS_ROOT:-$HOME/tools/altera/13.1/quartus}"
 QUARTUS_BIN="${QUARTUS_ROOT}/bin"
 export QUARTUS_ROOTDIR="${QUARTUS_ROOT}"
 

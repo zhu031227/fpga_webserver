@@ -10,12 +10,12 @@
 VERILATOR = verilator
 
 # ---- Paths ----
-IP_COMMON = /home/huamingh/work/ip_common
-IP_RISCV  = /home/huamingh/work/ip_riscv
-IP_LCPU   = /home/huamingh/work/ip_lcpu
-FPGA_CPU  = /home/huamingh/work/fpga_cpu
-RTL       = /home/huamingh/work/fpga_webserver/rtl
-SIM       = /home/huamingh/work/fpga_webserver/sim
+IP_COMMON = $(HOME)/work/ip_common
+IP_RISCV  = $(HOME)/work/ip_riscv
+IP_LCPU   = $(HOME)/work/ip_lcpu
+FPGA_CPU  = $(HOME)/work/fpga_cpu
+RTL       = $(HOME)/work/fpga_webserver/rtl
+SIM       = $(HOME)/work/fpga_webserver/sim
 
 # ---- Top module ----
 TOP = tb_webserver
@@ -24,7 +24,7 @@ EXE = V$(TOP)
 # ---- FPGA Webserver RTL (use OLD single-port versions for Verilator sim) ----
 # The current rtl/ has 3-port + SFP modules with Xilinx primitives.
 # For ARP/HTTP simulation we only need eth0 RGMII, so use the old RTL.
-OLD_RTL = /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0052_20260707_112204/rtl
+OLD_RTL = $(HOME)/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0052_20260707_112204/rtl
 WEB_RTL = \
 	$(OLD_RTL)/xilinx_xc7a35tfgg484_webserver_top.v \
 	$(OLD_RTL)/webserver_wrapper.v \

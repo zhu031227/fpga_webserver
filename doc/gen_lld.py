@@ -3,7 +3,7 @@
 
 import os
 
-OUTPUT = "/home/huamingh/work/fpga_webserver/doc/基于RiscV@FPGA的WebServer逻辑设计方案(ED001R01).md"
+OUTPUT = os.path.expanduser("~/work/fpga_webserver/doc/基于RiscV@FPGA的WebServer逻辑设计方案(ED001R01).md")
 
 # Helper: sanitize Mermaid node labels that contain [N:M] patterns
 def q(s):

@@ -69,11 +69,11 @@
 
 ```bash
 # 1. 编译 FPGA bitstream
-cd /home/huamingh/work/fpga_webserver/build_xilinx_xc7a35tfgg484
+cd ~/work/fpga_webserver/build_xilinx_xc7a35tfgg484
 vivado -mode batch -source build_fpga.sh
 
 # 2. 编译 RISC-V 固件
-cd /home/huamingh/work/fpga_webserver/c_build
+cd ~/work/fpga_webserver/c_build
 make PLATFORM=xilinx
 
 # 3. 确认输出文件存在
