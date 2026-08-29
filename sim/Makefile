@@ -9,13 +9,16 @@
 
 VERILATOR = verilator
 
-# ---- Paths ----
-IP_COMMON = /home/huamingh/work/ip_common
-IP_RISCV  = /home/huamingh/work/ip_riscv
-IP_LCPU   = /home/huamingh/work/ip_lcpu
-FPGA_CPU  = /home/huamingh/work/fpga_cpu
-RTL       = /home/huamingh/work/fpga_webserver/rtl
-SIM       = /home/huamingh/work/fpga_webserver/sim
+# ---- Paths (portable: relative to this Makefile, override on command line) ----
+#   默认假定 IP 仓库克隆在工程根目录的上一级（如 ~/work/FPGA_Prj/ip_common），
+#   或指向 build_fpga.sh 生成的 webserver_xilinx_*/  目录内的克隆：
+#     make IP_COMMON=../webserver_xilinx_xc7a35tfgg484_v0001_xxxx/ip_common ...
+IP_COMMON ?= ../../ip_common
+IP_RISCV  ?= ../../ip_riscv
+IP_LCPU   ?= ../../ip_lcpu
+FPGA_CPU  ?= ../../fpga_cpu
+RTL       = ../rtl
+SIM       = .
 
 # ---- Top module ----
 TOP = tb_webserver
@@ -24,7 +27,8 @@ EXE = V$(TOP)
 # ---- FPGA Webserver RTL (use OLD single-port versions for Verilator sim) ----
 # The current rtl/ has 3-port + SFP modules with Xilinx primitives.
 # For ARP/HTTP simulation we only need eth0 RGMII, so use the old RTL.
-OLD_RTL = /home/huamingh/work/fpga_webserver/webserver_xilinx_xc7a35tfgg484_v0052_20260707_112204/rtl
+# 旧版单口 RTL（Verilator 兼容）。默认用当前 rtl/；如需旧版，make OLD_RTL=<路径> 覆盖
+OLD_RTL ?= $(RTL)
 WEB_RTL = \
 	$(OLD_RTL)/xilinx_xc7a35tfgg484_webserver_top.v \
 	$(OLD_RTL)/webserver_wrapper.v \

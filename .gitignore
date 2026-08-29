@@ -131,3 +131,6 @@ tcl/webserver_riscv_instruct_*.tcl
 *.7z
 py2aspVar.dat
 c/inc/build_time.h
+
+# stray compiler/simulator outputs
+a.out

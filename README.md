@@ -97,6 +97,43 @@ fpga_webserver/
 └── doc/                         # Documentation
 ```
 
+## 环境准备（新机器一次性配置）
+
+工程内**无任何绝对路径**，clone 后在任意目录均可构建。需要先装好：
+
+### 1) 工具链
+
+```bash
+# RISC-V 交叉编译器 + picolibc（Ubuntu/Debian）
+sudo apt install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
+
+# 仿真（可选）
+sudo apt install verilator iverilog gtkwave
+
+# 烧录（可选，也可用 Vivado Hardware Manager）
+sudo apt install openfpgaloader
+```
+
+FPGA 综合工具：Vivado 2024.1（Xilinx）/ Quartus II 13.1（Altera），确保 `vivado`/`quartus` 在 PATH 中，或设 `QUARTUS_ROOT` 环境变量。
+
+### 2) GitHub SSH 权限（必须）
+
+`build_fpga.sh` 构建时会自动从 GitHub 克隆 5 个依赖仓库（`fpga_cpu`/`ip_lcpu`/`ip_riscv`/`ip_common`/`fpga_ila`，均为 `git@github.com:HuanghmBuck/*`）。因此每台机器需要：
+
+1. 生成 SSH key：`ssh-keygen -t ed25519`
+2. 公钥添加到 GitHub 账号：https://github.com/settings/keys
+3. 账号需有 `HuanghmBuck` 组织上述 5 个仓库的协作者权限
+4. 验证：`ssh -T git@github.com` 返回认证成功即 OK
+
+### 3) 克隆即跑
+
+```bash
+git clone git@github.com:zhu031227/fpga_webserver.git
+cd fpga_webserver
+```
+
+之后按 Quick Start 三步走即可，无需修改任何路径。
+
 ## Quick Start
 
 ### 1. Build RISC-V Firmware

@@ -57,7 +57,21 @@ PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
 
 GH_REMOTE="git@github.com:HuanghmBuck"
 
-QUARTUS_ROOT="${QUARTUS_ROOT:-/home/huamingh/tools/altera/13.1/quartus}"
+# Quartus 安装位置：优先取环境变量 QUARTUS_ROOT，其次 PATH，再退回常见安装路径
+if [ -z "${QUARTUS_ROOT:-}" ]; then
+    QUARTUS_CMD="$(command -v quartus 2>/dev/null || true)"
+    if [ -n "$QUARTUS_CMD" ]; then
+        QUARTUS_ROOT="$(dirname "$(dirname "$QUARTUS_CMD")")"
+    elif [ -d "$HOME/intelFPGA/13.1/quartus" ]; then
+        QUARTUS_ROOT="$HOME/intelFPGA/13.1/quartus"
+    elif [ -d "$HOME/altera_lite/13.1std/quartus" ]; then
+        QUARTUS_ROOT="$HOME/altera_lite/13.1std/quartus"
+    else
+        echo "ERROR: 未找到 Quartus。请 export QUARTUS_ROOT=<quartus安装目录> 后重试"
+        exit 1
+    fi
+fi
+QUARTUS_ROOT="${QUARTUS_ROOT}"
 QUARTUS_BIN="${QUARTUS_ROOT}/bin"
 export QUARTUS_ROOTDIR="${QUARTUS_ROOT}"
 
