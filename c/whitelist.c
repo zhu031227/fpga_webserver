@@ -1,4 +1,4 @@
-// whitelist.c — MAC whitelist management via SubBus 0x1500
+// whitelist.c — MAC whitelist management via SubBus 0x5000
 #include "inc/lcpu_general.h"
 #include "inc/whitelist.h"
 #include "inc/local_config.h"
@@ -120,8 +120,19 @@ int whitelist_add(uint8_t mac[6])
                    ((uint32)mac[2] << 8)  | mac[3];
     uint32 mac_l = ((uint32)mac[4] << 8)  | mac[5];
 
-    // Software cache: find free slot
+    // 查重：同一 MAC 加两次不再占两个槽位（指南 模式0-步骤9.4 / 已知问题 3）
     int i;
+    for (i = 0; i < WL_SW_CACHE_SIZE; i++) {
+        if (sw_wl_valid[i]) {
+            int j, same = 1;
+            for (j = 0; j < 6; j++) {
+                if (sw_wl_mac[i][j] != mac[j]) { same = 0; break; }
+            }
+            if (same) return i;
+        }
+    }
+
+    // Software cache: find free slot
     for (i = 0; i < WL_SW_CACHE_SIZE; i++) {
         if (!sw_wl_valid[i]) {
             int j;
@@ -129,7 +140,7 @@ int whitelist_add(uint8_t mac[6])
             sw_wl_valid[i] = 1;
             sw_wl_count++;
 
-            // Also try HW write (may silently fail until RTL SubBus write is fixed)
+            // HW 双写：BRAM + shadow 由 RTL 同拍完成，subbus_write 内含 flush
             subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32)i);
             subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_H, mac_h);
             subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_L, mac_l);
