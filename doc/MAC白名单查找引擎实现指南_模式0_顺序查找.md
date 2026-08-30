@@ -1,7 +1,7 @@
 # MAC 白名单查找引擎实现指南 · 模式 0 —— BRAM 顺序查找（从零实现）
 
 > 文档编号：ED003R02-A
-> 日期：2026-08-29
+> 日期：2026-08-30
 > 适用工程：`fpga_webserver-whitelist_dev`（whitelist_dev 分支）
 > 平台：Xilinx XC7A35T-FGG484-2（ACX750 开发板）
 > 性质：**从零实现指南（作业指导书）**。仓库中已有的 `rtl/mac_whitelist_seq.v` 是本模式的**参考答案**（已上板验证跑通），本文按"假设它不存在"的完整流程编写，每步末尾附「参考答案对照」，适合边写边对照自查。
@@ -17,6 +17,7 @@
 | 2026-08-28 | R01（ED003R01-A） | 初稿 | Claude |
 | 2026-08-29 | R02（ED003R02-A） | 重排为作业指导书格式：统一步骤六段模板、全局连续步骤编号（模式0-步骤N.M）、融入 Wavedrom 时序图与 doc-lld 信号表规范、修正仿真文件路径（`../ip_common/rtl/`）与仿真宏定义方案（`sim/define_sim.sv`） | Claude |
 | 2026-08-29 | R02a（ED003R02-A） | 主线调整：项目实施主线定为 模式 0 → 模式 2（布谷鸟哈希），模式 1 降为备选路线；0.2 路线图改为三阶段、头部指引/步骤 1.6/10.6/里程碑/已知问题 2/页脚同步更新；修复步骤 10.6 的"5.4 节"失效引用 | Claude |
+| 2026-08-30 | R02b（ED003R02-A） | 校对细化（关键片段均经 iverilog 12 + 参考答案 RTL 实测，tb 骨架+do_lookup 对参考答案跑出 4 用例全 PASS、==18 断言实证）：修正步骤 6 完成判据的失效图引用（图 4→图 5）；步骤 4.3 附带删除分支寻址与参考答案对齐（`[3:0]`→`[ADDR_WIDTH-1:0]`）；仿真方案实证修正——`sim/define_sim.sv` 更名 `sim/define.sv` 并全命令行加 `-I sim`（实测 iverilog 只搜工作目录与 `-I` 目录）、`LARGER_RAM` 仿真置 `"distributed"`（BRAM 模型几何检查实测 $fatal）、产出 `.vvp` 的命令行加 `-s <根模块>`（BRAM 模型自带自测 tb 实测会 299ns 掐死真 tb）；新增已知问题 9（共享库快照缺 `define.sv`，Vivado build 前须恢复）；补步骤 7.1 tb 骨架、7.2 查找任务、8.2 喂帧任务骨架 | Claude |
 
 ## 目录
 
@@ -265,7 +266,7 @@ dual_clock_simple_dual_port_ram   16×49 寄存器阵列
          └─ used_cnt：generate 加法器链（popcount）
 ```
 
-BRAM 用 ip_common 的 `dual_clock_simple_dual_port_ram`，参数 `data_width(49), addr_width(4), depth(16), block_ram_size(32), ram_type(`LARGER_RAM), vendor(`DEVICE_VENDOR)`——宏来自 `define.sv`，Xilinx 下综合为 BlockRAM。仿真时宏由 `sim/define_sim.sv` 提供（vendor 置空，走行为级分支，见 模式0-步骤3.5）。
+BRAM 用 ip_common 的 `dual_clock_simple_dual_port_ram`，参数 `data_width(49), addr_width(4), depth(16), block_ram_size(32), ram_type(`LARGER_RAM), vendor(`DEVICE_VENDOR)`——宏来自 `define.sv`，Xilinx 下综合为 BlockRAM。仿真时宏由 `sim/define.sv` 提供（vendor 置空，走行为级分支，见 模式0-步骤3.5）。
 
 ### 1.5 寄存器表（SubBus 基址 0x5000，偏移 = cfg_addr[3:0]）
 
@@ -495,17 +496,28 @@ always @(posedge cfg_clk) if (sh_wr_en) shadow_rf[sh_wr_addr] <= sh_wr_data;
 assign sh_rd_data = shadow_rf[sh_rd_addr];   // 组合读，零延迟
 ```
 
-**3.5** 创建仿真宏文件 `sim/define_sim.sv`（**内容照抄如下**）。为什么需要它：真实共享库 `../ip_common/rtl/define.sv` 定义 `DEVICE_VENDOR="xilinx"`，会把 BRAM 模型编到 Xilinx XPM 原语 `xpm_memory_sdpram`，iverilog 没有 XPM 仿真库必然编译失败；把 vendor 置空串，RAM 模型走行为级推断分支（`gen_inferred_ram`），仿真可用。**此文件只用于仿真命令行，不进 filelist.cfg、不改共享库**：
+**3.5** 创建仿真宏文件 `sim/define.sv`（**内容照抄如下**）。为什么需要它，两层原因叠加：
+
+- **include 解析**：`rtl/mac_whitelist_seq.v` 模块头与 BRAM 模型 `dual_clock_simple_dual_port_ram.v` 内部各有一句 `` `include "define.sv" ``。正本 `define.sv` 是共享库的本地产物，**当前 `../ip_common/rtl/` 快照里缺失**（v0001 构建快照留有副本，见 5.3 问题 9）；且实测本机 iverilog 解析 `include` 只搜索工作目录与 `-I` 目录、**不搜索被包含文件所在目录**——所以必须自备一份名为 `define.sv` 的文件，并在每条 iverilog 命令行加 `-I sim` 提供解析路径。
+- **vendor 置空**：正本会把 `DEVICE_VENDOR` 定义为 `"xilinx"`，BRAM 模型将走 Xilinx XPM 原语分支（`xpm_memory_sdpram`），iverilog 没有 XPM 仿真库必然编译失败；本文件把 vendor 置空串，RAM 模型走行为级推断分支（`gen_inferred_ram`），仿真可用。
+- **`LARGER_RAM` 仿真置 `"distributed"`**（R02b 实测修正）：BRAM 模型有一个无条件几何检查——`ram_type="block"` 时按块粒度把有效深度放大到 `EFF_DEPTH = 32Kbit/49bit = 668` 深、要求 `addr_width ≥ 10`，对本模块的 4bit/16 深小表必然 `$fatal`；置 `"distributed"` 时 `EFF_DEPTH = depth = 16`，检查通过。行为级读语义不变（仍是 1 拍同步读），仅影响模型内部的数组定深；综合侧不受影响（真实 define.sv 的 `"block"` → BlockRAM）。
+- **凡产出 `.vvp` 的命令行必须带 `-s <tb 模块名>`**（R02b 实测修正）：BRAM 模型文件里自带一个 `translate_off` 包裹的自测 tb，iverilog 会把它一并当顶层 elaborate——vvp 一启动自测 tb 就在 299ns 处 `$finish`，把真正的 tb 掐死。`-s` 显式指定根模块即可剔除；纯编译检查（`-o /dev/null`）不受影响。
+
+**机制**：命令行先编译本文件（定义宏）→ 模块/模型内的 `` `include "define.sv" `` 经 `-I sim` 解析到同一文件 → `ifndef DEFINE_SV` 守卫使其成为空操作、宏不被覆盖。将来共享库恢复正本（vendor="xilinx"）后本方案无需任何改动，守卫保证仿真仍用空 vendor 分支。**此文件只用于仿真命令行（配合 `-I sim`），不进 filelist.cfg、不改共享库**：
 
 ```verilog
-// sim/define_sim.sv — 仿真专用宏（代替 ../ip_common/rtl/define.sv）
-// 目的：DEVICE_VENDOR 置空 → dual/simple_clock_simple_dual_port_ram
-//       走行为级推断分支，避开 iverilog 无 XPM 库的问题。
-// 约束：仅出现在 L1/L2 tb 的 iverilog 命令行里；禁止修改共享库、禁止进 filelist.cfg
+// sim/define.sv — 仿真专用宏（代替共享库 define.sv 正本参与仿真编译）
+// 目的 1：作为 `include "define.sv"` 的解析目标（iverilog 只搜工作目录与 -I 目录）
+// 目的 2：DEVICE_VENDOR 置空 → BRAM 模型走行为级推断分支，避开 XPM 库依赖
+// 目的 3：LARGER_RAM 置 "distributed" → 模型几何检查按 depth 定深（"block" 会把
+//         EFF_DEPTH 放大到 32768/49=668 深、要求 addr_width≥10，对 16 深小表必
+//         $fatal）；行为级读语义不变（仍 1 拍同步读），综合侧仍用 "block"→BlockRAM
+// 约束：仅出现在 L1/L2 tb 的 iverilog 命令行里（首个文件 + -I sim）；
+//       禁止修改共享库、禁止进 filelist.cfg
 `ifndef DEFINE_SV
 `define DEFINE_SV
 `define DEVICE_VENDOR ""
-`define LARGER_RAM  "block"
+`define LARGER_RAM  "distributed"
 `define SMALL_RAM   "distributed"
 `endif
 ```
@@ -514,17 +526,17 @@ assign sh_rd_data = shadow_rf[sh_rd_addr];   // 组合读，零延迟
 
 ```bash
 cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
-iverilog -g2012 -o /dev/null \
-    sim/define_sim.sv \
+iverilog -g2012 -o /dev/null -I sim \
+    sim/define.sv \
     rtl/mac_whitelist_seq.v \
     ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
 ```
 
-**产出物**：`rtl/mac_whitelist_seq.v` 骨架（可编译）；`sim/define_sim.sv`。
+**产出物**：`rtl/mac_whitelist_seq.v` 骨架（可编译）；`sim/define.sv`。
 
 **完成判据**：3.6 命令 0 error；**无 implicit wire 警告**（有的话说明信号没声明就用了）。
 
-**常见错误**：忘建 `sim/define_sim.sv` 直接拿真实 `define.sv` 编译 → XPM 原语报错；BRAM 例化时写口/读口时钟接反（A 口必须 cfg_clk、B 口必须 clk）；`sh_rd_addr` 忘声明（步骤 5 才驱动，先声明 wire）。
+**常见错误**：忘建 `sim/define.sv` 直接拿真实 `define.sv` 编译 → XPM 原语报错；命令行漏 `-I sim` → include file define.sv not found；BRAM 例化时写口/读口时钟接反（A 口必须 cfg_clk、B 口必须 clk）；`sh_rd_addr` 忘声明（步骤 5 才驱动，先声明 wire）。
 
 ### 步骤 4：配置通路编码（50MHz 域）
 
@@ -567,8 +579,8 @@ end
         4'h0: begin
             cfg_idx <= cfg_wdata[ADDR_WIDTH-1:0];
             if (cfg_wdata[31]) begin          // bit31 附带删除（一笔完成选+删）
-                bram_wr_en_r<=1; bram_wr_addr_r<=cfg_wdata[3:0]; bram_wr_data_r<=49'b0;
-                sh_wr_en_r<=1;   sh_wr_addr_r<=cfg_wdata[3:0];   sh_wr_data_r<=49'b0;
+                bram_wr_en_r<=1; bram_wr_addr_r<=cfg_wdata[ADDR_WIDTH-1:0]; bram_wr_data_r<=49'b0;
+                sh_wr_en_r<=1;   sh_wr_addr_r<=cfg_wdata[ADDR_WIDTH-1:0];   sh_wr_data_r<=49'b0;
                 valid_bits[cfg_wdata[ADDR_WIDTH-1:0]] <= 1'b0;
             end
         end
@@ -746,7 +758,7 @@ assign lookup_busy = (state != S_IDLE);
 
 **产出物**：查找 FSM（125MHz 域）完整逻辑。**至此模块 RTL 全部完成。**
 
-**完成判据**：验证手段在步骤 7 的 tb——表首/表尾/中间三条 MAC 命中；不存在 MAC miss；done 宽 1 拍；en=0 时 match=default_pass；**周期数 ==18 强断言**。本步先对照图 4 逐拍走查代码。
+**完成判据**：验证手段在步骤 7 的 tb——表首/表尾/中间三条 MAC 命中；不存在 MAC miss；done 宽 1 拍；en=0 时 match=default_pass；**周期数 ==18 强断言**。本步先对照图 5 逐拍走查代码。
 
 **常见错误**：漏掉 `cmp_index > 0` 守卫 → 第一个比较用到无效数据；漏掉 S_DONE 的补比 → 查 idx15 永远 miss、周期数断言 17 拍；done 写成电平 → busy 语义错乱、上游请求撞车；S_DONE 漏 `default_pass` 分支 → en=0 时 match 恒 0 不随 defpass。
 
@@ -754,11 +766,47 @@ assign lookup_busy = (state != S_IDLE);
 
 **目的**：独立例化 DUT（不需要整个 SoC），8 用例验证查找算法、周期数、配置通路、CLEAR、边界。L1 过关 = 模块本身正确，是进入 L2 集成仿真的前置条件（分层定义见 5.1）。
 
-**前置条件**：模式0-步骤6 完成；`sim/define_sim.sv` 已存在（模式0-步骤3.5）。
+**前置条件**：模式0-步骤6 完成；`sim/define.sv` 已存在（模式0-步骤3.5）。
 
 **操作步骤**：
 
-**7.1** 新建 `sim/tb_mac_whitelist_seq.sv`，搭骨架：50MHz `cfg_clk` + 125MHz `clk` 各起一个（`forever #10` / `forever #4`），复位先行（两域 `*_reset_l` 同拉低若干拍后释放）；DUT 直接例化 `mac_whitelist_seq`，cfg 口由 tb 驱动，查找口由 tb 驱动/采样。
+**7.1** 新建 `sim/tb_mac_whitelist_seq.sv`，搭骨架：50MHz `cfg_clk` + 125MHz `clk` 各起一个（`forever #10` / `forever #4`），复位先行（两域 `*_reset_l` 同拉低若干拍后释放）；DUT 直接例化 `mac_whitelist_seq`，cfg 口由 tb 驱动，查找口由 tb 驱动/采样。骨架（信号名与 2.1 端口一一对应，可直接作为起点）：
+
+```systemverilog
+module tb_mac_whitelist_seq;
+    reg clk = 1'b0, cfg_clk = 1'b0;
+    reg reset_l = 1'b0, cfg_reset_l = 1'b0;           // 两域复位，低有效
+    reg         cfg_rlwh   = 1'b0;
+    reg  [11:0] cfg_addr  = 12'b0;
+    reg  [31:0] cfg_wdata = 32'b0;
+    wire [31:0] cfg_rdata;
+    reg         lookup_req = 1'b0;
+    reg  [47:0] lookup_mac = 48'b0;
+    wire        lookup_match, lookup_done, lookup_busy;
+    reg         whitelist_en = 1'b1, default_pass = 1'b1;
+
+    mac_whitelist_seq dut (
+        .clk(clk), .reset_l(reset_l),
+        .lookup_req(lookup_req), .lookup_mac(lookup_mac), .lookup_match(lookup_match),
+        .lookup_done(lookup_done), .lookup_busy(lookup_busy),
+        .cfg_clk(cfg_clk), .cfg_reset_l(cfg_reset_l),
+        .cfg_rlwh(cfg_rlwh), .cfg_addr(cfg_addr),
+        .cfg_wdata(cfg_wdata), .cfg_rdata(cfg_rdata),
+        .whitelist_en(whitelist_en), .default_pass(default_pass)
+    );
+
+    initial begin forever #4  clk     = ~clk;     end   // 125MHz → 半周期 4ns
+    initial begin forever #10 cfg_clk = ~cfg_clk; end   // 50MHz  → 半周期 10ns
+
+    task do_reset;                                      // 复位先行：两域同拉低再同释放
+        begin
+            reset_l = 1'b0; cfg_reset_l = 1'b0;
+            #100; reset_l = 1'b1; cfg_reset_l = 1'b1; #100;
+        end
+    endtask
+    // subbus_wr / do_lookup 任务见 7.2；主 initial：do_reset → 用例 1~8 → $finish
+endmodule
+```
 
 **7.2** 写 SubBus 写任务（模拟 ramintf 直通的多拍写事务；因写路径幂等（1.2 特性 1），精确宽度不敏感）：
 
@@ -770,7 +818,26 @@ task automatic subbus_wr(input [11:0] addr, input [31:0] data);
     #20;
 endtask
 // 读任务：cfg_rlwh=0 后 #若干 采样 cfg_rdata（组合读，零延迟）
+
+// 查找任务：发 req、等 done、采样 match 并数周期（用例 7 的 ==18 断言数据由它产出）
+task automatic do_lookup(input [47:0] mac, output reg hit, output int cyc);
+    begin
+        lookup_mac = mac;
+        lookup_req = 1'b1;
+        @(posedge clk);                        // FSM 采样到 req 的边沿 = 计数起点（记 0）
+        lookup_req = 1'b0;
+        cyc = 0;
+        while (lookup_done !== 1'b1 && cyc < 1000) begin
+            @(posedge clk);
+            cyc = cyc + 1;
+        end
+        if (cyc >= 1000) $fatal(1, "lookup_done timeout, mac=%h", mac);
+        hit = lookup_match;                    // done 拍采样 match（判读纪律见 7.5）
+    end
+endtask
 ```
+
+**计数约定**（三模式统一，姐妹篇沿用）：FSM 采样到 req 的那个上升沿记 0，此后每过一个时钟上升沿 +1，`lookup_done` 读到 1 即停。对正确实现 cyc==18（模式 1 为 ≤10，模式 2 为 ==2）。等待条件用 `!==` 而非 `!=`，X 态不会漏判；超时上限兜底防止 FSM 卡死时仿真挂起。
 
 **7.3** 实现用例矩阵（8 条，逐条独立小节编写，每条含"激励→等待→断言"三段）：
 
@@ -785,12 +852,14 @@ endtask
 | 7 | **周期数断言** | 记 req↑ 到 done↑ 的拍数 | ==18 | 数错=FSM 写错 |
 | 8 | busy 期间再发 req | done 后立即 req | 第二笔正常完成不丢 | — |
 
+**MAC 常量建议**：全 tb 使用一组固定常量并贯穿所有用例（推荐下标即目标槽位，便于看波形对号：`M0=48'h11_22_33_44_55_01`、`M7=48'h11_22_33_44_55_07`、`M15=48'h11_22_33_44_55_0F`、不存在者 `MISS=48'hAA_BB_CC_DD_EE_EE`），避免随手造值导致用例间隐性耦合。
+
 **7.4** 编译运行（L1 命令行，文件路径已核实；**不进 sim/Makefile**——那是系统级仿真用的，依赖 OLD_RTL 别碰，见 5.3 问题 6）：
 
 ```bash
 cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
-iverilog -g2012 -o tb_seq.vvp \
-    sim/define_sim.sv \
+iverilog -g2012 -s tb_mac_whitelist_seq -o tb_seq.vvp -I sim \
+    sim/define.sv \
     sim/tb_mac_whitelist_seq.sv \
     rtl/mac_whitelist_seq.v \
     ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
@@ -835,6 +904,33 @@ flowchart LR
 | 14~59 | Padding（0） |
 | 60~63 | 伪 CRC（任意，本链路不校验） |
 
+喂帧任务骨架（逐字节驱动，SOP 与首字节同拍、EOP 与末字节同拍，对齐图 7）：
+
+```systemverilog
+task automatic send_frame(input [47:0] srcmac);
+    integer i;
+    reg [7:0] f [0:63];
+    begin
+        for (i = 0; i < 6; i = i + 1) f[i] = 8'hFF;               // 字节 0~5：DMAC（任意）
+        f[6]  = srcmac[47:40]; f[7]  = srcmac[39:32];             // 字节 6~11：SMAC（查找目标）
+        f[8]  = srcmac[31:24]; f[9]  = srcmac[23:16];
+        f[10] = srcmac[15:8];  f[11] = srcmac[7:0];
+        f[12] = 8'h08;  f[13] = 8'h00;                            // EtherType
+        for (i = 14; i < 64; i = i + 1) f[i] = 8'h00;             // padding + 伪 CRC
+        @(posedge clk);
+        for (i = 0; i < 64; i = i + 1) begin
+            mac1_rx_sop  <= (i == 0);
+            mac1_rx_eop  <= (i == 63);
+            mac1_rx_en   <= 1'b1;
+            mac1_rx_data <= f[i];
+            @(posedge clk);
+        end
+        mac1_rx_en <= 1'b0; mac1_rx_sop <= 1'b0; mac1_rx_eop <= 1'b0;
+    end
+endtask
+```
+（端口宽度以 `cpu_channel_tri` 实际声明为准；`mac1_rx_data` 为 8bit GMII 字节流。）
+
 ```wavedrom
 { "signal": [
     { "name": "clk", "wave": "10P..........." },
@@ -852,8 +948,8 @@ flowchart LR
 
 ```bash
 cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
-iverilog -g2012 -o tb_wl.vvp \
-    sim/define_sim.sv \
+iverilog -g2012 -s tb_wl_integration -o tb_wl.vvp -I sim \
+    sim/define.sv \
     sim/tb_wl_integration.sv \
     rtl/cpu_channel_tri.v \
     rtl/mac_whitelist_seq.v \
@@ -981,7 +1077,10 @@ vivado -mode batch -source scripts/load_firmware_vivado.tcl    # 固定名脚本
 | 周期数 ≠18 | FSM 最后一条比较位置错 | 重走模式0-步骤6.3 逐拍图 | 模式0-步骤6.2 |
 | en=0 时 match 恒 0 不随 defpass | S_DONE 锁存逻辑漏了 default_pass 分支 | 核对锁存行（1.1 ④） | 模式0-步骤6.4 |
 | 上板查找行为间歇错 | en/defpass 跨时钟域没同步 | 确认用的是 `wl_ctrl_125m` 不是 50M 域信号（5.3 问题 8） | 模式0-步骤9.2 |
-| iverilog 报 xpm_memory_sdpram 未定义 | 仿真用了真实 define.sv（vendor=xilinx） | 确认命令行第一个文件是 `sim/define_sim.sv` | 模式0-步骤3.5 |
+| iverilog 报 xpm_memory_sdpram 未定义 | 仿真用了真实 define.sv（vendor=xilinx） | 确认命令行第一个文件是 `sim/define.sv` 且带 `-I sim` | 模式0-步骤3.5 |
+| iverilog 报 include file define.sv not found | 命令行没带 `-I sim`，或 `sim/define.sv` 未创建 | 本机 iverilog 不搜索被包含文件所在目录，`-I sim` 必须显式给 | 模式0-步骤3.5 |
+| build_fpga.sh 报 define.sv 文件不存在（filelist.cfg:47） | 共享库快照丢了 `../ip_common/rtl/define.sv`（已知问题 9） | 从 v0001 构建快照拷回正本 | 模式0-步骤10.2 |
+| vvp 一启动就打印 BRAM 自测（"PASS: q_b=AB"）并 299ns 结束 | BRAM 模型文件自带 `translate_off` 自测 tb，被当顶层 elaborate | iverilog 加 `-s <tb 模块名>` 指定根模块 | 模式0-步骤7.4/8.3 |
 | `ip_common/rtl/...` 找不到文件 | 共享库在仓库外层 | 路径应为 `../ip_common/rtl/`（相对仓库根） | 模式0-步骤7.4/8.3 |
 
 ---
@@ -1048,6 +1147,7 @@ L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver�
 | 6 | **sim/Makefile 是系统级仿真的**（内部 OLD_RTL 指向旧版单口 RTL） | 单元/集成 tb 走它会把无关文件全拉进来编译失败 | L1/L2 tb 一律用 模式0-步骤7.4/8.3 的 iverilog 命令行，**不改 sim/Makefile** | 仿真阶段 |
 | 7 | **CLEAR 期间写口被序列器独占** | CLEAR 的 16 拍内普通 WR/DEL 写会被吞 | C 侧 clear_all 后等待（现有 subbus_write 的 flush 天然等待）；tb 用例 4 覆盖 | 已在设计中处理，知悉即可 |
 | 8 | **125MHz 与 50MHz 域信号严禁直连** | en/defpass/查找请求若跨域直连=偶发错 | wrapper 的 CDC（`wl_ctrl_125m`）已就位；自查时确认用的是 `_125m` 后缀信号 | 集成自查（模式0-步骤9.2） |
+| 9 | **共享库快照缺 `define.sv`**：`../ip_common/rtl/` 现无此文件（它是未被 git 跟踪的本地产物，在快照同步中丢失；2026-08-29 的 v0001 构建快照 `webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv` 留有副本），而 `filelist.cfg:47` 及 `mac_whitelist_seq.v`/BRAM 模型的 `` `include "define.sv" `` 都引用它 | **Vivado 侧**：build_fpga.sh 会因缺文件失败；**仿真侧**：已由 `sim/define.sv` + `-I sim` 方案自足（模式0-步骤3.5），不受影响 | 上板前恢复正本：`cp webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv ../ip_common/rtl/`（拷自 v0001 快照 = 上次成功构建所用版本；若该快照已清理，则从 ip_common 上游仓库重新获取） | 模式0-步骤10.2 前 |
 
 ---
 
@@ -1071,7 +1171,7 @@ L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver�
 | `rtl/reg_webserver.v` | SubBus 0x5000 译码、wl_ctrl |
 | `rtl/webserver_wrapper.v` | 例化 + CDC |
 | `c/whitelist.c` / `inc/whitelist.h` | C 驱动 |
-| `sim/define_sim.sv` | 仿真专用宏（模式0-步骤3.5 创建） |
+| `sim/define.sv` | 仿真专用宏 + `include "define.sv"` 解析目标（模式0-步骤3.5 创建） |
 | `../ip_common/rtl/` | 仓库外层共享库（L1/L2 仿真依赖，路径 `../ip_common/rtl/`） |
 | `scripts/load_firmware_vivado.tcl` | 固件加载脚本（调用固定名 `tcl/InstructRAM.tcl`） |
 | `doc/MAC_Whitelist_Design_Plan.md` | 上游设计文档 V4 |
