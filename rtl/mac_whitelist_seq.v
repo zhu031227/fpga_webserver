@@ -301,8 +301,10 @@ module mac_whitelist_seq #(
         end
         S_DONE: begin
           if (bram_rd_valid && (bram_rd_mac == lookup_mac)) match_found <= 1'b1;
+          // default_pass 在 en=1 时也须生效: 修复"启用白名单+默认放行仍全拦"缺陷
+          // (2026-08-30 板测 4a 实锤)。DONE 拍的当前比较保留, 否则 idx15 匹配丢失
           lookup_match <= whitelist_en ?
-              (match_found || (bram_rd_valid && (bram_rd_mac == lookup_mac))) :
+              (match_found || default_pass || (bram_rd_valid && (bram_rd_mac == lookup_mac))) :
               default_pass;
           lookup_done <= 1'b1;
           state <= S_IDLE;

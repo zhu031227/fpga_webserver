@@ -71,16 +71,24 @@ void whitelist_init(void)
     flash_cfg_local_t lc;
     flash_cfg_wl_t wl;
 
+    // 引导阶段打点（JTAG 读 debug_rw_2/0x12 定位假死点）：
+    // 0x10=进入init 0x11=读Flash开始 0x12=加载成功 0x13=加载失败走默认
+    LCPU_REG32_WRITE(0x12u, 0x00000010u);
+
     for (i = 0; i < WL_SW_CACHE_SIZE; i++) {
         sw_wl_valid[i] = 0;
     }
     sw_wl_count = 0;
 
-    // 启动时从 Flash 自动加载白名单 + wl_ctrl（magic/checksum 校验失败则保持默认：禁用、空表）
+    // 启动时从 Flash 自动加载白名单 + wl_ctrl（v2: sflash 超时读 + A/B 择优，
+    // 任何失败走默认：禁用、空表，绝不挂引导）
+    LCPU_REG32_WRITE(0x12u, 0x00000011u);
     if (flash_cfg_load(&lc, &wl) == 0) {
         whitelist_apply_snapshot(&wl);
+        LCPU_REG32_WRITE(0x12u, 0x00000012u);
     } else {
         lcpu_baseaddr->wl_ctrl = 0x0;  // [0]=enable=0 (off), [1]=default_pass=0 (block all)
+        LCPU_REG32_WRITE(0x12u, 0x00000013u);
     }
 }
 

@@ -26,7 +26,7 @@ module tb_mac_whitelist_seq;
     reg         lookup_req = 1'b0;
     reg  [47:0] lookup_mac = 48'b0;
     wire        lookup_match, lookup_done, lookup_busy;
-    reg         whitelist_en = 1'b1, default_pass = 1'b1;
+    reg         whitelist_en = 1'b1, default_pass = 1'b0;
 
     mac_whitelist_seq dut (
         .clk(clk), .reset_l(reset_l),

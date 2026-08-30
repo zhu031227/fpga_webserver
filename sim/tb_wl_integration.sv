@@ -7,6 +7,7 @@
 //   2. 喂 SrcMAC=MAC_B（不在表）→ mac2_tx_en 无波形，eth1_rx_drop_cnt +1
 //   3. enable=0 + defpass=0 → 帧被丢弃
 //   4. enable=0 + defpass=1 → 无条件转发
+//   4b. enable=1 + defpass=1 → 未命中也放行（回归: defpass 修复）
 //   5. 背靠背两帧，第二帧 req 被 busy 挡但不丢，两帧依次正确门控
 //   6. CLEAR 进行中喂帧 → 查找不挂死，done 最终到来（结果允许任意）
 //==============================================================================
@@ -31,7 +32,7 @@ module tb_wl_integration;
     wire [31:0] cfg_rdata;
 
     // ---- 白名单控制 ----
-    reg        whitelist_en = 1'b1, default_pass = 1'b1;
+    reg        whitelist_en = 1'b1, default_pass = 1'b0;
 
     // ---- 查找接口连线 ----
     wire        wl_lookup_req;
@@ -208,7 +209,17 @@ module tb_wl_integration;
         check_result(400, 1'b1, drop_before, 32'd0);
         whitelist_en = 1'b1; default_pass = 1'b1;
 
+        // 回归: 修复"en=1时defpass被忽略"缺陷 (2026-08-30 板测4a实锤)
+        // en=1+defpass=1 下未命中帧也必须放行
+        $display("=== Test 4b: enable=1 defpass=1 → 未命中也放行 ===");
+        clear_tx_seen();
+        drop_before = eth1_rx_drop_cnt;
+        send_frame(MAC_B);
+        #2000;
+        check_result(450, 1'b1, drop_before, 32'd0);
+
         $display("=== Test 5: 背靠背两帧 ===");
+        default_pass = 1'b0;   // 恢复丢弃语义, 保持背靠背用例原期望
         clear_tx_seen();
         drop_before = eth1_rx_drop_cnt;
         send_frame(MAC_A);
@@ -243,7 +254,7 @@ module tb_wl_integration;
             end
         end
 
-        if (errors == 0) $display("\n========== ALL 6 TESTS PASSED ==========");
+        if (errors == 0) $display("\n========== ALL 7 TESTS PASSED ==========");
         else             $display("\n========== FAILURES: %0d ==========", errors);
         #100;
         $finish;
