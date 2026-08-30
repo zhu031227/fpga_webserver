@@ -20,6 +20,11 @@ set_property PACKAGE_PIN W19 [get_ports clk_50m_in]
 # --- Reset (active low) ---
 set_property PACKAGE_PIN D21 [get_ports reset_l]
 
+# --- GT 125MHz 差分参考时钟 (MGT_CLK1/DIFCLK125M = MGTREFCLK1P/N_216) ---
+# 依据：ACX750_CB_PIN.xdc 行 85/86 + Vivado 封装库 xc7a35tfgg484-2 查询结果
+set_property PACKAGE_PIN F10 [get_ports gtrefclk_p]
+set_property PACKAGE_PIN E10 [get_ports gtrefclk_n]
+
 # --- UART ---
 set_property PACKAGE_PIN L21 [get_ports uart_rx]
 set_property PACKAGE_PIN M21 [get_ports uart_tx]

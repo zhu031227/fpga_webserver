@@ -96,7 +96,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam [2:0] ILA_TRANSPORT_EN = 3'b001;  // bit0=UART bit1=ETH
-  localparam ILA_NUM_CORES  = 4;  // cpu_intf + flash/bootloader + gmii rx + gmii tx
+  localparam ILA_NUM_CORES  = 6;  // cpu_intf + flash/bootloader + gmii0 rx/tx + gmii1 rx + gmii2 rx
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
   localparam [15:0] ETH_PORT = 16'd5000;
@@ -147,6 +147,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
 
   // SFP status
   wire sfp_resetdone, sfp_mmcm_locked;
+  wire sfp_cpll_lock, sfp_pll0_refclklost;
   wire [15:0] sfp1_status, sfp2_status;
 
   // eth1/eth2 MDIO (unused for SFP, but connected)
@@ -248,7 +249,9 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .sfp2_status_vector(sfp2_status),
 
       .resetdone(sfp_resetdone),
-      .mmcm_locked_out(sfp_mmcm_locked)
+      .mmcm_locked_out(sfp_mmcm_locked),
+      .cpll_lock_out(sfp_cpll_lock),
+      .pll0_refclklost_out(sfp_pll0_refclklost)
   );
 
   // GMII RX clocks for eth1/eth2 come from the SFP wrapper
@@ -338,6 +341,60 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .reg_rdata     (ila_core_rdata[3*32+:32])
   );
 
+  // --- ILA core 4: GMII eth1 (SFP1) RX debug — MAC 采样视角 ---
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (2),
+      .SAMPLE_HZ     (125000000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (2),
+      .PROBE0_WIDTH  (1),
+      .PROBE1_WIDTH  (8),
+      .EXT_TRIG_EN   (1)
+  ) u_ila_gmii1_rx (
+      .sample_clk    (gmii1_rx_clk),
+      .rst_in        (reset_l_synced),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (gmii1_rx_dv),
+      .probe1        (gmii1_rxd),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[4]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[4*32+:32])
+  );
+
+  // --- ILA core 5: GMII eth2 (SFP2) RX debug — MAC 采样视角 ---
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (2),
+      .SAMPLE_HZ     (125000000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (2),
+      .PROBE0_WIDTH  (1),
+      .PROBE1_WIDTH  (8),
+      .EXT_TRIG_EN   (1)
+  ) u_ila_gmii2_rx (
+      .sample_clk    (gmii2_rx_clk),
+      .rst_in        (reset_l_synced),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (gmii2_rx_dv),
+      .probe1        (gmii2_rxd),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[5]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[5*32+:32])
+  );
+
   // --- Webserver core ---
   webserver_wrapper #(
       .sim_mod(sim_mod),
@@ -415,6 +472,10 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       .flash_rst_n(flash_rst_n),
 
       .led(led_o),
+
+      // SFP GT debug status → debug_ro_2/3 (0x22/0x23)
+      .sfp_status_dbg({sfp2_status, sfp1_status}),
+      .sfp_link_dbg({sfp_pll0_refclklost, sfp_cpll_lock, sfp_mmcm_locked, sfp_resetdone}),
 
       // fpga_ila JTAG 调试总线
       .ila_jtag_clk  (ila_jtag_clk),

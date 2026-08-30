@@ -81,8 +81,11 @@ module sgmii2mac_gt_common #(
     input  PLL0RESET_IN,
     output PLL1OUTCLK_OUT,
     output PLL1OUTREFCLK_OUT,
-    input  GTREFCLK0_BUFG_IN,
-    input  GTREFCLK0_IN
+    // ACX750 board routes the 125MHz oscillator to MGTREFCLK1P/N_216 (F10/E10),
+    // so the IBUFDS_GTE2 lands on the MGTREFCLK1 site which only drives the
+    // GTPE2_COMMON GTREFCLK1 input. PLL0REFCLKSEL must select GTREFCLK1 too.
+    input  GTREFCLK1_BUFG_IN,
+    input  GTREFCLK1_IN
 );
 
   //***************************** Parameter Declarations ************************
@@ -106,7 +109,7 @@ module sgmii2mac_gt_common #(
   //********************************* Main Body of Code**************************
 
 
-  always @(posedge GTREFCLK0_BUFG_IN) begin
+  always @(posedge GTREFCLK1_BUFG_IN) begin
     cpllpd_wait <= {cpllpd_wait[94:0], 1'b0};
     cpllreset_wait <= {cpllreset_wait[126:0], 1'b0};
   end
@@ -130,7 +133,7 @@ module sgmii2mac_gt_common #(
   GTPE2_COMMON #(
       // Simulation attributes
       .SIM_RESET_SPEEDUP (WRAPPER_SIM_GTRESET_SPEEDUP),
-      .SIM_PLL0REFCLK_SEL(3'b001),
+      .SIM_PLL0REFCLK_SEL(3'b010),
       .SIM_PLL1REFCLK_SEL(3'b001),
       .SIM_VERSION       ("2.0"),
 
@@ -174,8 +177,8 @@ module sgmii2mac_gt_common #(
       .GTEASTREFCLK0    (tied_to_ground_i),
       .GTEASTREFCLK1    (tied_to_ground_i),
       .GTGREFCLK1       (tied_to_ground_i),
-      .GTREFCLK0        (GTREFCLK0_IN),
-      .GTREFCLK1        (tied_to_ground_i),
+      .GTREFCLK0        (tied_to_ground_i),
+      .GTREFCLK1        (GTREFCLK1_IN),
       .GTWESTREFCLK0    (tied_to_ground_i),
       .GTWESTREFCLK1    (tied_to_ground_i),
       .PLL0OUTCLK       (PLL0OUTCLK_OUT),
@@ -189,7 +192,7 @@ module sgmii2mac_gt_common #(
       .PLL0LOCKEN       (tied_to_vcc_i),
       .PLL0PD           (cpll_pd_i),
       .PLL0REFCLKLOST   (PLL0REFCLKLOST_OUT),
-      .PLL0REFCLKSEL    (3'b001),
+      .PLL0REFCLKSEL    (3'b010),  // 010 = GTREFCLK1 (board osc on MGTREFCLK1P/N_216)
       .PLL0RESET        (PLL0RESET_I),
       .PLL1FBCLKLOST    (),
       .PLL1LOCK         (),

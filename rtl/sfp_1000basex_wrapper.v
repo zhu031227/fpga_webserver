@@ -50,7 +50,9 @@ module sfp_1000basex_wrapper (
 
     // status
     output resetdone,
-    output mmcm_locked_out
+    output mmcm_locked_out,
+    output cpll_lock_out,        // CPLL lock (shared GTPE2_COMMON)
+    output pll0_refclklost_out   // CPLL reference-lost flag
 );
 
   // --- internal wires ---
@@ -132,9 +134,9 @@ module sfp_1000basex_wrapper (
       .gmii_rx_er  (gmii1_rx_er),
       .gmii_isolate(),
 
-      .configuration_vector({3'b010, 2'b10}),       // [4:3]=10 enable AN, [2]=0
+      .configuration_vector(5'b10000),              // bit4=1: ANEG enable (canonical value from sgmii bridge)
       .an_interrupt        (),
-      .an_adv_config_vector(16'b0000000000100001),
+      .an_adv_config_vector(16'b0000000001100001),  // selector=1000BASE-X, HD+FD advertised
       .an_restart_config   (1'b0),
       .status_vector       (sfp1_status_vector),
       .reset               (pma_reset),
@@ -180,9 +182,9 @@ module sfp_1000basex_wrapper (
       .gmii_rx_er  (gmii2_rx_er),
       .gmii_isolate(),
 
-      .configuration_vector({3'b010, 2'b10}),       // [4:3]=10 enable AN
+      .configuration_vector(5'b10000),              // bit4=1: ANEG enable (canonical value from sgmii bridge)
       .an_interrupt        (),
-      .an_adv_config_vector(16'b0000000000100001),
+      .an_adv_config_vector(16'b0000000001100001),  // selector=1000BASE-X, HD+FD advertised
       .an_restart_config   (1'b0),
       .status_vector       (sfp2_status_vector),
       .reset               (pma_reset),
@@ -216,6 +218,8 @@ module sfp_1000basex_wrapper (
   );
 
   assign mmcm_locked_out = mmcm_locked;
+  assign cpll_lock_out = cplllock_eth1;  // eth1/eth2 share the same CPLL
+  assign pll0_refclklost_out = gt0_pll0refclklost;
 
   // ============================================================
   // Shared PMA Reset
@@ -242,8 +246,8 @@ module sfp_1000basex_wrapper (
   );
 
   sgmii2mac_gt_common core_gt_common_i (
-      .GTREFCLK0_IN      (gtrefclk),
-      .GTREFCLK0_BUFG_IN (gtrefclk_bufg),
+      .GTREFCLK1_IN      (gtrefclk),
+      .GTREFCLK1_BUFG_IN (gtrefclk_bufg),
       .PLL0OUTCLK_OUT    (gt0_pll0outclk),
       .PLL0OUTREFCLK_OUT (gt0_pll0outrefclk),
       .PLL1OUTCLK_OUT    (gt0_pll1outclk),

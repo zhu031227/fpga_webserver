@@ -97,6 +97,10 @@ module webserver_wrapper #(
     input  wire [31:0] ila_core_wdata,
     output wire [63:0] ila_core_rdata,
 
+    // SFP GT debug status（准静态电平，寄存器异步采样即可）
+    input  wire [31:0] sfp_status_dbg,  // → debug_ro_2 (0x22): {sfp2_status_vector, sfp1_status_vector}
+    input  wire [ 3:0] sfp_link_dbg,    // → debug_ro_3 (0x23): {refclklost, cpll_lock, mmcm_locked, resetdone}
+
     output [3:0] eth_greset,
     output [3:0] led
 );
@@ -139,6 +143,8 @@ module webserver_wrapper #(
   wire [                31:0] debug_rw_1;
   wire [                31:0] debug_ro_0;
   wire [                31:0] debug_ro_1;
+  wire [                31:0] debug_ro_2;
+  wire [                31:0] debug_ro_3;
   wire [                 7:0] recv_pkt_drop_cnt_src;  // 125MHz
   wire [                 7:0] recv_pkt_drop_cnt;  // 50MHz, Gray synced
   wire [                31:0] debug_wc_0;
@@ -427,8 +433,8 @@ module webserver_wrapper #(
       .debug_rw_3(),
       .debug_ro_0(debug_ro_0),
       .debug_ro_1(debug_ro_1),
-      .debug_ro_2(32'd0),
-      .debug_ro_3(32'd0),
+      .debug_ro_2(debug_ro_2),
+      .debug_ro_3(debug_ro_3),
       .debug_wc_0(debug_wc_0),
       .debug_wc_0_ind(debug_wc_0_ind),
       .debug_wc_1(debug_wc_1),
@@ -1022,6 +1028,8 @@ module webserver_wrapper #(
 
   assign debug_ro_0     = {24'b0, recv_pkt_drop_cnt};
   assign debug_ro_1     = eth1_rx_drop_cnt;
+  assign debug_ro_2     = sfp_status_dbg;                       // 0x22: {sfp2_sv, sfp1_sv}
+  assign debug_ro_3     = {28'b0, sfp_link_dbg};                // 0x23: {refclklost, cpll_lock, mmcm_locked, resetdone}
 
   // ILA reg bus now connects directly to soft_ila_top (no internal mux needed)
 
