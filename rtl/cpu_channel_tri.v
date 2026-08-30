@@ -207,15 +207,19 @@ module cpu_channel_tri #(
       mac1_byte_cnt   <= 4'b0;
       mac1_header_done <= 1'b0;
     end else begin
-      if (mac1_rx_sop) begin
-        mac1_byte_cnt <= 4'b0;
-        mac1_header_done <= 1'b0;
-      end
-      if (mac1_rx_en && !mac1_header_done) begin
-        mac1_byte_cnt <= mac1_byte_cnt + 1;
-        if (mac1_byte_cnt >= 4'd6 && mac1_byte_cnt < 4'd12)
-          mac1_src_mac <= {mac1_src_mac[39:0], mac1_rx_data};
-        if (mac1_byte_cnt == 4'd13) mac1_header_done <= 1'b1;
+      if (mac1_rx_en) begin
+        if (mac1_rx_sop) begin
+          // SOP 拍：这是字节 0（DMAC），byte_cnt 置 1 表示字节 0 已处理。
+          // 原实现用 NBA 清 byte_cnt=0 + header_done=0，但提取判断 !header_done
+          // 读到的是上一帧残留的 1，导致非首帧字节 0 被跳过、源 MAC 错位 1 字节。
+          mac1_byte_cnt   <= 4'd1;
+          mac1_header_done <= 1'b0;
+        end else if (!mac1_header_done) begin
+          if (mac1_byte_cnt >= 4'd6 && mac1_byte_cnt < 4'd12)
+            mac1_src_mac <= {mac1_src_mac[39:0], mac1_rx_data};
+          if (mac1_byte_cnt == 4'd13) mac1_header_done <= 1'b1;
+          mac1_byte_cnt <= mac1_byte_cnt + 1;
+        end
       end
     end
   end
