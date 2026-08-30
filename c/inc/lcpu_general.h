@@ -23,7 +23,7 @@ typedef int             int32;
 // Local MAC address & IP address (defaults — overridden by local_config_init)
 #define Local_MAC_HIGH   0x00000102
 #define Local_MAC_LOW    0x0406
-#define Local_IP_ADDR    0xC0A80158  //192.168.1.88
+#define Local_IP_ADDR    0xC0A80180  //192.168.1.128 (.88让给导师的板子, 规避地址冲突)
 
 // Standard header lengths
 #define eth_header_len   14
