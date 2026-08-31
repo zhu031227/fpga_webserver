@@ -1,0 +1,5 @@
+[sudo: authenticate] Password: 
+tcpdump: listening on wlp4s0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+31 packets captured
+31 packets received by filter
+0 packets dropped by kernel
