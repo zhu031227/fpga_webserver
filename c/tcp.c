@@ -17,10 +17,10 @@ uint16_t connection_dst_ports[MAX_CONNECTIONS];
 uint32_t connection_src_ips[MAX_CONNECTIONS];
 uint32_t connection_dst_ips[MAX_CONNECTIONS];
 
-// Timer / housekeeping arrays
-uint32_t connection_time_wait_start[MAX_CONNECTIONS];
-uint32_t connection_last_activity[MAX_CONNECTIONS];
-uint32_t connection_last_tx_time[MAX_CONNECTIONS];
+// Timer / housekeeping arrays (uint64: 自由计数器 ~1.035GHz, 32位 4.15s 回卷, 见 lcpu_general.h)
+uint64_t connection_time_wait_start[MAX_CONNECTIONS];
+uint64_t connection_last_activity[MAX_CONNECTIONS];
+uint64_t connection_last_tx_time[MAX_CONNECTIONS];
 uint8_t  connection_syn_retries[MAX_CONNECTIONS];
 
 uint32_t available_connections = MAX_CONNECTIONS;
@@ -206,12 +206,20 @@ static void send_tcp_segment(const uint8 header[tcp_header_len], const uint8 *pa
         rec_pkt_len = 64;
     }
     LCPU_WR_PUSH_PACKET(rec_pkt_len);
+    g_dbg_tx_cnt++;
 }
 
 // --- Periodic housekeeping: TIME_WAIT expiry, idle timeout, SYN retry ---
 void tcp_periodic_check(void) {
-    uint32 now = LCPU_LOCAL_TIME_L();
     uint32 i;
+    /* P2 取证实验 (2026-08-31): 空表早退。锁存取时有总线成本(每圈MHz级),
+     * 观测 CPU 停摆率是否与该操作相关。 */
+    for (i = 0; i < MAX_CONNECTIONS; i++) {
+        if (connection_states[i] != TCP_STATE_CLOSED) break;
+    }
+    if (i >= MAX_CONNECTIONS) return;
+
+    uint64_t now = LCPU_LOCAL_TIME64();
 
     for (i = 0; i < MAX_CONNECTIONS; i++) {
         uint8 state = connection_states[i];
@@ -390,7 +398,7 @@ void send_syn_ack(int conn_idx) {
     send_tcp_segment(tcp_header, NULL, 0);
 
     // Track transmission for retry logic
-    connection_last_tx_time[conn_idx] = LCPU_LOCAL_TIME_L();
+    connection_last_tx_time[conn_idx] = LCPU_LOCAL_TIME64();
     if (connection_syn_retries[conn_idx] == 0) {
         connection_syn_retries[conn_idx] = 1;
     }
@@ -413,9 +421,9 @@ void tcp_handle_syn(uint16 src_port, uint16 dst_port, uint32 src_ip, uint32 seq_
     connection_dst_ports[conn_idx]      = dst_port;
     connection_src_ips[conn_idx]        = src_ip;
     connection_dst_ips[conn_idx]        = g_local_ip;
-    connection_seq_nums[conn_idx]       = LCPU_LOCAL_TIME_L();   // Randomized ISN
+    connection_seq_nums[conn_idx]       = LCPU_LOCAL_TIME_L();   // ISN = 锁存计数器低32位(随时间快速变化)
     connection_ack_nums[conn_idx]       = seq_num + 1;
-    connection_last_activity[conn_idx]  = LCPU_LOCAL_TIME_L();
+    connection_last_activity[conn_idx]  = LCPU_LOCAL_TIME64();
     connection_last_tx_time[conn_idx]   = 0;
     connection_syn_retries[conn_idx]    = 0;
 
@@ -520,7 +528,7 @@ void send_http_buffer(int conn_idx, const uint8 *payload, uint32 payload_len) {
         connection_seq_nums[conn_idx] += data_to_send;
         offset += data_to_send;
     }
-    connection_last_activity[conn_idx] = LCPU_LOCAL_TIME_L();
+    connection_last_activity[conn_idx] = LCPU_LOCAL_TIME64();
 }
 
 void send_http_response(int conn_idx, const char *response) {
@@ -1357,7 +1365,7 @@ void tcp_packet_handler() {
     }
 
     // Update last activity timestamp for existing connection
-    connection_last_activity[conn_idx] = LCPU_LOCAL_TIME_L();
+    connection_last_activity[conn_idx] = LCPU_LOCAL_TIME64();
 
     uint32 current_state = connection_states[conn_idx];
 
@@ -1419,23 +1427,12 @@ void tcp_packet_handler() {
                 printf("FIN received in ESTABLISHED state (conn_idx %d).\n", conn_idx);
 #endif
                 connection_ack_nums[conn_idx] = seq_num + 1;
-                send_ack(conn_idx);
-                connection_states[conn_idx] = TCP_STATE_CLOSE_WAIT;
-                // Application-level close: send our FIN
-                {
-                    uint8 tcp_header[tcp_header_len];
-                    uint16 checksum;
-                    fill_tcp_header(conn_idx, TCP_FLAG_FIN | TCP_FLAG_ACK, tcp_header);
-                    checksum = tcp_checksum_build(tcp_header, 0, connection_dst_ips[conn_idx], connection_src_ips[conn_idx], NULL, 0);
-                    tcp_set_checksum(tcp_header, checksum);
-                    ip_header_update(connection_src_ips[conn_idx], ip_header_len + tcp_header_len);
-                    send_tcp_segment(tcp_header, NULL, 0);
-                    connection_seq_nums[conn_idx]++;
-                    connection_states[conn_idx] = TCP_STATE_LAST_ACK;
-#if DEBUG_En_tcp
-                    printf("  Sent our FIN+ACK, entering LAST_ACK (conn_idx %d).\n", conn_idx);
-#endif
-                }
+                /* P2 修复 (2026-08-31): 原路径回裸 ACK 后再发 FIN|ACK 进 LAST_ACK,
+                 * 但 FIN 实测从未上线(发包路径丢)且 LAST_ACK 对 final-ACK 精确匹配过苛
+                 * → 僵尸槽积累, 16 槽耗尽后新 SYN 被静默吞掉(空响应根因之一)。
+                 * 此时响应已发完, 直接 RST|ACK 关闭: 双端立即释放, 无半开残留。 */
+                send_rst(conn_idx);
+                close_connection(conn_idx);
             } else if ((flags & TCP_FLAG_ACK) && tcp_data_len > 0) {
 #if DEBUG_En_tcp
                 printf("Data received in ESTABLISHED state (conn_idx %d), len=%d, seq=%ld, ack=%ld.\n", conn_idx, tcp_data_len, (long int)seq_num, (long int)connection_ack_nums[conn_idx]);
@@ -1482,7 +1479,7 @@ void tcp_packet_handler() {
                     connection_ack_nums[conn_idx] = seq_num + 1;
                     send_ack(conn_idx);
                     connection_states[conn_idx] = TCP_STATE_TIME_WAIT;
-                    connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME_L();
+                    connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME64();
                 }
             } else if (flags & TCP_FLAG_FIN) {
 #if DEBUG_En_tcp
@@ -1502,7 +1499,7 @@ void tcp_packet_handler() {
                 connection_ack_nums[conn_idx] = seq_num + 1;
                 send_ack(conn_idx);
                 connection_states[conn_idx] = TCP_STATE_TIME_WAIT;
-                connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME_L();
+                connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME64();
             }
             break;
 
@@ -1512,7 +1509,7 @@ void tcp_packet_handler() {
                 printf("ACK for our FIN received in CLOSING state (conn_idx %d). Transitioning to TIME_WAIT.\n", conn_idx);
 #endif
                 connection_states[conn_idx] = TCP_STATE_TIME_WAIT;
-                connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME_L();
+                connection_time_wait_start[conn_idx] = LCPU_LOCAL_TIME64();
             }
             break;
 

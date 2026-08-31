@@ -88,9 +88,9 @@ extern uint32_t connection_dst_ips[MAX_CONNECTIONS];
 extern uint32_t available_connections;
 
 // Timer / housekeeping fields
-extern uint32_t connection_time_wait_start[MAX_CONNECTIONS];
-extern uint32_t connection_last_activity[MAX_CONNECTIONS];
-extern uint32_t connection_last_tx_time[MAX_CONNECTIONS];
+extern uint64_t connection_time_wait_start[MAX_CONNECTIONS];
+extern uint64_t connection_last_activity[MAX_CONNECTIONS];
+extern uint64_t connection_last_tx_time[MAX_CONNECTIONS];
 extern uint8_t  connection_syn_retries[MAX_CONNECTIONS];
 
 void tcp_connection_init();

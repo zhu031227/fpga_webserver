@@ -86,15 +86,22 @@ typedef int             int32;
 #define ARP_REQUEST     0x0001
 #define ICMP_REQUEST    0x08
 
-// TCP timing constants (in local_time ticks — scaled for 50MHz system clock)
+// P0 取证计数器 (2026-08-31): 收/发包计数, 打包进 debug_rw_3(0x13) 供 JTAG 直读
+// [15:0]=g_dbg_rx_cnt(主循环弹包数), [31:16]=g_dbg_tx_cnt(三协议push数)
+extern volatile uint32 g_dbg_rx_cnt;
+extern volatile uint32 g_dbg_tx_cnt;
+
+// TCP timing constants (in local_time ticks)
+// 2026-08-31 板测重标定: 自由计数器实测 ~1.035GHz (原按 50MHz 标定 → 定时快 20.6 倍),
+// 32 位约 4.15s 回卷 —— 定时运算一律用 LCPU_LOCAL_TIME64() (uint64, 免回卷)。
 #ifndef TCP_TIMEWAIT_TICKS
-#define TCP_TIMEWAIT_TICKS      100000000u  // TIME_WAIT duration (~2s at 50MHz)
+#define TCP_TIMEWAIT_TICKS      2070000000ull  // TIME_WAIT duration (~2s at 1.035GHz)
 #endif
 #ifndef TCP_IDLE_TIMEOUT_TICKS
-#define TCP_IDLE_TIMEOUT_TICKS  2000000000u // Idle connection timeout (~40s at 50MHz, max safe)
+#define TCP_IDLE_TIMEOUT_TICKS  41400000000ull // Idle connection timeout (~40s at 1.035GHz, max safe)
 #endif
 #ifndef TCP_SYN_RETRY_TICKS
-#define TCP_SYN_RETRY_TICKS     150000000u  // SYN+ACK retry interval (~3s at 50MHz)
+#define TCP_SYN_RETRY_TICKS     6210000000ull  // SYN+ACK retry interval (~3s at 1.035GHz)
 #endif
 #define TCP_SYN_MAX_RETRIES     3
 
@@ -274,7 +281,18 @@ struct lcpu_registers
 
 #define LCPU_SECOND_EVENT()     ((uint8)(lcpu_baseaddr->second_event & 0xFFu))
 #define LCPU_SET_LED(value)     do { lcpu_baseaddr->Led = (uint32)(value); } while (0)
-#define LCPU_LOCAL_TIME_L()     (lcpu_baseaddr->local_time_l)
+/* P2 修复 (2026-08-31): 0x07/0x08 是"写 0x06 拍照"式锁存器, 不触发锁存就永远不更新。
+   原宏直读 0x07 → 固件时钟恒 0 → ISN 恒 0、全部 TCP 定时器死转、僵尸槽永不清理
+   (16 槽耗尽 → SYN 静默黑洞 = 历史"空响应/板子越用越死"根因)。 */
+#define LCPU_LOCAL_TIME_L()     (lcpu_baseaddr->get_local_time = 1u, lcpu_baseaddr->local_time_l)
+
+/* 64 位本地时间: 锁存一次, L/H 为同一张快照, 无回卷问题 (定时比较/空闲超时用这个) */
+static inline uint64_t LCPU_LOCAL_TIME64(void) {
+    lcpu_baseaddr->get_local_time = 1u;   /* WC: 触发锁存拍照 */
+    uint32 lo = lcpu_baseaddr->local_time_l;
+    uint32 hi = lcpu_baseaddr->local_time_h;
+    return ((uint64_t)hi << 32) | (uint64_t)lo;
+}
 
 #define LCPU_RD_EMPTY()         ((lcpu_baseaddr->rd_pkt_fifo.empty) != 0u)
 #define LCPU_RD_START_PACKET()  do { lcpu_baseaddr->rd_pkt_fifo.rpkt_pop = 1u; lcpu_baseaddr->rd_pkt_fifo.ren = 1u; } while (0)

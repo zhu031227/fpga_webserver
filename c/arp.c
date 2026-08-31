@@ -103,4 +103,5 @@ void arp_reply() {
     }
 
     LCPU_WR_PUSH_PACKET(64);
+    g_dbg_tx_cnt++;
 }

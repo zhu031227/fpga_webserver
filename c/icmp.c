@@ -102,6 +102,7 @@ void icmp_reply() {
     }
 
     LCPU_WR_PUSH_PACKET(tx_pkt_len);
+    g_dbg_tx_cnt++;
 
 #if DEBUG_En_icmp
     printf("icmp reply done, packet length is : %d\n", tx_pkt_len);
