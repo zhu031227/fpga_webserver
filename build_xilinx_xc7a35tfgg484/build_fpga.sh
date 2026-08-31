@@ -54,6 +54,8 @@ REPO_ROOT="$(dirname "$SCRIPT_DIR")"
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 PROJ_NAME="webserver_xilinx_xc7a35tfgg484_v${VERSION}_${TIMESTAMP}"
 PROJ_DIR="${REPO_ROOT}/${PROJ_NAME}"
+IP_CACHE="${HOME}/.cache/fpga_webserver_ip"   # 外部 IP 本地缓存(2026-08-31), mkdir 在 STEP3 前
+mkdir -p "${IP_CACHE}"
 
 GH_REMOTE="git@github.com:HuanghmBuck"
 
@@ -123,30 +125,41 @@ clone_repo_rtl() {
     shift; local files=("$@")
     [ ${#files[@]} -eq 0 ] && return
     local url="${GH_REMOTE}/${repo_name}.git"
-    echo -n "  Cloning ${repo_name} (${#files[@]} files)... "
-    if ! git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${dst}" 2>/tmp/gh_clone_err; then
-        echo "FAILED"
-        echo "  ERROR: Could not clone ${repo_name}."
-        if grep -qE 'Could not resolve host|Connection refused|timed out|Network is unreachable' /tmp/gh_clone_err 2>/dev/null; then
-            echo "  Network is unreachable. Make sure your proxy/VPN is on."
-        elif grep -qE 'Permission denied|Could not read from remote' /tmp/gh_clone_err 2>/dev/null; then
-            echo "  SSH access denied. Make sure your SSH key is added to GitHub."
-            echo "    Generate: ssh-keygen -t ed25519 -C \"your@email.com\""
-            echo "    Add key:  https://github.com/settings/keys"
-        elif grep -qE 'Repository not found|not found' /tmp/gh_clone_err 2>/dev/null; then
-            echo "  Repository not found or no access. Ask the repo owner to add you as a collaborator."
-        else
-            echo "  git error: $(head -1 /tmp/gh_clone_err 2>/dev/null)"
+    # 2026-08-31: 本地缓存复用(~/.cache/fpga_webserver_ip)——首次克隆后续离线可用,
+    # 规避管理 WiFi 网络抖动导致 5 连克隆随机失败; IP_CACHE_REFRESH=1 强制刷新
+    local cached="${IP_CACHE}/${repo_name}"
+    echo -n "  ${repo_name} (${#files[@]} files)... "
+    if [ -d "${cached}/.git" ] && [ "${IP_CACHE_REFRESH:-}" != "1" ]; then
+        echo -n "cache hit, "
+    else
+        echo -n "cloning... "
+        rm -rf "${cached}"
+        if ! git clone --filter=blob:none --no-checkout --depth 1 "${url}" "${cached}" 2>/tmp/gh_clone_err; then
+            echo "FAILED"
+            echo "  ERROR: Could not clone ${repo_name}."
+            if grep -qE 'Could not resolve host|Connection refused|timed out|Network is unreachable' /tmp/gh_clone_err 2>/dev/null; then
+                echo "  Network is unreachable. Make sure your proxy/VPN is on."
+            elif grep -qE 'Permission denied|Could not read from remote' /tmp/gh_clone_err 2>/dev/null; then
+                echo "  SSH access denied. Make sure your SSH key is added to GitHub."
+                echo "    Generate: ssh-keygen -t ed25519 -C \"your@email.com\""
+                echo "    Add key:  https://github.com/settings/keys"
+            elif grep -qE 'Repository not found|not found' /tmp/gh_clone_err 2>/dev/null; then
+                echo "  Repository not found or no access. Ask the repo owner to add you as a collaborator."
+            else
+                echo "  git error: $(head -1 /tmp/gh_clone_err 2>/dev/null)"
+            fi
+            rm -f /tmp/gh_clone_err
+            exit 1
         fi
         rm -f /tmp/gh_clone_err
-        exit 1
+        (
+            cd "${cached}" || exit 1
+            local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
+            git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
+            git checkout > /dev/null 2>&1
+        )
     fi
-    rm -f /tmp/gh_clone_err
-    cd "${dst}"
-    local patterns=(); for f in "${files[@]}"; do patterns+=("rtl/${f}"); done
-    git sparse-checkout set --no-cone "${patterns[@]}" > /dev/null 2>&1
-    git checkout > /dev/null 2>&1
-    cd - > /dev/null
+    rm -rf "${dst}"; cp -a "${cached}" "${dst}"
     echo "done"
 }
 
@@ -154,14 +167,22 @@ clone_repo_rtl() {
 clone_repo_full() {
     local repo_name="$1"; local dst="${PROJ_DIR}/${repo_name}"
     local url="${GH_REMOTE}/${repo_name}.git"
-    echo -n "  Cloning ${repo_name} (full)... "
-    if ! git clone --depth 1 "${url}" "${dst}" 2>/tmp/gh_clone_err; then
-        echo "FAILED"
-        echo "  ERROR: Could not clone ${repo_name}."
+    local cached="${IP_CACHE}/${repo_name}"
+    echo -n "  ${repo_name} (full)... "
+    if [ -d "${cached}/.git" ] && [ "${IP_CACHE_REFRESH:-}" != "1" ]; then
+        echo -n "cache hit, "
+    else
+        echo -n "cloning... "
+        rm -rf "${cached}"
+        if ! git clone --depth 1 "${url}" "${cached}" 2>/tmp/gh_clone_err; then
+            echo "FAILED"
+            echo "  ERROR: Could not clone ${repo_name}."
+            rm -f /tmp/gh_clone_err
+            exit 1
+        fi
         rm -f /tmp/gh_clone_err
-        exit 1
     fi
-    rm -f /tmp/gh_clone_err
+    rm -rf "${dst}"; cp -a "${cached}" "${dst}"
     echo "done"
 }
 

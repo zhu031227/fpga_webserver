@@ -83,7 +83,9 @@ set_clock_groups -asynchronous \
     -group [get_clocks c1_pll_50m] \
     -group [get_clocks c2_pll_50m] \
     -group [get_clocks rgmii_rxc] \
-    -group [get_clocks gtrefclk]
+    -group [get_clocks gtrefclk] \
+    -group [get_clocks sgmii_userclk] \
+    -group [get_clocks sgmii_userclk2]
 
 #-------------------------------------------------------------------
 # RGMII TX output delay
@@ -205,6 +207,33 @@ set_false_path -from [get_clocks sgmii_userclk2] -to [get_clocks c1_pll_50m]
 set_false_path -from [get_clocks c1_pll_50m] -to [get_clocks sgmii_userclk2]
 set_false_path -from [get_clocks sgmii_userclk] -to [get_clocks c1_pll_50m]
 set_false_path -from [get_clocks c1_pll_50m] -to [get_clocks sgmii_userclk]
+
+#-------------------------------------------------------------------
+# 4b. SGMII clocks ↔ system 50MHz (c0_pll_50m)
+#
+# 2026-08-31 时序修复(原 -7.05ns / 26 端点):
+#   a) Xilinx PCS/PMA 核内部配置/复位路径(RUDI/MGT_RESET/comma align)
+#      —— 准静态配置信号, IP 惯例 false_path;
+#   b) sfp_link_dbg/sfp_status_dbg 状态位 —— RTL 已补逐位 2FF 同步器
+#      (webserver_wrapper.v), false_path 覆盖同步器第一级跨域路径。
+#-------------------------------------------------------------------
+set_false_path -from [get_clocks sgmii_userclk2] -to [get_clocks c0_pll_50m]
+set_false_path -from [get_clocks c0_pll_50m] -to [get_clocks sgmii_userclk2]
+set_false_path -from [get_clocks sgmii_userclk] -to [get_clocks c0_pll_50m]
+set_false_path -from [get_clocks c0_pll_50m] -to [get_clocks sgmii_userclk]
+
+#-------------------------------------------------------------------
+# 9. fpga_ila 核寄存器总线 (hub → 各核 rdata 采集)
+#
+# 2026-08-31 时序修复(原 -2.50ns / 32 端点, c1 域内):
+# hub 访问一次寄存器跨越整段 UART 传输(微秒级), addr 在采样前由
+# 协议保证长期稳定 —— 该总线为准静态, 无需单周期 8ns 收敛。
+# 用 set_max_delay -datapath_only 封顶而非 false_path, 保留
+# 慢速采样语义。
+#-------------------------------------------------------------------
+set_max_delay -datapath_only 16.000 \
+    -from [get_cells -hier -filter {NAME =~ *u_ila_debug*core_reg_*_reg*}] \
+    -to   [get_cells -hier -filter {NAME =~ *g_core.u_ela/*rdata_reg*}]
 
 #-------------------------------------------------------------------
 # 5. GT refclk ↔ PLL 200MHz (c2_pll_50m)

@@ -1028,8 +1028,22 @@ module webserver_wrapper #(
 
   assign debug_ro_0     = {24'b0, recv_pkt_drop_cnt};
   assign debug_ro_1     = eth1_rx_drop_cnt;
-  assign debug_ro_2     = sfp_status_dbg;                       // 0x22: {sfp2_sv, sfp1_sv}
-  assign debug_ro_3     = {28'b0, sfp_link_dbg};                // 0x23: {refclklost, cpll_lock, mmcm_locked, resetdone}
+
+  // SFP 状态位 CDC (GT/sgmii 域 → c0_pll_50m 读寄存器域, 2026-08-31 时序修复):
+  // 准静态状态向量, 逐位标准 2FF; 位间撕裂仅影响变化瞬间的调试读数
+  reg [3:0]  sfp_link_dbg_s0, sfp_link_dbg_s1;
+  reg [31:0] sfp_status_dbg_s0, sfp_status_dbg_s1;
+  always @(posedge clk_50mhz or negedge reset_l) begin
+    if (!reset_l) begin
+      sfp_link_dbg_s1   <= 4'd0;  sfp_link_dbg_s0   <= 4'd0;
+      sfp_status_dbg_s1 <= 32'd0; sfp_status_dbg_s0 <= 32'd0;
+    end else begin
+      sfp_link_dbg_s0   <= sfp_link_dbg;    sfp_link_dbg_s1   <= sfp_link_dbg_s0;
+      sfp_status_dbg_s0 <= sfp_status_dbg;  sfp_status_dbg_s1 <= sfp_status_dbg_s0;
+    end
+  end
+  assign debug_ro_2     = sfp_status_dbg_s1;                  // 0x22: {sfp2_sv, sfp1_sv}
+  assign debug_ro_3     = {28'b0, sfp_link_dbg_s1};           // 0x23: {refclklost, cpll_lock, mmcm_locked, resetdone}
 
   // ILA reg bus now connects directly to soft_ila_top (no internal mux needed)
 
