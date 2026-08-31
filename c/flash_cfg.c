@@ -120,6 +120,12 @@ static uint32_t bswap32(uint32_t v)
            ((v & 0x00FF0000u) >> 8)  | ((v & 0xFF000000u) >> 24);
 }
 
+// P3 (2026-08-31): 页面/TOC 读迁移用——暴露 sflash 单字读（带超时，绝不挂死）。
+int flash_cfg_read_word(uint32_t flash_addr, uint32_t *raw)
+{
+    return sflash_read_word(flash_addr, raw);
+}
+
 static uint32_t cfg_checksum(const uint32_t *w, uint32_t from, uint32_t to)
 {
     uint32_t i, s = 0;

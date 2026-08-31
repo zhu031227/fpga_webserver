@@ -61,4 +61,8 @@ int flash_cfg_save(const flash_cfg_local_t *lc, const flash_cfg_wl_t *wl);
 // 加载：A/B 双扇区经 sflash 寄存器超时读，取有效且 SEQ 高者。全无效返回 -1。
 int flash_cfg_load(flash_cfg_local_t *lc, flash_cfg_wl_t *wl);
 
+// 单字读（P3 页面读迁移用, 2026-08-31）：经 lcpu_sflash 寄存器路径，带超时，绝不挂死。
+// *raw 为 R_WORD 原样值（native/bswap 由调用方以 MAGIC 自校准）。返回 0 成功，-1 超时。
+int flash_cfg_read_word(uint32_t flash_addr, uint32_t *raw);
+
 #endif /* _FLASH_CFG_H_ */
