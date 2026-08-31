@@ -6,6 +6,35 @@ Lightweight FPGA WebServer based on **PicoRV32** RISC-V processor with bare-meta
 - **Xilinx XC7A35T-FGG484** (Artix-7), RGMII interface, Vivado
 - **Altera EP4CE10F17C6** (Cyclone IV E), GMII interface, Quartus II 13.1
 
+## Quick Start
+
+**Prerequisites:** iverilog (simulation); RISC-V toolchain + Vivado 2024.1 (firmware/bitstream); ACX750 board (board tests).
+
+```bash
+# 0) One-time: restore shared-lib define.sv (known issue 9, see docs guide 5.3)
+cp local/define.sv ../ip_common/rtl/
+#    Dependency libs (ip_common/ip_lcpu/ip_riscv/fpga_cpu/fpga_ila) live in the
+#    team's private repos — build_fpga.sh clones them automatically via SSH.
+
+# A) L1 unit simulation (seconds, no board needed)
+iverilog -g2012 -s tb_mac_whitelist_seq -o tb_seq.vvp -I sim \
+    sim/define.sv sim/tb_mac_whitelist_seq.sv \
+    rtl/mac_whitelist_seq.v \
+    ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
+vvp tb_seq.vvp                        # expect: ALL 8 TESTS PASSED
+
+# B) Firmware + bitstream + flash (board flow, ~30-60 min for bitstream)
+cd c_build && make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000 && cd ..
+cd build_xilinx_xc7a35tfgg484 && ./build_fpga.sh 0001 && cd ..
+vivado -mode batch -source scripts/program_bit_vivado.tcl -tclargs <your.bit>
+vivado -mode batch -source scripts/load_firmware_vivado.tcl
+# Board web UI: http://192.168.1.128/  (management path: curl --interface <mgmt-nic>)
+```
+
+**Step-by-step implementation guide (Mode 0, Chinese):**
+[docs/MAC白名单查找引擎实现指南_模式0_顺序查找.md](docs/MAC白名单查找引擎实现指南_模式0_顺序查找.md)
+— rendered charts version: [同名 .html](docs/MAC白名单查找引擎实现指南_模式0_顺序查找.html)
+
 ## System Architecture
 
 ```

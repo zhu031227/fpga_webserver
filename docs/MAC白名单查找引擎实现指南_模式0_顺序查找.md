@@ -974,6 +974,10 @@ iverilog -g2012 -s tb_wl_integration -o tb_wl.vvp -I sim \
     ../ip_common/rtl/pktfifo2ram_int_v2.v \
     ../ip_common/rtl/sop_eop_gen.v \
     ../ip_common/rtl/dual_clock_simple_dual_port_ram.v \
+    ../ip_common/rtl/single_clock_simple_dual_port_ram.v \
+    ../ip_common/rtl/single_clock_fifo.v \
+    ../ip_common/rtl/dual_clock_fifo.v \
+    ../ip_common/rtl/pulse_clock_region_pass.v \
     ../ip_common/rtl/single_clock_simple_dual_port_ram.v
 vvp tb_wl.vvp
 # 若报 undefined module，按报错从 ../ip_common/rtl/ 逐个补文件即可
@@ -1169,7 +1173,7 @@ L3 系统层   整个 webserver_wrapper 的 Verilator 仿真（sim/tb_webserver�
 | 6 | **sim/Makefile 是系统级仿真的**（内部 OLD_RTL 指向旧版单口 RTL）                                                                                                                                                                                                                                                                             | 单元/集成 tb 走它会把无关文件全拉进来编译失败                                                                                                | L1/L2 tb 一律用 模式0-步骤7.4/8.3 的 iverilog 命令行，**不改 sim/Makefile**                                                                                                                                | 仿真阶段                  |
 | 7 | **CLEAR 期间写口被序列器独占**                                                                                                                                                                                                                                                                                                               | CLEAR 的 16 拍内普通 WR/DEL 写会被吞                                                                                                         | C 侧 clear_all 后等待（现有 subbus_write 的 flush 天然等待）；tb 用例 4 覆盖                                                                                                                                     | 已在设计中处理，知悉即可  |
 | 8 | **125MHz 与 50MHz 域信号严禁直连**                                                                                                                                                                                                                                                                                                           | en/defpass/查找请求若跨域直连=偶发错                                                                                                         | wrapper 的 CDC（`wl_ctrl_125m`）已就位；自查时确认用的是 `_125m` 后缀信号                                                                                                                                    | 集成自查（模式0-步骤9.2） |
-| 9 | **共享库快照缺 `define.sv`**：`../ip_common/rtl/` 现无此文件（它是未被 git 跟踪的本地产物，在快照同步中丢失；2026-08-29 的 v0001 构建快照 `webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv` 留有副本），而 `filelist.cfg:47` 及 `mac_whitelist_seq.v`/BRAM 模型的 `` `include "define.sv" `` 都引用它 | **Vivado 侧**：build_fpga.sh 会因缺文件失败；**仿真侧**：已由 `sim/define.sv` + `-I sim` 方案自足（模式0-步骤3.5），不受影响 | 上板前恢复正本：`cp webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv ../ip_common/rtl/`（拷自 v0001 快照 = 上次成功构建所用版本；若该快照已清理，则从 ip_common 上游仓库重新获取） | 模式0-步骤10.2 前         |
+| 9 | **共享库快照缺 `define.sv`**：`../ip_common/rtl/` 现无此文件（它是未被 git 跟踪的本地产物，在快照同步中丢失；2026-08-29 的 v0001 构建快照 `webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv` 留有副本），而 `filelist.cfg:47` 及 `mac_whitelist_seq.v`/BRAM 模型的 `` `include "define.sv" `` 都引用它 | **Vivado 侧**：build_fpga.sh 会因缺文件失败；**仿真侧**：已由 `sim/define.sv` + `-I sim` 方案自足（模式0-步骤3.5），不受影响 | 上板前恢复正本：`cp local/define.sv ../ip_common/rtl/`（拷自 v0001 快照 = 上次成功构建所用版本；若该快照已清理，则从 ip_common 上游仓库重新获取） | 模式0-步骤10.2 前         |
 
 
 
@@ -1195,7 +1199,7 @@ cd <仓库根>
 iverilog -V 2>&1 | head -1
 riscv64-unknown-elf-gcc --version | head -1     # 缺则: sudo apt install gcc-riscv64-unknown-elf picolibc-riscv64-unknown-elf
 /home/haitaoz/Xilinx/2024.1/Vivado/2024.1/bin/vivado -version | head -1
-cp webserver_xilinx_xc7a35tfgg484_v0001_20260829_152448/ip_common/rtl/define.sv ../ip_common/rtl/   # 恢复共享库正本（5.3 问题9）
+cp local/define.sv ../ip_common/rtl/   # 恢复共享库正本（5.3 问题9）
 ```
 
 ✅ **通过标准**：四条命令输出正常；`../ip_common/rtl/define.sv` 存在。
@@ -1255,6 +1259,10 @@ iverilog -g2012 -s tb_wl_integration -o tb_wl.vvp -I sim \
     ../ip_common/rtl/ram2pktfifo_int.v ../ip_common/rtl/package_fifo_v2.v \
     ../ip_common/rtl/pktfifo2ram_int_v2.v ../ip_common/rtl/sop_eop_gen.v \
     ../ip_common/rtl/dual_clock_simple_dual_port_ram.v \
+    ../ip_common/rtl/single_clock_simple_dual_port_ram.v \
+    ../ip_common/rtl/single_clock_fifo.v \
+    ../ip_common/rtl/dual_clock_fifo.v \
+    ../ip_common/rtl/pulse_clock_region_pass.v \
     ../ip_common/rtl/single_clock_simple_dual_port_ram.v
 vvp tb_wl.vvp
 # 报 undefined module 就按报错从 ../ip_common/rtl/ 逐个补文件
