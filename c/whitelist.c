@@ -215,9 +215,11 @@ uint8_t whitelist_get_free_index(void)
 
 static int wh(char *buf, uint32 v) {
     int i, p = 0;
-    buf[p++] = '0'; buf[p++] = 'x';
+    /* 08-31 修复：JSON 数值不支持 0x 前缀，十六进制改以字符串输出 */
+    buf[p++] = '"'; buf[p++] = '0'; buf[p++] = 'x';
     for (i = 28; i >= 0; i -= 4)
         buf[p++] = "0123456789abcdef"[(v >> i) & 0xF];
+    buf[p++] = '"';
     return p;
 }
 static int ws(char *buf, const char *s) { int p=0; while(*s)buf[p++]=*s++; return p; }
@@ -233,10 +235,12 @@ static uint32 rr(uint32 a) { return LCPU_REG32_READ(a); }
 int whitelist_hw_diag(char *buf, int buf_size)
 {
     int p=0, rem; uint32 v; uint32 S=WL_SUBBUS_ADDR;
+    int first_sec=1; /* 08-31 修复：顶层节间逗号（此前 r/t2/t5/t12/t13/f 之间无逗号，JSON 非法） */
     p+=ws(buf+p,"{"); rem=buf_size-p-4;
 
     // T1: Register snapshot (compact: reg name=hex)
     if(rem>300){ const char *rn[]={"i","H","L","W","D","C","rh","rl","rv","fr","mx","us"};
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         p+=ws(buf+p,"\"r\":{");
         for(int i=0;i<12;i++){ if(i)p+=ws(buf+p,","); p+=ws(buf+p,"\""); p+=ws(buf+p,rn[i]);
             p+=ws(buf+p,"\":"); p+=wh(buf+p,rr(S+i)); }
@@ -244,6 +248,7 @@ int whitelist_hw_diag(char *buf, int buf_size)
 
     // T2: Test DEL at offset 4 (entry slot 2)
     if(rem>250){
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         // Add entry 2
         wr(S+0,2); wr(S+1,0xAABBCCDD); wr(S+2,0xEEFF); wr(S+3,1);
         wr(S+0,2); uint32 v2=rr(S+8);
@@ -258,6 +263,7 @@ int whitelist_hw_diag(char *buf, int buf_size)
 
     // T3: Test DEL with entry 5
     if(rem>250){
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         wr(S+0,5); wr(S+1,0x11112222); wr(S+2,0x3333); wr(S+3,1);
         wr(S+0,5); uint32 v5=rr(S+8);
         wr(S+0,5); wr(S+4,1);
@@ -269,6 +275,7 @@ int whitelist_hw_diag(char *buf, int buf_size)
 
     // T4: Test cfg_mac==0 delete via WR (entry 12)
     if(rem>300){
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         // Add entry 12 with non-zero MAC
         wr(S+0,12); wr(S+1,0xCAFE0000); wr(S+2,0xBABE); wr(S+3,1);
         wr(S+0,12); uint32 v12=rr(S+8);
@@ -276,6 +283,10 @@ int whitelist_hw_diag(char *buf, int buf_size)
         wr(S+1,0); wr(S+2,0);
         wr(S+0,12); wr(S+3,1);  // WR with cfg_mac==0
         wr(S+0,12); uint32 d12=rr(S+8);
+        // 08-31 修复：当前 RTL 不支持 cfg_mac==0 删除（dv 将报 1，即"该路径未实现"
+        // 的诊断信息保留在输出里），显式用 DEL 寄存器清槽——
+        // 避免每次 diag 留下 idx12 全零 MAC 幽灵条目污染硬件表
+        wr(S+0,12); wr(S+4,1);
         p+=ws(buf+p,"\"t12\":{\"av\":"); p+=wh(buf+p,v12);
         p+=ws(buf+p,",\"dv\":"); p+=wh(buf+p,d12);
         p+=ws(buf+p,"}"); rem=buf_size-p-4;
@@ -283,6 +294,7 @@ int whitelist_hw_diag(char *buf, int buf_size)
 
     // T5: Test bit31 delete (entry 13) — for future RTL
     if(rem>250){
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         wr(S+0,13); wr(S+1,0xDEAD0000); wr(S+2,0xBEEF); wr(S+3,1);
         wr(S+0,13); uint32 v13=rr(S+8);
         wr(S+0, 13u|0x80000000u);
@@ -294,6 +306,7 @@ int whitelist_hw_diag(char *buf, int buf_size)
 
     // T6: Final state
     if(rem>80){
+        if(!first_sec)p+=ws(buf+p,","); first_sec=0;
         p+=ws(buf+p,"\"f\":{\"u\":"); p+=wh(buf+p,rr(S+0xB));
         p+=ws(buf+p,",\"fr\":"); p+=wh(buf+p,rr(S+9));
         p+=ws(buf+p,"}"); }
