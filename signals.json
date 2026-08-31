@@ -1,0 +1,328 @@
+{
+  "project": "fpga_webserver-wldev-v2",
+  "protocol_version": 1,
+  "cores": [
+    {
+      "core_id": 0,
+      "name": "u_ila_cpu_intf",
+      "sample_clock_hz": 50000000,
+      "data_depth": 2048,
+      "max_windows": 4,
+      "signature": "0x0000080006040063",
+      "enabled": 0,
+      "probes": [
+        {
+          "name": "cpu_req",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "cpu_rhwl",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 1
+        },
+        {
+          "name": "cpu_wdata",
+          "width": 32,
+          "radix": "hex",
+          "bit_lo": 2
+        },
+        {
+          "name": "cpu_address",
+          "width": 32,
+          "radix": "hex",
+          "bit_lo": 34
+        },
+        {
+          "name": "cpu_rdata",
+          "width": 32,
+          "radix": "hex",
+          "bit_lo": 66
+        },
+        {
+          "name": "cpu_ack",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 98
+        }
+      ]
+    },
+    {
+      "core_id": 1,
+      "name": "u_ila_flash",
+      "sample_clock_hz": 50000000,
+      "data_depth": 2048,
+      "max_windows": 1,
+      "signature": "0x000008000F01005C",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "flash_cs_n",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "flash_sclk",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 1
+        },
+        {
+          "name": "flash_mosi",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 2
+        },
+        {
+          "name": "flash_miso",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 3
+        },
+        {
+          "name": "bootloader_status",
+          "width": 3,
+          "radix": "hex",
+          "bit_lo": 4
+        },
+        {
+          "name": "bl_spi_op_start",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 7
+        },
+        {
+          "name": "bl_spi_op_done",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 8
+        },
+        {
+          "name": "pram_wr",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 9
+        },
+        {
+          "name": "pram_addr",
+          "width": 14,
+          "radix": "hex",
+          "bit_lo": 10
+        },
+        {
+          "name": "pram_wdata",
+          "width": 32,
+          "radix": "hex",
+          "bit_lo": 24
+        },
+        {
+          "name": "spi_clk_bl",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 56
+        },
+        {
+          "name": "fmr_busy",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 57
+        },
+        {
+          "name": "fmr_op_start",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 58
+        },
+        {
+          "name": "fmr_op_done",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 59
+        },
+        {
+          "name": "fmr_spi_rdata",
+          "width": 32,
+          "radix": "hex",
+          "bit_lo": 60
+        }
+      ]
+    },
+    {
+      "core_id": 2,
+      "name": "u_ila_gmii_rx",
+      "sample_clock_hz": 125000000,
+      "data_depth": 2048,
+      "max_windows": 2,
+      "signature": "0x0000080002020009",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "gmii0_rx_dv",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "gmii0_rxd",
+          "width": 8,
+          "radix": "hex",
+          "bit_lo": 1
+        }
+      ]
+    },
+    {
+      "core_id": 3,
+      "name": "u_ila_gmii_tx",
+      "sample_clock_hz": 125000000,
+      "data_depth": 4096,
+      "max_windows": 2,
+      "signature": "0x0000100002020009",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "gmii0_txd",
+          "width": 8,
+          "radix": "hex",
+          "bit_lo": 0
+        },
+        {
+          "name": "gmii0_tx_en",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 8
+        }
+      ]
+    },
+    {
+      "core_id": 4,
+      "name": "u_ila_gmii1_rx",
+      "sample_clock_hz": 125000000,
+      "data_depth": 2048,
+      "max_windows": 2,
+      "signature": "0x0000080002020009",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "gmii1_rx_dv",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "gmii1_rxd",
+          "width": 8,
+          "radix": "hex",
+          "bit_lo": 1
+        }
+      ]
+    },
+    {
+      "core_id": 5,
+      "name": "u_ila_gmii2_rx",
+      "sample_clock_hz": 125000000,
+      "data_depth": 2048,
+      "max_windows": 2,
+      "signature": "0x0000080002020009",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "gmii2_rx_dv",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "gmii2_rxd",
+          "width": 8,
+          "radix": "hex",
+          "bit_lo": 1
+        }
+      ]
+    },
+    {
+      "core_id": 6,
+      "name": "u_ila_cpu_tx",
+      "sample_clock_hz": 50000000,
+      "data_depth": 2048,
+      "max_windows": 1,
+      "signature": "0x000008000701001E",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "cpu_wr_full",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "cpu_wr_wpkt_push_ind",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 1
+        },
+        {
+          "name": "cpu_wr_wen_ind",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 2
+        },
+        {
+          "name": "cpu_rd_empty",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 3
+        },
+        {
+          "name": "cpu_rd_rpkt_pop_ind",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 4
+        },
+        {
+          "name": "cpu_wr_wpkt_len",
+          "width": 13,
+          "radix": "hex",
+          "bit_lo": 5
+        },
+        {
+          "name": "cpu_wr_waddr",
+          "width": 12,
+          "radix": "hex",
+          "bit_lo": 18
+        }
+      ]
+    },
+    {
+      "core_id": 7,
+      "name": "u_ila_mac_tx",
+      "sample_clock_hz": 125000000,
+      "data_depth": 2048,
+      "max_windows": 1,
+      "signature": "0x0000080003010003",
+      "enabled": 1,
+      "probes": [
+        {
+          "name": "eth0_mac_tx_en",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 0
+        },
+        {
+          "name": "eth0_mac_tx_sop",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 1
+        },
+        {
+          "name": "eth0_mac_rx_en",
+          "width": 1,
+          "radix": "bin",
+          "bit_lo": 2
+        }
+      ]
+    }
+  ]
+}

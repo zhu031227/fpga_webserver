@@ -32,10 +32,15 @@ module mac_whitelist_top #(
 
     // Global control
     input whitelist_en,
-    input default_pass
+    input default_pass,
+
+    // wl_status 观测口 (P2修复 wl_status 驱动, 2026-08-31):
+    // [7:0]=lookup_mode(编译期参数常量), [15:8]=used_cnt(cfg域popcount)
+    output wire [15:0] wl_status
 );
 
   generate
+    wire [7:0] wl_used_cnt_w;
     if (LOOKUP_MODE == 0) begin : g_mode_seq
       mac_whitelist_seq #(
           .ENTRY_NUM(ENTRY_NUM),
@@ -55,14 +60,17 @@ module mac_whitelist_top #(
           .cfg_wdata     (cfg_wdata),
           .cfg_rdata     (cfg_rdata),
           .whitelist_en  (whitelist_en),
-          .default_pass  (default_pass)
+          .default_pass  (default_pass),
+          .wl_used_cnt   (wl_used_cnt_w)
       );
+      assign wl_status = {8'b0, LOOKUP_MODE[7:0]} | {wl_used_cnt_w, 8'b0};
     end else begin : g_mode_placeholder
       // Placeholder: tie off lookup outputs
       assign lookup_match = default_pass;
       assign lookup_done  = lookup_req;
       assign lookup_busy  = 1'b0;
       assign cfg_rdata    = 32'b0;
+      assign wl_status    = {8'b0, LOOKUP_MODE[7:0]};
     end
   endgenerate
 endmodule

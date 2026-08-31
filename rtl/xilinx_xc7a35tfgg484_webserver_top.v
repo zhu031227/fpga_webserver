@@ -96,7 +96,7 @@ module xilinx_xc7a35tfgg484_webserver_top #(
   // ============================================================
   localparam ILA_BAUD       = 921600; //115200; 921600; 3000000;
   localparam [2:0] ILA_TRANSPORT_EN = 3'b001;  // bit0=UART bit1=ETH
-  localparam ILA_NUM_CORES  = 6;  // cpu_intf + flash/bootloader + gmii0 rx/tx + gmii1 rx + gmii2 rx
+  localparam ILA_NUM_CORES  = 8;  // cpu_intf + flash/bl + gmii0 rx/tx + gmii1 rx + gmii2 rx + cpu_tx@50M + mac_tx@125M
   localparam [47:0] ETH_MAC = 48'h10_11_12_13_14_15;
   localparam [31:0] ETH_IP  = {8'd192, 8'd168, 8'd1, 8'd89};
   localparam [15:0] ETH_PORT = 16'd5000;
@@ -480,11 +480,11 @@ module xilinx_xc7a35tfgg484_webserver_top #(
       // fpga_ila JTAG 调试总线
       .ila_jtag_clk  (ila_jtag_clk),
       .ila_jtag_rst  (ila_jtag_rst),
-      .ila_core_we   (ila_core_we[1:0]),
+      .ila_core_we   (ila_core_we[7:0]),
       .ila_core_re   (ila_core_re),
       .ila_core_addr (ila_core_addr),
       .ila_core_wdata(ila_core_wdata),
-      .ila_core_rdata(ila_core_rdata[2*32-1:0])
+      .ila_core_rdata(ila_core_rdata[8*32-1:0])
   );
 
   // ============================================================

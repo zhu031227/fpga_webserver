@@ -91,11 +91,11 @@ module webserver_wrapper #(
     // fpga_ila 调试总线（透传到顶层 ila_hub_top）
     input  wire        ila_jtag_clk,
     input  wire        ila_jtag_rst,
-    input  wire [ 1:0] ila_core_we,      // [0]=cpu_intf, [1]=flash/bootloader
+    input  wire [ 7:0] ila_core_we,      // [0]=cpu_intf, [1]=flash/bl, [6]=cpu_tx@50M, [7]=mac_tx@125M (P0取证)
     input  wire        ila_core_re,
     input  wire [15:0] ila_core_addr,
     input  wire [31:0] ila_core_wdata,
-    output wire [63:0] ila_core_rdata,
+    output wire [8*32-1:0] ila_core_rdata,
 
     // SFP GT debug status（准静态电平，寄存器异步采样即可）
     input  wire [31:0] sfp_status_dbg,  // → debug_ro_2 (0x22): {sfp2_status_vector, sfp1_status_vector}
@@ -1162,7 +1162,8 @@ module webserver_wrapper #(
       .cfg_wdata(wl_ram_wrdata),
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
-      .default_pass(wl_ctrl_125m[1])
+      .default_pass(wl_ctrl_125m[1]),
+      .wl_status(wl_status)
   );
 
   // ============================================================
@@ -1240,5 +1241,72 @@ module webserver_wrapper #(
       .default_pass(wl_ctrl_125m[1]),
       .eth1_rx_drop_cnt(eth1_rx_drop_cnt_src),
       .recv_pkt_drop_cnt(recv_pkt_drop_cnt_src)
+  );
+
+  // ── ILA Core 6: CPU 域 TX/RX FIFO 监控（50MHz cpu_clk 域，P0 取证）──
+  // 域匹配原则: 探针全在 cpu_clk(50M) 域, 采样时钟必须同为 50M。
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (50_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (7),
+      .PROBE0_WIDTH  (1),        // cpu_wr_full          TX FIFO 写侧满
+      .PROBE1_WIDTH  (1),        // cpu_wr_wpkt_push_ind 包push脉冲
+      .PROBE2_WIDTH  (1),        // cpu_wr_wen_ind       写使能
+      .PROBE3_WIDTH  (1),        // cpu_rd_empty         RX FIFO 空
+      .PROBE4_WIDTH  (1),        // cpu_rd_rpkt_pop_ind  收包pop
+      .PROBE5_WIDTH  (13),       // cpu_wr_wpkt_len      push包长
+      .PROBE6_WIDTH  (12),       // cpu_wr_waddr         TX FIFO写指针
+      .EXT_TRIG_EN   (1)
+  ) u_ila_cpu_tx (
+      .sample_clk    (clk_50mhz),
+      .rst_in        (reset_l),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (cpu_wr_full),
+      .probe1        (cpu_wr_wpkt_push_ind),
+      .probe2        (cpu_wr_wen_ind),
+      .probe3        (cpu_rd_empty),
+      .probe4        (cpu_rd_rpkt_pop_ind),
+      .probe5        (cpu_wr_wpkt_len),
+      .probe6        (cpu_wr_waddr),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[6]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[6*32 +: 32])
+  );
+
+  // ── ILA Core 7: eth0 MAC 侧收发活动（125MHz 域，P0 取证）──
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (125_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (3),
+      .PROBE0_WIDTH  (1),        // eth0_mac_tx_en  MAC 侧 TX 活动
+      .PROBE1_WIDTH  (1),        // eth0_mac_tx_sop 包起始
+      .PROBE2_WIDTH  (1),        // eth0_mac_rx_en  MAC 侧 RX 活动
+      .EXT_TRIG_EN   (1)
+  ) u_ila_mac_tx (
+      .sample_clk    (clk_125mhz),
+      .rst_in        (reset_l),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (eth0_mac_tx_en),
+      .probe1        (eth0_mac_tx_sop),
+      .probe2        (eth0_mac_rx_en),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we[7]),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata[7*32 +: 32])
   );
 endmodule

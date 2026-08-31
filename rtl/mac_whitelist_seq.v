@@ -31,7 +31,10 @@ module mac_whitelist_seq #(
     output [31:0] cfg_rdata,    // combinational mux
 
     input whitelist_en,
-    input default_pass
+    input default_pass,
+
+    // wl_status 观测口 (P2修复 wl_status 驱动, 2026-08-31): cfg 域组合 popcount, 无需 CDC
+    output wire [7:0] wl_used_cnt
 );
 
   // ============================================================
@@ -221,6 +224,7 @@ module mac_whitelist_seq #(
     end
   endgenerate
   assign used_cnt_partial[0] = 8'd0;
+  assign wl_used_cnt         = used_cnt_comb;
 
   generate
     for (gi = 0; gi < ENTRY_NUM; gi = gi + 1) begin : g_popcount
