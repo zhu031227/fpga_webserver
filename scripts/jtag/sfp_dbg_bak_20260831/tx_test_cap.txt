@@ -1,0 +1,10 @@
+[sudo: authenticate] Password: 
+tcpdump: verbose output suppressed, use -v[v]... for full protocol decode
+listening on wlp4s0, link-type EN10MB (Ethernet), snapshot length 262144 bytes
+15:26:04.722324 ARP, Request who-has 192.168.1.90 tell 192.168.1.2, length 28
+15:26:05.746320 ARP, Request who-has 192.168.1.90 tell 192.168.1.2, length 28
+15:26:06.770362 ARP, Request who-has 192.168.1.90 tell 192.168.1.2, length 28
+15:26:07.794340 ARP, Request who-has 192.168.1.90 tell 192.168.1.2, length 28
+4 packets captured
+4 packets received by filter
+0 packets dropped by kernel
