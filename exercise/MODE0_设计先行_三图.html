@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MODE0_设计先行_三图</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6;
+       color: #24292e; background: #fff; }
+h1 { border-bottom: 2px solid #1a73e8; padding-bottom: 8px; color: #1a73e8; }
+h2 { border-bottom: 1px solid #e1e4e8; padding-bottom: 6px; margin-top: 32px; }
+h3 { margin-top: 24px; color: #444; }
+h4 { margin-top: 20px; color: #666; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+th { background: #f5f7fa; font-weight: 600; }
+tr:nth-child(even) { background: #fafbfc; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid #e1e4e8; font-size: 13px; line-height: 1.45; }
+div.mermaid {
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    overflow-x: auto;   /* useMaxWidth:false 后超宽图横向滚动, 文字保持真实字号 */
+}
+/* WaveDrom 渲染产物容器 (script 本体不显示, 否则裸 JSON 会漏出来) */
+div[id^="WaveDrom"] {
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+}
+div.mermaid svg, div[id^="WaveDrom"] svg { max-width: none; }
+blockquote { border-left: 4px solid #1a73e8; margin: 0; padding: 0 16px;
+             color: #6a737d; }
+hr { border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0; }
+ul, ol { padding-left: 24px; }
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1 id="模式-0-顺序查找引擎-设计先行三图从零重写用">模式 0 顺序查找引擎 · 设计先行三图（从零重写用）</h1>
+
+<p>> 目标：不看正身 RTL，凭这三张图写出自己的 <code>mac_whitelist_seq</code>，<br>
+> 用 <code>sim/tb_mac_whitelist_seq.sv</code>（8 用例）验收。T7 硬指标：<strong>查找周期数恰好 = 18</strong>。<br>
+> 时钟：查找口 <code>clk</code> 125MHz；配置口 <code>cfg_clk</code> 50MHz。</p>
+
+<hr>
+
+<h2 id="①-框图数据通路-两套存储">① 框图（数据通路 + 两套存储）</h2>
+
+<strong>①a 配置域</strong>（<code>cfg_clk</code> 50MHz：写入路径 + 存储 + 回读路径）：
+
+<div class="mermaid">
+flowchart TB
+    subgraph W["写入路径 — 电平敏感, 无握手"]
+        direction LR
+        A1["cfg_rlwh /<br/>cfg_addr / cfg_wdata"] --> A2["写解码<br/>0x0 INDEX(bit31=删) · 0x1/0x2 MAC_H/L<br/>0x3 WR · 0x4 DEL · 0x5 CLEAR"]
+        A2 --> A3["cfg_idx /<br/>cfg_mac 寄存器"]
+        A3 --> A4["写脉冲发生<br/>bram_wr_en_r /<br/>sh_wr_en_r"]
+        A2 --> A5["CLEAR 序列器<br/>16 拍自动清零计数器"]
+    end
+
+    subgraph S["存储 — 两套同内容: 49b × 16 条 = {valid, MAC[47:0]}"]
+        direction LR
+        B1["主 BRAM<br/>双时钟简单双口<br/>A口=cfg_clk 写<br/>B口=clk 读 (见①b)"]
+        B2["Shadow 寄存器堆<br/>cfg_clk 单时钟写<br/>组合读 0 拍延迟"]
+        B3["valid_bits[15:0]<br/>每次写维护<br/>唯一真源"]
+        B1 ~~~ B2 ~~~ B3
+    end
+
+    subgraph R["回读路径 — 纯组合, 服务 CPU"]
+        direction LR
+        C3["free_idx 优先编码链<br/>最低空位 · 全满=0xF"] --> C1["读 mux → cfg_rdata<br/>0x0 idx · 0x1/2 mac · 0x6/7/8 shadow<br/>0x9 free_idx · 0xA max · 0xB used_cnt"]
+        C4["used_cnt popcount 链<br/>→ wl_used_cnt → 0x301"] --> C1
+    end
+
+    A4 -.->|"A口写"| B1
+    A4 -.-> B2
+    A2 -.->|"维护"| B3
+    B3 -.->|"派生"| C3
+    B3 -.->|"派生"| C4
+    B2 -.->|"组合读 0x6/7/8"| C1
+
+</div>
+
+<strong>①b 查找域</strong>（<code>clk</code> 125MHz：req/done 握手，读①a 的主 BRAM B 口）：
+
+<div class="mermaid">
+flowchart TB
+    D1["lookup_req / lookup_mac[47:0]"] --> D2["查找 FSM<br/>IDLE→CMP×16→DONE"]
+    D2 -->|"bram_rd_addr = cmp_index"| B1R["主 BRAM · B口<br/>clk 域同步读"]
+    B1R -->|"q_b · 同步读晚 1 拍 (坑1)"| D3["48 位比较器<br/>valid 且 mac==lookup_mac"]
+    D3 --> D4["match_found 锁存"]
+    D4 --> D5["输出寄存<br/>lookup_match / lookup_done / busy"]
+
+</div>
+
+<strong>要点</strong>：两套存储同内容——主 BRAM 给查找口快读，Shadow 给 CPU 回读（组合读省状态机）；<code>valid_bits</code> 是唯一真源，free_idx/used_cnt 全是它的组合派生。
+
+<hr>
+
+<h2 id="②-查找-FSM3-态">② 查找 FSM（3 态）</h2>
+
+<div class="mermaid">
+flowchart TB
+    IDLE(["<b>S_IDLE</b><br/>等请求"])
+    CMP(["<b>S_COMPARE</b><br/>逐条比对 ×16"])
+    DONE(["<b>S_DONE</b><br/>末条比较 + 输出寄存"])
+
+    IDLE -->|"lookup_req=1<br/>idx←0 · found←0"| CMP
+    CMP -->|"idx&gt;0：比对 q_b<br/>idx≠15：idx←idx+1"| CMP
+    CMP -->|"idx==15 (第16条)"| DONE
+    DONE -->|"比对 entry15 (坑2)<br/>寄存 match + done 单拍 (坑3/5)"| IDLE
+
+    classDef idle fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+    classDef cmp fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+    classDef done fill:#fff3e0,stroke:#ef6c00,stroke-width:2px
+    class IDLE idle
+    class CMP cmp
+    class DONE done
+
+</div>
+
+<strong>match 输出语义（正身专门修过的缺陷，别丢）</strong>：
+
+<pre><code>
+en=1: match = match_found || default_pass || (末条 hit)
+en=0: match = default_pass          ← 白名单关死, 开关全由 defpass 决定
+
+</code></pre>
+
+<code>lookup_busy = (state != S_IDLE)</code>，纯组合。
+
+<hr>
+
+<h2 id="③-接口时序图-18-周期预算">③ 接口时序图 —— 18 周期预算</h2>
+
+<strong>周期计数定义（与 TB do_lookup 一致）</strong>：T0 = FSM 采样到 <code>req=1</code> 的那个上升沿；TB 从 T0 之后开始计数，数到看见 <code>done=1</code> 的沿，恰好 <strong>18</strong>。
+
+<table class="md-table">
+<thead><tr>
+<th>拍</th>
+<th>state</th>
+<th>cmp_index</th>
+<th>BRAM 地址</th>
+<th>q_b (同步读1拍延迟)</th>
+<th>动作</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>T0</td>
+<td>IDLE→CMP</td>
+<td>←0</td>
+<td>←0</td>
+<td>—</td>
+<td><strong>采样 req</strong>，idx/标志清零</td>
+</tr>
+<tr>
+<td>T1</td>
+<td>CMP</td>
+<td>0</td>
+<td>0</td>
+<td>(未就绪)</td>
+<td><code>idx&gt;0</code> 不成立，<strong>跳过比较</strong></td>
+</tr>
+<tr>
+<td>T2</td>
+<td>CMP</td>
+<td>1</td>
+<td>1</td>
+<td>entry0</td>
+<td><strong>比 entry0</strong></td>
+</tr>
+<tr>
+<td>T3</td>
+<td>CMP</td>
+<td>2</td>
+<td>2</td>
+<td>entry1</td>
+<td>比 entry1</td>
+</tr>
+<tr>
+<td>T4</td>
+<td>CMP</td>
+<td>3</td>
+<td>3</td>
+<td>entry2</td>
+<td>比 entry2</td>
+</tr>
+<tr>
+<td>T5</td>
+<td>CMP</td>
+<td>4</td>
+<td>4</td>
+<td>entry3</td>
+<td>比 entry3</td>
+</tr>
+<tr>
+<td>T6</td>
+<td>CMP</td>
+<td>5</td>
+<td>5</td>
+<td>entry4</td>
+<td>比 entry4</td>
+</tr>
+<tr>
+<td>T7</td>
+<td>CMP</td>
+<td>6</td>
+<td>6</td>
+<td>entry5</td>
+<td>比 entry5</td>
+</tr>
+<tr>
+<td>T8</td>
+<td>CMP</td>
+<td>7</td>
+<td>7</td>
+<td>entry6</td>
+<td>比 entry6</td>
+</tr>
+<tr>
+<td>T9</td>
+<td>CMP</td>
+<td>8</td>
+<td>8</td>
+<td>entry7</td>
+<td>比 entry7</td>
+</tr>
+<tr>
+<td>T10</td>
+<td>CMP</td>
+<td>9</td>
+<td>9</td>
+<td>entry8</td>
+<td>比 entry8</td>
+</tr>
+<tr>
+<td>T11</td>
+<td>CMP</td>
+<td>10</td>
+<td>10</td>
+<td>entry9</td>
+<td>比 entry9</td>
+</tr>
+<tr>
+<td>T12</td>
+<td>CMP</td>
+<td>11</td>
+<td>11</td>
+<td>entry10</td>
+<td>比 entry10</td>
+</tr>
+<tr>
+<td>T13</td>
+<td>CMP</td>
+<td>12</td>
+<td>12</td>
+<td>entry11</td>
+<td>比 entry11</td>
+</tr>
+<tr>
+<td>T14</td>
+<td>CMP</td>
+<td>13</td>
+<td>13</td>
+<td>entry12</td>
+<td>比 entry12</td>
+</tr>
+<tr>
+<td>T15</td>
+<td>CMP</td>
+<td>14</td>
+<td>14</td>
+<td>entry13</td>
+<td>比 entry13</td>
+</tr>
+<tr>
+<td>T16</td>
+<td>CMP</td>
+<td>15</td>
+<td>15</td>
+<td>entry14</td>
+<td>比 entry14；<strong>idx==15 → 转 DONE</strong></td>
+</tr>
+<tr>
+<td>T17</td>
+<td>DONE</td>
+<td>15 (保持)</td>
+<td>(强制0)</td>
+<td>entry15</td>
+<td><strong>比 entry15</strong> + 寄存 match/done</td>
+</tr>
+<tr>
+<td>T18</td>
+<td>→IDLE</td>
+<td>—</td>
+<td>—</td>
+<td>—</td>
+<td><strong>done=1 被外部看见</strong>（第18拍）✓</td>
+</tr>
+</tbody></table>
+
+<strong>预算分解</strong>：1(起步) + 1(BRAM 填充) + 15(CMP 拍, 比 entry0~14) + 1(DONE 拍, 比 entry15 并出结果) = <strong>18</strong>
+
+<script type="WaveDrom">
+{signal: [
+  {name: '阶段',        wave: '234..............56', data: ['采样','填充','逐条比对 entry0~14','收尾','可见']},
+  {name: 'clk',         wave: 'ppppppppppppppppppp'},
+  {name: 'lookup_req',  wave: '1000000000000000000'},
+  {name: 'state',       wave: '===================', data: ['CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','CMP','DONE','IDLE','IDLE']},
+  {name: 'cmp_index',   wave: '===================', data: ['0','1','2','3','4','5','6','7','8','9','10','11','12','13','14','15','15','15','15']},
+  {name: 'q_b(entry)',  wave: 'x==================', data: ['e0','e1','e2','e3','e4','e5','e6','e7','e8','e9','e10','e11','e12','e13','e14','e15','e0','e0']},
+  {name: 'busy',        wave: '1111111111111111100'},
+  {name: 'lookup_done', wave: '0000000000000000010'},
+  {name: 'lookup_match',wave: 'xxxxxxxxxxxxxxxxx=x', data: ['有效值']}
+],
+head: {tick: 0, text: '18 周期查找: T0 采样 req → T18 done 可见 (顶行数字 = 周期号, 一拍一列)'},
+foot: {text: '预算分解: 1(采样起步) + 1(BRAM 同步读填充) + 15(逐条 entry0~14) + 1(收尾 entry15+出结果) = 18  ·  match 在 done=1 同拍有效'}
+}
+
+</script>
+
+<hr>
+
+<h2 id="④-七个坑位TB-会一个个抓">④ 七个坑位（TB 会一个个抓）</h2>
+
+<ul>
+<li><strong>BRAM 是同步读，1 拍延迟</strong>——地址 N 在第 N 拍给出，数据第 N+1 拍才有效。这是 18 拍（而非 17 拍）的全部原因，也是 <code>idx&gt;0</code> 跳过第一拍比较的原因</li>
+<li><strong>entry15 挪到 S_DONE 拍比</strong>——CMP 只够比 15 条，最后一条靠 DONE 拍"捎带"；漏掉它 T8 连续查找/命中 idx15 的用例就翻</li>
+<li><strong>S_DONE 双职责</strong>：比末条 + 寄存输出，两件事同一拍做；正身注释里记过真实事故——"DONE 拍的当前比较保留，否则 idx15 匹配丢失"</li>
+<li><strong>match 语义公式</strong>（见②），尤其 <code>en=0 → match=default_pass</code>（T6 会考）和 <code>en=1 且 defpass=1 → 全放行</code>（2026-08-30 板测实锤过的缺陷）</li>
+<li><strong>done 是单拍脉冲</strong>，且 TB 在 done 同一拍采 match——两个输出必须同拍有效</li>
+<li><strong>busy 纯组合</strong> <code>state!=IDLE</code>，req 在 busy 期间来第二次不影响（FSM 只在 IDLE 认 req）</li>
+<li><strong>配置口是电平敏感</strong>（不是握手）：WR/DEL 靠电平重复写安全；CLEAR 是"命令触发 16 拍自动序列器"，期间查找照常可跑（BRAM 写口被 clear 复用，但读口独立）——L2 的 case600 专测这个</li>
+</ul>
+
+<hr>
+
+<h2 id="验收命令">验收命令</h2>
+
+<pre><code class="language-bash">
+cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+iverilog -g2012 -s tb_mac_whitelist_seq -o /tmp/tb_seq.vvp -I sim \
+    sim/define.sv sim/tb_mac_whitelist_seq.sv \
+    &lt;你的实现&gt;.v \
+    ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
+vvp /tmp/tb_seq.vvp     # 期望: ALL 8 TESTS PASSED
+
+</code></pre>
+
+<p>把 <code>&lt;你的实现&gt;.v</code> 换成你写的文件路径即可——<strong>TB 是唯一法官</strong>，过了 8 用例（含 T7 的 18 拍）你的模式 0 就成立。</p>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/wavedrom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/skins/default.js"></script>
+<script>
+(function() {
+    // ── Mermaid ──
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        themeVariables: { fontSize: '20px' },
+        // useMaxWidth:false —— 图按原始尺寸渲染, 不缩进容器;
+        // 否则宽图被等比压小, 20px 字显示成 ~8px 且页面缩放救不回来
+        flowchart: { useMaxWidth: false, htmlLabels: true, nodeSpacing: 60, rankSpacing: 70 },
+        sequence: { useMaxWidth: false, boxMargin: 8, mirrorActors: false },
+        state: { useMaxWidth: false },
+        block: { useMaxWidth: false }
+    });
+    mermaid.run({
+        querySelector: '.mermaid'
+    }).then(function() {
+        console.log('Mermaid: ' + document.querySelectorAll('.mermaid').length + ' diagrams rendered');
+    }).catch(function(err) {
+        console.error('Mermaid render error:', err);
+    });
+
+    // ── Wavedrom ──
+    function renderWavedrom() {
+        WaveDrom.ProcessAll();
+        console.log('WaveDrom: timing diagrams rendered');
+    }
+    if (document.readyState === 'complete') {
+        renderWavedrom();
+    } else {
+        window.addEventListener('load', renderWavedrom);
+    }
+})();
+</script>
+</body>
+</html>
