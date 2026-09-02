@@ -869,6 +869,51 @@ static void api_wl_hwlist(int conn_idx) {
     send_http_response(conn_idx, buf);
 }
 
+// --- GET /api/wl/dbg (DEBUG: dump firmware sw mirror, not HW) ---
+// 诊断: 对比固件镜像 vs HW(hwlist), 定位"镜像以为的槽"与"HW 实际槽"的分歧
+static void api_wl_dbg(int conn_idx) {
+    char buf[WL_LIST_BUF_SIZE];
+    int pos = 0, body_start, body_len, i, first = 1;
+    const char *s;
+    s = "HTTP/1.1 200 OK\r\nContent-Length: ";
+    while (*s) buf[pos++] = *s++;
+    int cl_pos = pos;
+    buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' '; buf[pos++] = ' ';
+    s = "\r\nContent-Type: application/json\r\n\r\n";
+    while (*s) buf[pos++] = *s++;
+    body_start = pos;
+    buf[pos++] = '{';
+    s = "\"used\":";
+    while (*s) buf[pos++] = *s++;
+    pos += write_u16_dec(buf + pos, whitelist_get_used_count());
+    s = ",\"mirror\":[";
+    while (*s) buf[pos++] = *s++;
+    for (i = 0; i < 128 && pos < (WL_LIST_BUF_SIZE - 64); i++) {
+        uint8_t mac[6];
+        if (whitelist_get_entry((uint8_t)i, mac) == 0) {
+            char mac_str[18];
+            if (!first) buf[pos++] = ',';
+            first = 0;
+            mac_to_str(mac, mac_str);
+            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 's'; buf[pos++] = 'l';
+            buf[pos++] = 'o'; buf[pos++] = 't'; buf[pos++] = '"'; buf[pos++] = ':';
+            pos += write_u16_dec(buf + pos, i);
+            buf[pos++] = ','; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
+            buf[pos++] = 'c'; buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = '"';
+            { const char *mp = mac_str; while (*mp) buf[pos++] = *mp++; }
+            buf[pos++] = '"'; buf[pos++] = '}';
+        }
+    }
+    buf[pos++] = ']'; buf[pos++] = '}';
+    buf[pos] = 0;
+    body_len = pos - body_start;
+    buf[cl_pos + 3] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 2] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 1] = '0' + (body_len % 10); body_len /= 10;
+    buf[cl_pos + 0] = '0' + (body_len % 10);
+    send_http_response(conn_idx, buf);
+}
+
 // --- GET /api/wl/diag (hardware diagnostic) ---
 static void api_wl_diag(int conn_idx) {
     static char buf[WL_LIST_BUF_SIZE];
@@ -1112,6 +1157,13 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                                 lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
                                 if (match_path("pi/wl/hwlist")) {
                                     api_wl_hwlist(conn_idx);
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/dbg")) {
+                                    api_wl_dbg(conn_idx);
                                     handled = 1;
                                 }
                             }

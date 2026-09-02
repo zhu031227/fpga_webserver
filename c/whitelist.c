@@ -159,6 +159,12 @@ static uint8_t  sw_wl_valid[WL_SLOTS];
 static uint8_t  sw_wl_mac[WL_SLOTS][6];
 static uint16_t sw_wl_count;
 
+// eviction 回滚快照（文件级 static，不放栈——2026-09-02 板上 96-fill 实测
+// saved_mac[96][6]+saved_slot[96] 在栈上~672B, 低熵高 eviction 时栈溢出污染
+// .bss 的 sw_wl_* 导致 count/镜像错乱; 固件单线程, static 安全)
+static uint8_t wl_saved_mac[WL_CAP][6];
+static uint8_t wl_saved_slot[WL_CAP];
+
 void whitelist_init(void)
 {
     int i;
@@ -255,7 +261,6 @@ static int wl_add_mode2(uint8_t mac[6])
     uint8_t  s0 = WL_SLOT(0, wl_h0(mac));
     uint8_t  s1 = WL_SLOT(1, wl_h1(mac));
     uint8_t  cur[6], victim[6], tgt;
-    uint8_t  saved_mac[WL_CAP][6], saved_slot[WL_CAP];
     uint8_t  saved_cnt = 0, i;
     int      bank, hop, placed;
 
@@ -276,7 +281,7 @@ static int wl_add_mode2(uint8_t mac[6])
     /* 4. 双槽皆占 → bounded eviction。交替 bank 防乒乓：被踢者刚从 bank b 的槽
      *    出来，按 INV-B 那正是它 bank-b 的哈希槽——它唯一没试过的是 bank 1-b 侧。 */
     for (i = 0; i < WL_SLOTS; i++)
-        if (sw_wl_valid[i]) { saved_slot[saved_cnt] = i; memcpy(saved_mac[saved_cnt], sw_wl_mac[i], 6); saved_cnt++; }
+        if (sw_wl_valid[i]) { wl_saved_slot[saved_cnt] = i; memcpy(wl_saved_mac[saved_cnt], sw_wl_mac[i], 6); saved_cnt++; }
 
     memcpy(cur, mac, 6); bank = 0; placed = 0;
     tgt = s0;                                  // 新 MAC 恒在首跳写入 bank0 槽 s0
@@ -300,8 +305,8 @@ static int wl_add_mode2(uint8_t mac[6])
         wl_hw_clear_all_and_wait();
         memset(sw_wl_valid, 0, sizeof(sw_wl_valid)); sw_wl_count = 0;
         for (i = 0; i < saved_cnt; i++) {
-            wl_hw_write_entry(saved_slot[i], saved_mac[i]);
-            sw_wl_valid[saved_slot[i]] = 1; memcpy(sw_wl_mac[saved_slot[i]], saved_mac[i], 6);
+            wl_hw_write_entry(wl_saved_slot[i], wl_saved_mac[i]);
+            sw_wl_valid[wl_saved_slot[i]] = 1; memcpy(sw_wl_mac[wl_saved_slot[i]], wl_saved_mac[i], 6);
             sw_wl_count++;
         }
         return -1;
