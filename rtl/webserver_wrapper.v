@@ -1158,7 +1158,7 @@ module webserver_wrapper #(
 
   // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──
   mac_whitelist_top #(
-      .LOOKUP_MODE(0),
+      .LOOKUP_MODE(2),   // MODE2 cuckoo (was 0); altera build would need same + cuckoo in filelist
       .ENTRY_NUM(16),
       .ADDR_WIDTH(4)
   ) u_mac_wl (

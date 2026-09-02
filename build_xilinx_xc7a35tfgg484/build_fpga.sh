@@ -190,7 +190,10 @@ clone_repo_rtl "fpga_cpu"  "${FILES_FPGA_CPU[@]}"
 clone_repo_rtl "ip_lcpu"   "${FILES_IP_LCPU[@]}"
 clone_repo_rtl "ip_riscv"  "${FILES_IP_RISCV[@]}"
 clone_repo_rtl "ip_common" "${FILES_IP_COMMON[@]}"
-clone_repo_full "fpga_ila"   # main branch (default), no extra checkout needed
+# fpga_ila: 私有仓库本机不可访问 → filelist 已用 fpga_ila_stub.v，这里按需克隆（无引用则跳过）
+if [ "${#FILES_FPGA_ILA[@]}" -gt 0 ]; then
+    clone_repo_full "fpga_ila"   # main branch (default), no extra checkout needed
+fi
 echo "[STEP 3/8] Done."
 
 #--------------------------------------------------------------------
