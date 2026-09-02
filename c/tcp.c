@@ -743,7 +743,7 @@ static void api_wl_list(int conn_idx) {
     int pos = 0;
     int body_start;
     int body_len;
-    uint16_t max = whitelist_hw_get_max_entries();
+    uint16_t slots = whitelist_hw_get_slot_count();   // 扫全部物理槽（mode2 128）
     uint16_t i;
     uint8_t first = 1;
     const char *s;
@@ -760,7 +760,7 @@ static void api_wl_list(int conn_idx) {
 
     // Build JSON array body (reads HW BRAM directly)
     buf[pos++] = '[';
-    for (i = 0; i < max && pos < (WL_LIST_BUF_SIZE - 64); i++) {
+    for (i = 0; i < slots && pos < (WL_LIST_BUF_SIZE - 64); i++) {
         uint8_t mac[6];
         if (whitelist_hw_read_entry((uint8_t)i, mac) == 0) {
             char mac_str[18];
@@ -804,6 +804,7 @@ static void api_wl_hwlist(int conn_idx) {
     int body_start;
     int body_len;
     uint16_t max = whitelist_hw_get_max_entries();
+    uint16_t slots = whitelist_hw_get_slot_count();   // 扫全部物理槽（mode2 128）
     uint16_t used = whitelist_hw_get_used_count();
     uint8_t free_idx = whitelist_hw_get_free_index();
     uint16_t i;
@@ -834,7 +835,7 @@ static void api_wl_hwlist(int conn_idx) {
     s = ",\"entries\":[";
     while (*s) buf[pos++] = *s++;
 
-    for (i = 0; i < max && pos < (WL_LIST_BUF_SIZE - 64); i++) {
+    for (i = 0; i < slots && pos < (WL_LIST_BUF_SIZE - 64); i++) {
         uint8_t mac[6];
         if (whitelist_hw_read_entry((uint8_t)i, mac) == 0) {
             char mac_str[18];

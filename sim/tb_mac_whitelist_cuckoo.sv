@@ -796,6 +796,21 @@ module tb_mac_whitelist_cuckoo;
         end
 
         //--------------------------------------------------------------
+        // Tf: low-entropy MAC 族 02:00:00:00:00:00..5f (96) —— 板上 96-fill 实测出现
+        //     4 处 INV-B 违例(同类挤压), 用同族在仿真复现判定是否算法 bug
+        $display("=== Tf: 02:00:00:00:00:00..5f (96 entries, low-entropy) ===");
+        fresh_table;
+        begin : tff
+            integer fc, fc_ok;
+            fc_ok = 0;
+            for (fc = 0; fc < 96; fc = fc + 1) begin
+                tb_cuckoo_add(48'h020000000000 | fc);
+                if (!tb_add_fail && !tb_cap_reject) fc_ok = fc_ok + 1;
+            end
+            $display("  added ok=%0d/96", fc_ok);
+        end
+        full_checks(300);
+
         if (errors == 0) $display("\n========== ALL 14 TESTS PASSED (CUCKOO) ==========");
         else             $display("\n========== FAILURES: %0d ==========", errors);
         #50;

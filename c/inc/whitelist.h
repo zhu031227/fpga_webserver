@@ -44,6 +44,7 @@ int      whitelist_hw_read_entry(uint8_t index, uint8_t mac_out[6]);
 uint16_t whitelist_hw_get_used_count(void);
 uint16_t whitelist_hw_get_max_entries(void);
 uint8_t  whitelist_hw_get_free_index(void);
+uint16_t whitelist_hw_get_slot_count(void);   // 枚举用物理槽数：mode2=128, mode0=16
 int      whitelist_hw_diag(char *buf, int buf_size);
 
 // Flash persistence

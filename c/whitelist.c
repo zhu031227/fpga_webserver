@@ -138,6 +138,13 @@ uint16_t whitelist_hw_get_max_entries(void)
     return (uint16_t)(subbus_read(WL_SUBBUS_ADDR, WL_REG_MAX_ENTRIES) & 0xFF);
 }
 
+uint16_t whitelist_hw_get_slot_count(void)
+{
+    // 列表/硬件表枚举要扫全部物理槽（mode2 哈希条目可落 0..127，按容量 96 扫会漏
+    // 掉高槽条目——2026-09-02 上板实测 hwlist 只出 80/96）。mode0 无差异(16)。
+    return wl_is_mode2() ? WL_SLOTS : 16;
+}
+
 uint8_t whitelist_hw_get_free_index(void)
 {
     return (uint8_t)(subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_FREE_IDX) & 0xFF);
