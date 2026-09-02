@@ -76,7 +76,20 @@ module tb_wl_integration;
         .eth1_rx_drop_cnt(eth1_rx_drop_cnt), .recv_pkt_drop_cnt()
     );
 
-    // ---- DUT1: mac_whitelist_seq ----
+    // ---- DUT1: mac_whitelist engine (dual-mode: -D CUCKOO → cuckoo else seq) ----
+`ifdef CUCKOO
+    mac_whitelist_cuckoo #(
+        .BUCKET_NUM(64), .ADDR_WIDTH(6), .CAPACITY(96)
+    ) dut1 (
+        .clk(clk), .reset_l(reset_l),
+        .lookup_req(wl_lookup_req), .lookup_mac(wl_lookup_mac),
+        .lookup_match(wl_lookup_match), .lookup_done(wl_lookup_done), .lookup_busy(wl_lookup_busy),
+        .cfg_clk(cfg_clk), .cfg_reset_l(cfg_reset_l),
+        .cfg_rlwh(cfg_rlwh), .cfg_addr(cfg_addr), .cfg_wdata(cfg_wdata), .cfg_rdata(cfg_rdata),
+        .whitelist_en(whitelist_en), .default_pass(default_pass),
+        .wl_used_cnt()
+    );
+`else
     mac_whitelist_seq dut1 (
         .clk(clk), .reset_l(reset_l),
         .lookup_req(wl_lookup_req), .lookup_mac(wl_lookup_mac),
@@ -85,12 +98,87 @@ module tb_wl_integration;
         .cfg_rlwh(cfg_rlwh), .cfg_addr(cfg_addr), .cfg_wdata(cfg_wdata), .cfg_rdata(cfg_rdata),
         .whitelist_en(whitelist_en), .default_pass(default_pass)
     );
+`endif
 
     // ---- MAC 常量 ----
     localparam [47:0] MAC_A = 48'h11_22_33_44_55_01;
     localparam [47:0] MAC_B = 48'hAA_BB_CC_DD_EE_EE;
 
     integer errors = 0;
+
+`ifdef CUCKOO
+    // ============ MODE=2 (CUCKOO) helpers ============
+    localparam integer CLEAR_WAIT = 4000;   // 128 拍 × 20ns + 裕量
+
+    // tb-side bit-exact hash copy of RTL fold/h0/h1
+    function automatic integer tb_fold(input [63:0] x);
+        integer i, r;
+        begin r = 0; for (i = 0; i < 8; i = i + 1) r = r ^ ((x >> (6*i)) & 64'h3F); tb_fold = r; end
+    endfunction
+    function automatic [63:0] tb_bswap48(input [63:0] x);
+        begin
+            tb_bswap48 = ((x & 64'h0000000000FF) << 40) | ((x & 64'h00000000FF00) << 24)
+                       | ((x & 64'h000000FF0000) << 8)  | ((x & 64'h0000FF000000) >> 8)
+                       | ((x & 64'h00FF00000000) >> 24) | ((x & 64'hFF0000000000) >> 40);
+        end
+    endfunction
+    function automatic integer tb_h0(input [63:0] mac); tb_h0 = tb_fold(mac); endfunction
+    function automatic integer tb_h1(input [63:0] mac); tb_h1 = tb_fold(tb_bswap48(mac)); endfunction
+
+    // 加一条 MAC：落位到空候选槽（h0 空则 h0，否则 h1；镜像简易跟踪）
+    reg [47:0] ck_slot_mac [0:127];
+    reg        ck_slot_valid [0:127];
+    task automatic ck_write_slot(input [6:0] slot, input [47:0] m);
+        begin
+            subbus_wr(12'h0, {25'b0, slot});
+            subbus_wr(12'h1, m[47:16]);
+            subbus_wr(12'h2, {16'b0, m[15:0]});
+            subbus_wr(12'h3, 32'b1);
+            #3000;
+            ck_slot_valid[slot] = 1; ck_slot_mac[slot] = m;
+        end
+    endtask
+    task automatic ck_clear_all;
+        integer s;
+        begin
+            subbus_wr(12'h5, 32'b1);
+            #4000;
+            for (s = 0; s < 128; s = s + 1) begin ck_slot_valid[s] = 0; ck_slot_mac[s] = 48'b0; end
+        end
+    endtask
+    // add：查重 / 空位直达；双槽皆占则踢 h0 槽住客到它的 h1（1 跳 bounded，L1 已全测 eviction）
+    task automatic wl_add_mac(input [47:0] mac);
+        integer s0, s1, hv;
+        reg [47:0] occ;
+        begin
+            s0 = tb_h0(mac); s1 = 64 + tb_h1(mac);
+            if (ck_slot_valid[s0] && ck_slot_mac[s0] == mac) begin end
+            else if (ck_slot_valid[s1] && ck_slot_mac[s1] == mac) begin end
+            else if (!ck_slot_valid[s0]) ck_write_slot(s0[6:0], mac);
+            else if (!ck_slot_valid[s1]) ck_write_slot(s1[6:0], mac);
+            else begin
+                // 双槽皆占：mac 住 s0；被踢者 occ 迁到它的 h1（1 跳；h1 一般空，除非极端碰撞）
+                occ = ck_slot_mac[s0];
+                ck_slot_valid[s0] = 0;
+                ck_write_slot(s0[6:0], mac);
+                hv = 64 + tb_h1(occ);
+                if (ck_slot_valid[hv]) begin
+                    // 兜底：目标也被占 → 简单覆盖（并发窗测试不追求完美布局）
+                end
+                ck_write_slot(hv[6:0], occ);
+            end
+        end
+    endtask
+    // MODE=0 同语义包装（seq 用序号写；本 tb 只用 MAC_A 一次）
+`else
+    localparam integer CLEAR_WAIT = 500;    // seq 16 拍 + 余量
+    integer ck_idx_w = 0;
+    task automatic wl_add_mac(input [47:0] mac);
+        begin
+            wr_mac(ck_idx_w[3:0], mac); ck_idx_w = ck_idx_w + 1;
+        end
+    endtask
+`endif
 
     task automatic do_reset;
         begin
@@ -175,10 +263,10 @@ module tb_wl_integration;
         // 上电后固件 whitelist_init 会先清空白名单（BRAM 上电内容未定义，
         // 不 CLEAR 会让未初始化条目读成 X、污染 miss 查找结果）。
         subbus_wr(12'h5, 32'b1);   // CLEAR
-        #500;                      // clear sequencer 16 拍 + 余量
+        #(CLEAR_WAIT);             // 等 clear 序列器扫完（seq 16 拍 / cuckoo 128 拍）
 
         $display("=== Test 1: 白名单加 MAC_A → 喂 MAC_A 帧 → 转发 ===");
-        wr_mac(4'd0, MAC_A);
+        wl_add_mac(MAC_A);
         clear_tx_seen();
         drop_before = eth1_rx_drop_cnt;
         send_frame(MAC_A);
@@ -253,6 +341,45 @@ module tb_wl_integration;
                 $display("  [PASS] case600: 不挂死（fwd=%b drop_delta=%0d）", mac2_tx_seen, d6);
             end
         end
+
+`ifdef CUCKOO
+        //========================================================================
+        $display("=== Test 7 (MODE2): cfg eviction 写 ∥ 帧流 → 不挂死、转发恢复 ===");
+        begin : t7
+            reg [63:0] pool [0:7];
+            integer pi, fc, j;
+            reg [47:0] base;
+            ck_clear_all;
+            for (pi = 0; pi < 8; pi = pi + 1) pool[pi] = 48'hC0_00_00_00_00_00 + (4000 + pi);
+            base = MAC_A;
+            wl_add_mac(base);
+            clear_tx_seen();
+            fork
+                begin : frame_thread          // 路 1：持续喂已入表 MAC 的帧
+                    for (fc = 0; fc < 30; fc = fc + 1) send_frame(base);
+                end
+                begin : cfg_thread            // 路 2：cfg 写风暴（含 eviction 踢人）
+                    for (j = 0; j < 40; j = j + 1) wl_add_mac(pool[j % 8]);
+                end
+            join
+            // 收官：清空 + 重加 base + 验证转发（引擎在风暴后仍活、无 X、未挂死）
+            ck_clear_all;
+            wl_add_mac(base);
+            clear_tx_seen();
+            drop_before = eth1_rx_drop_cnt;
+            send_frame(base);
+            #2000;
+            if (mac2_tx_seen !== 1'b1) begin
+                $display("  [FAIL] case700: 风暴后转发丢失/引擎未恢复");
+                errors = errors + 1;
+            end else if (eth1_rx_drop_cnt === 32'hxxxxxxxx) begin
+                $display("  [FAIL] case700: 出现 X");
+                errors = errors + 1;
+            end else
+                $display("  [PASS] case700: eviction 写∥帧流 不挂死，转发恢复（fwd=1 drop_delta=%0d）",
+                         eth1_rx_drop_cnt - drop_before);
+        end
+`endif
 
         if (errors == 0) $display("\n========== ALL 7 TESTS PASSED ==========");
         else             $display("\n========== FAILURES: %0d ==========", errors);
