@@ -155,15 +155,24 @@ uint8_t whitelist_hw_get_free_index(void)
 //   slot index == HW slot#. Mode0 uses slots 0..15 (seq HW), mode2 uses 0..127.
 // ============================================================
 #define WL_SW_CACHE_SIZE 16     // mode0 HW depth (legacy add/dup scan bound)
+// 守卫 canary（诊断 .bss 越界写来源）。volatile+非零初值防优化/重排。
+static volatile uint32_t wl_gpre  = 0x5AA5A55Au;
 static uint8_t  sw_wl_valid[WL_SLOTS];
 static uint8_t  sw_wl_mac[WL_SLOTS][6];
 static uint16_t sw_wl_count;
+static volatile uint32_t wl_gpost = 0xA55A5AA5u;
 
-// eviction 回滚快照（文件级 static，不放栈——2026-09-02 板上 96-fill 实测
-// saved_mac[96][6]+saved_slot[96] 在栈上~672B, 低熵高 eviction 时栈溢出污染
-// .bss 的 sw_wl_* 导致 count/镜像错乱; 固件单线程, static 安全)
+// eviction 回滚快照（文件级 static, 单线程安全）
 static uint8_t wl_saved_mac[WL_CAP][6];
 static uint8_t wl_saved_slot[WL_CAP];
+
+// 供 /api/wl/dbg 输出守卫与一致性
+void whitelist_guard_check(uint32_t *gpre, uint32_t *gpost, uint16_t *pop)
+{
+    uint16_t p = 0; int i;
+    for (i = 0; i < WL_SLOTS; i++) p += (sw_wl_valid[i] ? 1 : 0);
+    *gpre = wl_gpre; *gpost = wl_gpost; *pop = p;
+}
 
 void whitelist_init(void)
 {

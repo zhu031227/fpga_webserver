@@ -55,4 +55,7 @@ int  whitelist_load_from_flash(void);
 void whitelist_get_snapshot(flash_cfg_wl_t *wl);
 void whitelist_apply_snapshot(const flash_cfg_wl_t *wl);
 
+// 诊断：守卫 canary + valid popcount（越界写检测）
+void whitelist_guard_check(uint32_t *gpre, uint32_t *gpost, uint16_t *pop);
+
 #endif

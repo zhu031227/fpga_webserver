@@ -886,25 +886,39 @@ static void api_wl_dbg(int conn_idx) {
     s = "\"used\":";
     while (*s) buf[pos++] = *s++;
     pos += write_u16_dec(buf + pos, whitelist_get_used_count());
-    s = ",\"mirror\":[";
+    {   // 诊断: 守卫 canary + valid popcount
+        uint32_t gp0, gp1; uint16_t pp;
+        char hx[11];
+        whitelist_guard_check(&gp0, &gp1, &pp);
+        s = ",\"vpop\":";
+        while (*s) buf[pos++] = *s++;
+        pos += write_u16_dec(buf + pos, pp);
+        s = ",\"gpre\":\"0x";
+        while (*s) buf[pos++] = *s++;
+        // hex gp0 into hx
+        { int sh; for (sh = 28; sh >= 0; sh -= 4) buf[pos++] = "0123456789abcdef"[(gp0 >> sh) & 0xF]; (void)hx; }
+        buf[pos++] = '"';
+        s = ",\"gpost\":\"0x";
+        while (*s) buf[pos++] = *s++;
+        { int sh; for (sh = 28; sh >= 0; sh -= 4) buf[pos++] = "0123456789abcdef"[(gp1 >> sh) & 0xF]; }
+        buf[pos++] = '"';
+    }
+    s = ",\"mirror\":\"";
     while (*s) buf[pos++] = *s++;
+    // 镜像单字符串 "slot:hex,slot:hex,..."（128 槽全量不截断, 也是合法 JSON 字符串）
     for (i = 0; i < 128 && pos < (WL_LIST_BUF_SIZE - 64); i++) {
         uint8_t mac[6];
         if (whitelist_get_entry((uint8_t)i, mac) == 0) {
-            char mac_str[18];
+            static const char *hx = "0123456789abcdef";
+            int b;
             if (!first) buf[pos++] = ',';
             first = 0;
-            mac_to_str(mac, mac_str);
-            buf[pos++] = '{'; buf[pos++] = '"'; buf[pos++] = 's'; buf[pos++] = 'l';
-            buf[pos++] = 'o'; buf[pos++] = 't'; buf[pos++] = '"'; buf[pos++] = ':';
             pos += write_u16_dec(buf + pos, i);
-            buf[pos++] = ','; buf[pos++] = '"'; buf[pos++] = 'm'; buf[pos++] = 'a';
-            buf[pos++] = 'c'; buf[pos++] = '"'; buf[pos++] = ':'; buf[pos++] = '"';
-            { const char *mp = mac_str; while (*mp) buf[pos++] = *mp++; }
-            buf[pos++] = '"'; buf[pos++] = '}';
+            buf[pos++] = ':';
+            for (b = 0; b < 6; b++) { buf[pos++] = hx[mac[b] >> 4]; buf[pos++] = hx[mac[b] & 0xF]; }
         }
     }
-    buf[pos++] = ']'; buf[pos++] = '}';
+    buf[pos++] = '"'; buf[pos++] = '}';
     buf[pos] = 0;
     body_len = pos - body_start;
     buf[cl_pos + 3] = '0' + (body_len % 10); body_len /= 10;
