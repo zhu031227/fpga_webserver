@@ -3,7 +3,7 @@
 // Instantiates the lookup engine based on LOOKUP_MODE parameter:
 //   MODE 0: Sequential search (mac_whitelist_seq) — THIS IMPLEMENTATION
 //   MODE 1: Binary search (mac_whitelist_bin) — reserved skeleton
-//   MODE 2: Hash-based (mac_whitelist_hash) — reserved skeleton
+//   MODE 2: Cuckoo hash (mac_whitelist_cuckoo) — THIS IMPLEMENTATION
 //
 // All modes share the same external interface.
 
@@ -45,6 +45,30 @@ module mac_whitelist_top #(
       mac_whitelist_seq #(
           .ENTRY_NUM(ENTRY_NUM),
           .ADDR_WIDTH(ADDR_WIDTH)
+      ) u_lookup (
+          .clk           (clk),
+          .reset_l       (reset_l),
+          .lookup_req    (lookup_req),
+          .lookup_mac    (lookup_mac),
+          .lookup_match  (lookup_match),
+          .lookup_done   (lookup_done),
+          .lookup_busy   (lookup_busy),
+          .cfg_clk       (cfg_clk),
+          .cfg_reset_l   (cfg_reset_l),
+          .cfg_rlwh      (cfg_rlwh),
+          .cfg_addr      (cfg_addr),
+          .cfg_wdata     (cfg_wdata),
+          .cfg_rdata     (cfg_rdata),
+          .whitelist_en  (whitelist_en),
+          .default_pass  (default_pass),
+          .wl_used_cnt   (wl_used_cnt_w)
+      );
+      assign wl_status = {8'b0, LOOKUP_MODE[7:0]} | {wl_used_cnt_w, 8'b0};
+    end else if (LOOKUP_MODE == 2) begin : g_mode_cuckoo
+      mac_whitelist_cuckoo #(
+          .BUCKET_NUM(64),
+          .ADDR_WIDTH(6),
+          .CAPACITY(96)
       ) u_lookup (
           .clk           (clk),
           .reset_l       (reset_l),
