@@ -1,0 +1,2178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MAC白名单查找引擎实现指南_模式2_布谷鸟哈希</title>
+<style>
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+       max-width: 900px; margin: 40px auto; padding: 0 20px; line-height: 1.6;
+       color: #24292e; background: #fff; }
+h1 { border-bottom: 2px solid #1a73e8; padding-bottom: 8px; color: #1a73e8; }
+h2 { border-bottom: 1px solid #e1e4e8; padding-bottom: 6px; margin-top: 32px; }
+h3 { margin-top: 24px; color: #444; }
+h4 { margin-top: 20px; color: #666; }
+table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14px; }
+th, td { border: 1px solid #dfe2e5; padding: 8px 12px; text-align: left; }
+th { background: #f5f7fa; font-weight: 600; }
+tr:nth-child(even) { background: #fafbfc; }
+code { background: #f0f0f0; padding: 2px 6px; border-radius: 3px; font-size: 13px; }
+pre { background: #f6f8fa; padding: 16px; border-radius: 6px; overflow-x: auto;
+      border: 1px solid #e1e4e8; font-size: 13px; line-height: 1.45; }
+div.mermaid {
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    text-align: center;
+    overflow-x: auto;
+}
+script[type="WaveDrom"] {
+    display: block;
+    background: #fff;
+    border: 1px solid #e1e4e8;
+    border-radius: 6px;
+    padding: 16px;
+    margin: 16px 0;
+    overflow-x: auto;
+    white-space: pre;
+    font-family: monospace;
+}
+blockquote { border-left: 4px solid #1a73e8; margin: 0; padding: 0 16px;
+             color: #6a737d; }
+hr { border: 0; border-top: 1px solid #e1e4e8; margin: 24px 0; }
+ul, ol { padding-left: 24px; }
+a { color: #1a73e8; text-decoration: none; }
+a:hover { text-decoration: underline; }
+</style>
+</head>
+<body>
+<h1 id="MAC-白名单查找引擎实现指南-模式-2-BRAM-布谷鸟哈希从零实现">MAC 白名单查找引擎实现指南 · 模式 2 —— BRAM 布谷鸟哈希（从零实现）</h1>
+
+<p>> 文档编号：ED003R02-C<br>
+> 日期：2026-08-30<br>
+> 适用工程：<code>fpga_webserver-whitelist_dev</code>（whitelist_dev 分支）<br>
+> 平台：Xilinx XC7A35T-FGG484-2（ACX750 开发板）<br>
+> 性质：<strong>从零实现指南（作业指导书）</strong>。模式 2 当前在工程中<strong>不存在任何实现</strong>（<code>mac_whitelist_top.v</code> 的 <code>g_mode_placeholder</code> 分支即为本模式预留位），本文即完整设计稿与实施步骤。<br>
+> <strong>前置条件</strong>：《MAC白名单查找引擎实现指南_模式0_顺序查找.md》（ED003R02-A）已全部完成并上板（tag <code>mode0-verified</code>，<strong>必须</strong>——框架机制/配置通路/tb 模板全部继承它）。《…_模式1_二分查找.md》（ED003R02-B）<strong>不是本模式的前置</strong>——项目实施主线为 模式 0 → 模式 2（见 0.2 节主线说明），模式 1 为备选路线；若已实现模式 1，其参数化 tb 可选复用（模式2-步骤5.1 的省事路线）。本文程序性回引仅指向模式 0 文档编号（如"模式0-§1.2"），对模式 1 的引用均为可选参考。<br>
+> 本文可直接交给 AI 模型或工程师逐步执行；执行前必读 0.4 节「执行须知」。</p>
+
+<hr>
+
+<h2 id="修订记录">修订记录</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>日期</th>
+<th>版本</th>
+<th>修改描述</th>
+<th>作者</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>2026-08-29</td>
+<td>R02（ED003R02-C）</td>
+<td>初稿（模式 2 布谷鸟哈希，从零实现）：双哈希 + 双 bank 并行读、查找 2 拍、插入含 bounded eviction（软件执行）；沿用模式 0/1 框架与配置通路零改动原则</td>
+<td>Claude</td>
+</tr>
+<tr>
+<td>2026-08-29</td>
+<td>R02a（ED003R02-C）</td>
+<td>主线调整：项目主线定为 模式 0 → 模式 2，解除对模式 1 的前置依赖——wl_status 修复收编为本模式步骤 4.6、C 工具函数改为本文自包含（8.1）、tb 模板改从模式 0 派生（5.1）、回归改为 MODE=0 必跑 + MODE=1 视实现选跑</td>
+<td>Claude</td>
+</tr>
+<tr>
+<td>2026-08-30</td>
+<td>R03（ED003R02-C）</td>
+<td>作业指导书级细化 + 算法修正（新增片段均经 iverilog 12 / gcc 实测：用例 9/10 配方与回滚路径冒烟全 PASS）：① <strong>修正 8.3 eviction 死循环缺陷</strong>——原伪代码每跳只试 {0,h0} 槽，受害者恰是从该槽被踢必致乒乓至 8 跳耗尽；改为<strong>交替 bank</strong> 行走（被 bank b 踢出 → 唯一未试的家是 bank 1-b 侧，INV-B 推论），扩为可执行 C：受害者先存后覆、失败按快照回滚、条目下标即槽位号、<strong>返回值恒认 s0</strong>（实测修正）；② 修正 1.5/6.1 用例 9 的 eviction 触发条件（<strong>双槽皆占才触发</strong>）；③ 新增 5.5 冲突构造搜索与用例 9/10 配方（含实测约束：E∉{C,B} 防链环、F∉{A,D} 防六类撞车）；④ 修正 5.2 tb 位宽（48bit MAC 须 64bit 容器）、槽位号禁 33bit 位拼接（截断丢 bank 位，实测踩坑）、补齐检查器辅助函数与 tb 失败回滚；⑤ 4.6 方案 b 落地为具体代码；⑥ tb 双模改 <code>-D CUCKOO</code> 宏开关（实测），L1/L2 补 tb_cuckoo_add 自驱插入与 <code>-s</code> 根模块；⑦ 仿真宏随模式 0 R02b 更名 <code>sim/define.sv</code>、加 <code>-I sim</code>；⑧ 新增图 3（eviction 流程）与常见错误 5 行</td>
+<td>Claude</td>
+</tr>
+</tbody></table>
+
+<h2 id="目录">目录</h2>
+
+<ul>
+<li>第 0 章 文档定位与差异总览（0.1 目标与改动范围 / 0.2 三模式差异 / 0.3 整机位置 / 0.4 执行须知）</li>
+<li>第 1 章 设计决策与软硬件契约（1.1 哈希计算与 eviction 放软件 / 1.2 INV 契约 / 1.3 双哈希与 2 拍时序 / 1.4 五个细节坑 / 1.5 特例）</li>
+<li>第 2 章 框架机制要点回顾（自包含：2.1 配置通路 / 2.2 寄存器表与模式 2 语义差异 / 2.3 C 驱动 / 2.4 构建链）</li>
+<li>第 3 章 从零实现十步（步骤 1 契约 ~ 步骤 10 上板收官）</li>
+<li>第 4 章 常见错误与排查速查</li>
+<li>第 5 章 验收清单与里程碑</li>
+<li>第 6 章 仿真分层、上板门禁（Gate）与已知问题</li>
+<li>附录 A 四模式选型对比 / B 文件索引 / C 时序图来源索引</li>
+</ul>
+
+<hr>
+
+<h2 id="第-0-章-文档定位与差异总览">第 0 章 文档定位与差异总览</h2>
+
+<h3 id="01-目标与改动范围">0.1 目标与改动范围</h3>
+
+<p>在前两模式的完整框架上，把查找算法核心替换为<strong>布谷鸟哈希（cuckoo hashing）</strong>：两个独立哈希函数给每个 MAC 恰好 2 个候选槽位，查找只需<strong>并行读 2 个位置</strong>（2 拍定结果），代价是插入可能触发 eviction（踢人链）。设计容量 96 条（物理 128 槽），面向 <strong>>64 条目</strong>的扩容场景——那是顺序查找（66 拍逼近线速极限）与二分（14 拍）开始吃力的区间。</p>
+
+<strong>改动范围一览</strong>（先明确边界，防止扩散）：
+
+<table class="md-table">
+<thead><tr>
+<th>文件</th>
+<th>改动</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>rtl/mac_whitelist_cuckoo.v</code></td>
+<td><strong>新建</strong>（从 seq 复制起步，替换查找逻辑 + 存储扩为双 bank）</td>
+</tr>
+<tr>
+<td><code>rtl/mac_whitelist_top.v</code></td>
+<td><code>LOOKUP_MODE==2</code> 分支<strong>替换 placeholder</strong>（<code>g_mode_placeholder</code>，60~66 行）</td>
+</tr>
+<tr>
+<td><code>rtl/webserver_wrapper.v</code></td>
+<td>模式号填 2 + <code>wl_status</code> 驱动沿用模式 1 修复</td>
+</tr>
+<tr>
+<td><code>c/whitelist.c</code></td>
+<td>add/delete/snapshot 改为<strong>哈希定位 + bounded eviction</strong></td>
+</tr>
+<tr>
+<td><code>c/inc/whitelist.h</code></td>
+<td>不变（函数签名全保留）</td>
+</tr>
+<tr>
+<td><code>c/tcp.c</code> / <code>c/http.c</code> / <code>c/flash_cfg.c</code> / <code>html/*</code></td>
+<td><strong>零改动</strong></td>
+</tr>
+<tr>
+<td><code>build_xilinx.../filelist.cfg</code></td>
+<td>加一行 <code>../rtl/mac_whitelist_cuckoo.v</code></td>
+</tr>
+</tbody></table>
+
+<h3 id="02-三模式差异总览">0.2 三模式差异总览</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>维度</th>
+<th>模式 0 顺序</th>
+<th>模式 1 二分</th>
+<th>模式 2 布谷鸟（本文）</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>查找周期（16 条）</td>
+<td>18 拍</td>
+<td>10 拍</td>
+<td><strong>2 拍</strong>（与条数无关）</td>
+</tr>
+<tr>
+<td>96 条时查找周期</td>
+<td>不可行（98 拍超预算）</td>
+<td>~12 拍</td>
+<td><strong>仍 2 拍</strong></td>
+</tr>
+<tr>
+<td>表结构约束</td>
+<td>无</td>
+<td>有序（软件维护）</td>
+<td><strong>每条目必在 2 个哈希候选槽之一</strong>（软件维护）</td>
+</tr>
+<tr>
+<td>index/槽位语义</td>
+<td>物理槽位</td>
+<td>有序排名</td>
+<td><strong>物理槽位号 = {bank, 行号}</strong>（哈希决定）</td>
+</tr>
+<tr>
+<td>插入代价</td>
+<td>O(1) 写 1 条</td>
+<td>最坏重写 16 条（保序搬移）</td>
+<td>均摊 O(1)，最坏 <strong>8 跳 eviction</strong></td>
+</tr>
+<tr>
+<td>插入期间查找</td>
+<td>完全无感</td>
+<td>全程保序无感</td>
+<td><strong>存在毫秒级以下瞬时 miss 窗口</strong>（INV-C，1.2）</td>
+</tr>
+<tr>
+<td>有效容量</td>
+<td>16/16</td>
+<td>16/16</td>
+<td><strong>96/128 物理槽（负载上限 75%）</strong></td>
+</tr>
+<tr>
+<td>配置通路/寄存器表/wrapper/CDC</td>
+<td>完全复用，RTL 零改动</td>
+<td>同左</td>
+<td>复用 + INDEX 位宽扩展（0x00 语义见 2.2）</td>
+</tr>
+<tr>
+<td>C 驱动接口签名</td>
+<td>—</td>
+<td>完全复用</td>
+<td>完全复用</td>
+</tr>
+</tbody></table>
+
+<strong>主线说明</strong>：项目实施主线为 <strong>模式 0 → 模式 2</strong>（顺序查找打地基 → 布谷鸟哈希冲容量与性能）；模式 1（二分）为备选路线，其后置实施与本模式<strong>无先后依赖</strong>（两者的前置都只有模式 0）。
+
+<h3 id="03-白名单位置简版详见模式-0-文档-03-节">0.3 白名单位置（简版，详见模式 0 文档 0.3 节）</h3>
+
+<pre><code>
+eth1 RX ─► 提取SrcMAC ─► lookup_req ─► [mac_whitelist_top MODE=2 双哈希并行查2槽] ─► match ─► 门控wpkt_push ─► eth2 TX
+                                            ▲ cfg口(SubBus 0x5000, 50MHz)
+                                C固件 whitelist.c（哈希定位影子表 + bounded eviction 插入）
+
+</code></pre>
+
+<h3 id="04-执行须知作业指导书使用规则执行前必读">0.4 执行须知（作业指导书使用规则，执行前必读）</h3>
+
+<ul>
+<li><strong>步骤编号体系</strong>：全部步骤按「模式2-步骤N.M」全局连续编号，可被其他文档直接引用。</li>
+<li><strong>每步固定六段结构</strong>：目的 / 前置条件 / 操作步骤 / 产出物 / 完成判据 / 常见错误。<strong>判据不过，不得进入下一步</strong>。</li>
+<li><strong>执行顺序强约束</strong>：步骤 1→10 顺序执行。C 驱动改造（步骤 8）仍刻意排在仿真（步骤 5~7）之后——先用 tb 把 RTL 与哈希一致性验透，再动软件。</li>
+<li><strong>门禁规则</strong>：第 6.2 节定义 G1~G5。<strong>G1~G3 全绿之前，禁止执行 <code>build_fpga.sh</code></strong>。</li>
+<li><strong>与前置文档的关系</strong>：配置通路三特性、tb 模板（L1 单元 + L2 集成）、公共已知问题 8 条全部指向<strong>模式 0 文档</strong>的步骤编号；<strong>执行前先通读模式 0 文档 5.3 节</strong>（公共避坑清单）。对模式 1 文档的引用均为可选参考，不构成执行依赖。</li>
+<li><strong>图表规范</strong>：时序图用 Wavedrom，结构图保留 ASCII；来源见附录 C。</li>
+</ul>
+
+<hr>
+
+<h2 id="第-1-章-设计决策与软硬件契约动笔前必须吃透">第 1 章 设计决策与软硬件契约（动笔前必须吃透）</h2>
+
+<h3 id="11-核心决策哈希计算与-eviction-搬移都放软件与模式-1-同源已拍板">1.1 核心决策：哈希计算与 eviction 搬移都放软件（与模式 1 同源，已拍板）</h3>
+
+<p>布谷鸟哈希需要两处"聪明"逻辑：算哈希（查找侧）与 eviction 搬移（插入侧）。<strong>划分如下</strong>：</p>
+
+<table class="md-table">
+<thead><tr>
+<th>逻辑</th>
+<th>位置</th>
+<th>理由</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>哈希函数（h0/h1）</td>
+<td><strong>RTL 组合逻辑</strong></td>
+<td>查找是热路径，哈希必须每包 0 开销（组合 XOR 折叠，约 2 级门）；放 C 则每包要 CPU 参与运算，违背"CPU 不参与逐包过滤"的整机原则（模式 0 文档 0.3）</td>
+</tr>
+<tr>
+<td>插入的 eviction 链</td>
+<td><strong>C 固件</strong></td>
+<td>与模式 1 步骤"排序放软件"同一论证（模式1-§1.1）：增删是低频冷路径操作；硬件 eviction 需要跨时钟域读-改-写多周期状态机 + 终止性保证（踢人可能循环），RTL 复杂度与调试成本翻几倍；C 侧有影子表，bounded walk + 失败全量重建约 60 行</td>
+</tr>
+<tr>
+<td>删除</td>
+<td><strong>C 固件</strong></td>
+<td>单槽清零，最简单</td>
+</tr>
+</tbody></table>
+
+<strong>代价</strong>（与模式 1 的对照，必须理解后再动笔）：模式 1 的保序搬移做到了"插入期间查找完全无感"；布谷鸟的 eviction <strong>做不到</strong>——被踢条目在找到新家之前是"无家"状态，此窗口内查它会 miss。这个固有代价被两条前提接受：①增删是人在网页上的低频操作；②窗口有界（≤8 跳 × 每跳 4 笔 SubBus 写 ≈ 32µs；受害者的读取查 C 侧影子镜像、不上总线，见 8.2/8.3）。契约 INV-C（1.2 节）把它写死。
+
+<h3 id="12-软件契约模式-2-正确性的根基必须写进-RTL-和-C-的注释">1.2 软件契约（模式 2 正确性的根基，必须写进 RTL 和 C 的注释）</h3>
+
+<pre><code>
+不变式 INV-A：任意有效条目必位于它的 2 个哈希候选槽之一：
+             entry(mac) 在槽 s ∈ { {0,h0(mac)}, {1,h1(mac)} }（槽位号编码见 1.4 细节 2）。
+不变式 INV-B（槽一致性）：槽 s={bank,row} 中的有效条目 mac 必满足 bank==0 ⇔ row==h0(mac)、
+             bank==1 ⇔ row==h1(mac)——即"住在哪，哪就是它的哈希位"。违反 = 该条目查不到。
+不变式 INV-C（并发弱化，替代模式 1 的 INV3）：插入/删除事务进行中（最坏 8 跳 × 4 笔写 ≈ 32µs）
+             个别查找允许瞬时 miss；**事务之外**任意时刻查找结果完整。
+
+</code></pre>
+
+<strong>谁维护谁消费</strong>：
+<ul>
+<li>C 固件是唯一写入方：插入算法（步骤 8.3）每一步落位都满足 INV-A/INV-B，bounded walk 保证 INV-C 的窗口上界；</li>
+<li>RTL 查找<strong>信任并利用</strong> INV-A：只读 2 个候选槽、全等比较即得结果；RTL <strong>不做</strong>哈希重算校验（不检查 INV-B），那是 C 的责任与 tb 的检查器职责（步骤 5.3）。</li>
+</ul>
+
+<h3 id="13-双哈希与-2-拍查找的硬件时序展开">1.3 双哈希与 2 拍查找的硬件时序展开</h3>
+
+<strong>两个哈希函数</strong>（本设计的精确定义，RTL 与 C 必须逐位一致，1.4 细节 1）：
+
+<pre><code>
+fold6(x[47:0]) = x[5:0] ^ x[11:6] ^ x[17:12] ^ x[23:18] ^ x[29:24] ^ x[35:30] ^ x[41:36] ^ x[47:42]
+                 （48bit 按 6bit 一段切成 8 段，全部异或 → 6bit）
+
+<p>h0(mac) = fold6(mac)                          —— 直接折叠<br>
+h1(mac) = fold6(字节序反转(mac))               —— 反转后同折叠：<br>
+          字节序反转(mac) = {mac[7:0], mac[15:8], mac[23:16], mac[31:24], mac[39:32], mac[47:40]}</p>
+
+</code></pre>
+
+<strong>存储</strong>：双 bank——bank0 按 h0 寻址、bank1 按 h1 寻址，各 64 槽（<code>ADDR_WIDTH=6</code>），物理 128 槽。一个 MAC 的两个候选槽 = bank0 的第 h0(mac) 行 + bank1 的第 h1(mac) 行，<strong>两行可并行读</strong>——这是 2 拍查找的物理基础。
+
+<strong>逐拍时序</strong>（图 1）：哈希是组合逻辑，<code>lookup_mac</code> 在 req 拍一到位，两个 bank 读地址<strong>当拍</strong>就上端口；BRAM 同步读 1 拍后数据有效，第二拍并行比较两个候选槽、锁存结果：
+
+<script type="WaveDrom">
+{ "signal": [
+    { "name": "clk(125M)",       "wave": "10P......." },
+    { "name": "lookup_req",      "wave": "10......." },
+    { "name": "bank0_rd_addr",   "wave": "34x.......",  "data": [ "h0(mac)", "0" ] },
+    { "name": "bank1_rd_addr",   "wave": "34x.......",  "data": [ "h1(mac)", "0" ] },
+    { "name": "bank0_q",         "wave": "x4x.......",  "data": [ "d(h0)" ] },
+    { "name": "bank1_q",         "wave": "x4x.......",  "data": [ "d(h1)" ] },
+    { "name": "lookup_done",     "wave": "010......." },
+    { "name": "lookup_match",    "wave": "010......." }
+], "head": { "text": "模式 2 布谷鸟哈希：req→done = 2 拍（双 bank 并行读，与条数无关）" },
+   "foot": { "text": "哈希组合产生，req 拍地址已上端口 → 下一拍数据有效即比较；查找路径无迭代、无 eviction 参与" } }
+
+</script>
+> <strong>图 1</strong> 布谷鸟哈希查找逐拍时序（自设计）。req 在拍 0，done 在拍 1 → <strong>2 拍 = 16ns</strong>，约为模式 0（18 拍）的 1/9、模式 1（10 拍）的 1/5。
+
+<strong>为什么不能再快</strong>：BRAM 同步读固有 1 拍延迟——req 拍发地址、下一拍才有数据。2 拍已是同步 BRAM 方案的物理下限（模式 1 附录 A 的"模式 2 哈希 2~3 拍"即指此）。
+
+<strong>性能对照</strong>：96 条目下顺序查找 98 拍（784ns，超 672ns 帧间隔，线速丢包）不可用、二分 ~12 拍可用，哈希恒 2 拍——这是本模式的存在意义（选型全景见附录 A）。
+
+<h3 id="14-五个硬件特有的关键细节最容易踩坑处逐条记住">1.4 五个硬件特有的关键细节（最容易踩坑处，逐条记住）</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>细节</th>
+<th>错误做法的后果</th>
+<th>正确做法</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>1</td>
+<td><strong>C 与 RTL 的哈希必须逐位一致</strong></td>
+<td>C 按 h0 写槽、RTL 按 h0' 查槽，错位 → 偶发 miss；对拍样本覆盖不到就漏网到上板</td>
+<td>fold6 只用整字移位异或（无乘法/查表），C 与 RTL 各写一份 + tb 500 次随机对拍兜底（1.2）；改动任一侧必须同步另一侧并重跑对拍</td>
+</tr>
+<tr>
+<td>2</td>
+<td><strong>槽位号编码含 bank 位</strong>：<code>slot[6:0] = {bank, row[5:0]}</code>（0~63=bank0，64~127=bank1）</td>
+<td>INDEX 只取低 4 位（seq 残留）或漏 bank 位 → 写 bank0 用 bank1 地址，条目"查无此地"</td>
+<td>RTL 译码 <code>bank = slot[6]</code>、<code>row = slot[5:0]</code>；C 侧槽位号统一用 7bit 全宽传递</td>
+</tr>
+<tr>
+<td>3</td>
+<td><strong>读地址必须在 req 拍就上端口</strong></td>
+<td>若学模式 1 加 ISSUE 拍装载 → 变 3 拍，"2 拍"断言失败</td>
+<td>哈希组合直驱：<code>assign bank0_rd_addr = (state==S_IDLE &amp;&amp; lookup_req) ? wl_hash0(lookup_mac) : 0;</code>（图 1，模式1-步骤3.2 教训的镜像）</td>
+</tr>
+<tr>
+<td>4</td>
+<td><strong>负载上限 75%</strong>：容量按 96 封顶，不是物理 128</td>
+<td>灌到 110+ 条：eviction 链急剧变长、8 跳失败率飙升、插入抖动</td>
+<td>C 侧 <code>sw_wl_count &gt;= WL_CAP(96)</code> 直接判满拒绝（步骤 8.3 第 2 条）；MAX_ENTRIES(0x0A) 返回 96 供 C 判读</td>
+</tr>
+<tr>
+<td>5</td>
+<td><strong>全零 MAC 禁止入表</strong>（继承模式 1 细节 3）</td>
+<td>49'b0 的无效条目与"MAC=0 的有效条目"混淆</td>
+<td>查找比较用 49bit 全等 <code>q == {1'b1, lookup_mac}</code>——valid 位并入比较；C 侧 add 开头拒绝全零</td>
+</tr>
+</tbody></table>
+
+<h3 id="15-特例行为">1.5 特例行为</h3>
+
+<ul>
+<li><strong>空表 lookup</strong>：两候选槽都读回 49'b0 → 49bit 全等必不命中 → 2 拍 miss，tb 必须覆盖；</li>
+<li><strong>eviction 的真正触发条件是"双槽皆占"</strong>：新条目的两个候选槽 {0,h0}、{1,h1} <strong>都被占</strong>才踢人（8.3 步骤 3 空位直达优先）。<strong>同 h0 冲突对本身不触发 eviction</strong>——只有两条时，第二条落进空闲的 h1 槽（R03 修正：初稿"同 h0 对第二条触发 1 跳 eviction"的说法与本模式插入算法自相矛盾）。最小触发场景是三条 MAC：p:(h0=A,h1=C)、q:(A,B)、x:(A,B)——q 与 x 同属一个 (h0,h1) 类，x 插入时两槽分别被 p/q 占住（构造方法见 模式2-步骤5.5，tb 覆盖见 6.1 用例 9）——这是本模式的招牌行为；</li>
+<li><strong>eviction 链</strong>：被踢者又把下一槽的主人踢出去 → 多跳连环 → 链上全部条目仍须命中、槽一致性不破（构造方法见 模式2-步骤5.5，用例 10）；</li>
+<li><strong>同一 (h0,h1) 类最多住 2 条</strong>：类内第 3 个成员的两个候选槽永远互相顶替（乒乓），插入必然 8 跳失败并回滚——这是容量物理约束，不是 bug（8.3 步骤 5 的回滚语义、常见错误表）。</li>
+</ul>
+
+<hr>
+
+<h2 id="第-2-章-框架机制要点回顾自包含">第 2 章 框架机制要点回顾（自包含）</h2>
+
+<p>> 本章把前置文档的公共机制压缩为执行本文所需的最小集合。更完整的链路图、逐拍波形、已知问题全文见模式 0/1 文档。</p>
+
+<h3 id="21-配置通路三特性模式0-12">2.1 配置通路三特性（模式0-§1.2）</h3>
+
+<p>C 固件经 LCPU 总线 → <code>reg_webserver</code>（SubBus 0x5000~0x5FFF 段译码）→ <code>ramintf</code> → 白名单 cfg 口（50MHz 域）。上游 LCPU 写/读时序见模式 0 文档图 1/图 2，cfg 口电平采样波形（图 2，与模式 0 文档图 3 同源）：</p>
+
+<script type="WaveDrom">
+{ "signal": [
+    { "name": "cfg_clk",        "wave": "10P......" },
+    { "name": "cfg_rlwh",       "wave": "01...0.." },
+    { "name": "cfg_addr[11:0]", "wave": "x.3...x.", "data": [ "0x003(WR)" ] },
+    {},
+    { "name": "bram_wr_en_r（译码加载）", "wave": "001110..." },
+    { "name": "BRAM+shadow 实际写口",     "wave": "001110..." }
+], "head": { "text": "cfg 口电平敏感写：rlwh 持续约 3 拍，同一笔写被译码 3 次" },
+   "foot": { "text": "写内容恒定 → 重复执行无害（幂等）。禁止边沿检测/计数式逻辑" } }
+
+</script>
+> <strong>图 2</strong> 白名单 cfg 口电平敏感写采样。与模式 0 文档图 3 同源（自设计）。
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>特性</th>
+<th>对 RTL/C 的要求</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>电平敏感写、无握手（rlwh 持续约 3 拍）</td>
+<td>RTL 所有写动作幂等（<code>*_r</code> 单拍脉冲结构）；C 每笔写走 <code>subbus_write()</code></td>
+</tr>
+<tr>
+<td>2</td>
+<td>C 侧每笔写后必须 flush（读 0x500A）</td>
+<td><code>subbus_write()</code> 内已实现；eviction 每一跳的每笔写都必须过它</td>
+</tr>
+<tr>
+<td>3</td>
+<td>BRAM 与 shadow_rf 双副本同步写</td>
+<td>每条写路径同拍写两存储；模式 2 的 shadow 扩为 128 深（开销见 6.3 问题 14）</td>
+</tr>
+</tbody></table>
+
+<h3 id="22-寄存器表与模式-2-语义差异SubBus-基址-0x5000">2.2 寄存器表与模式 2 语义差异（SubBus 基址 0x5000）</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>偏移</th>
+<th>名称</th>
+<th>模式 0/1 语义</th>
+<th><strong>模式 2 语义</strong></th>
+<th>RTL 改动</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>0x00</td>
+<td>INDEX</td>
+<td>wdata[3:0]/[6:0] 索引；bit31 附带删除</td>
+<td><strong>wdata[6:0] = 槽位号 {bank,row}</strong>；bit31 附带删除保留</td>
+<td>译码取位 4→7 位；写路由按 slot[6] 选 bank</td>
+</tr>
+<tr>
+<td>0x01/0x02</td>
+<td>MAC_H/L</td>
+<td>cfg_mac 暂存</td>
+<td>不变</td>
+<td>无</td>
+</tr>
+<tr>
+<td>0x03</td>
+<td>WR</td>
+<td>双副本写入 cfg_idx 槽</td>
+<td>不变（cfg_idx 已是 7bit 槽位号）</td>
+<td>写地址 = 槽位号映射到 (bank,row)</td>
+</tr>
+<tr>
+<td>0x04</td>
+<td>DEL</td>
+<td>双副本清零</td>
+<td>不变</td>
+<td>同上</td>
+</tr>
+<tr>
+<td>0x05</td>
+<td>CLEAR</td>
+<td>16/16 拍序列器</td>
+<td><strong>128 拍</strong>（clear_cnt 7bit，扫完全部物理槽）</td>
+<td>计数上限与位宽</td>
+</tr>
+<tr>
+<td>0x06/07/08</td>
+<td>RD_*</td>
+<td>读 shadow_rf[cfg_idx]</td>
+<td>不变（shadow 128 深）</td>
+<td>地址位宽</td>
+</tr>
+<tr>
+<td>0x09</td>
+<td>FREE_IDX</td>
+<td>首个空闲槽</td>
+<td><strong>哈希模式下无"线性首个空闲"概念，恒读 0x7F 占位，C 不使用</strong>（位置由哈希决定）</td>
+<td>常量输出</td>
+</tr>
+<tr>
+<td>0x0A</td>
+<td>MAX_ENTRIES</td>
+<td>恒 16</td>
+<td><strong>恒 96（设计容量，C 判满依据）</strong>；flush 读该地址的用法不变</td>
+<td>常量输出</td>
+</tr>
+<tr>
+<td>0x0B</td>
+<td>USED_CNT</td>
+<td>popcount(valid_bits)</td>
+<td>不变（valid_bits 扩为 128 位）</td>
+<td>链长</td>
+</tr>
+</tbody></table>
+
+<p>除上述位宽/常量差异外，寄存器行为与模式 0 完全一致（写入幂等、双副本同步、读组合零延迟）。</p>
+
+<h3 id="23-C-驱动现状INLINE_36">2.3 C 驱动现状（<code>c/whitelist.c</code>）</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>函数</th>
+<th>模式 2 改动</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>subbus_write()</code></td>
+<td>不变（<strong>所有 HW 写必须走它</strong>，内含 flush）</td>
+</tr>
+<tr>
+<td><code>sw_wl_*</code> 影子表</td>
+<td>扩为 128 槽，<strong>条目下标即槽位号</strong>（删除/查重/eviction 受害者查询全靠它，兼作槽位镜像免总线读，见 8.2）</td>
+</tr>
+<tr>
+<td><code>whitelist_add</code></td>
+<td><strong>替换主体</strong>：哈希定位 + bounded eviction（模式2-步骤8.3）</td>
+</tr>
+<tr>
+<td><code>whitelist_delete</code></td>
+<td><strong>替换主体</strong>：查槽位号单槽删除（模式2-步骤8.4）</td>
+</tr>
+<tr>
+<td><code>whitelist_apply_snapshot</code></td>
+<td>逐条走插入路径灌入——哈希表灌入顺序无关，<strong>无需排序</strong>（比模式 1 还简单，模式2-步骤8.6）</td>
+</tr>
+<tr>
+<td><code>whitelist_hw_read_entry / hw_diag / get</code></td>
+<td>不变（读 shadow_rf，槽位号语义）</td>
+</tr>
+</tbody></table>
+
+<h3 id="24-构建与烧录链同模式-0-17-模式-1-24">2.4 构建与烧录链（同模式 0 §1.7 / 模式 1 §2.4）</h3>
+
+<pre><code class="language-bash">
+cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cd c_build &amp;&amp; make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000 &amp;&amp; cd ..   # 固件
+cd build_xilinx_xc7a35tfgg484 &amp;&amp; ./build_fpga.sh &lt;4位hex版本&gt; &amp;&amp; cd ..             # bitstream
+openFPGALoader -c digilent_hs2 &lt;工程目录&gt;/&lt;同名&gt;.bit                                # 烧录
+vivado -mode batch -source scripts/load_firmware_vivado.tcl                        # 加载固件
+ping 192.168.1.88 &amp;&amp; curl http://192.168.1.88/                                     # 验证（应 200）
+
+</code></pre>
+
+<p>同一份 C 固件包含三模式逻辑（由 wl_status/编译期模式号区分行为）；切模式只重出 bitstream。<strong>注意</strong>：模式 2 的固件里 <code>WL_CAP=96</code> 与模式 0/1 的 16 并存——判满逻辑按 <code>MAX_ENTRIES(0x0A)</code> 读回值走，不要硬编码 16（模式2-步骤8.2）。</p>
+
+<hr>
+
+<h2 id="第-3-章-从零实现十步">第 3 章 从零实现十步</h2>
+
+<p>> 步骤依赖链：<strong>1 契约 → 2 骨架双bank → 3 哈希+查找 → 4 辅助/集成改动 → 5 tb搭建 → 6 L1仿真+回归 → 7 L2集成仿真 → 8 C哈希化 → 9 上板回归 → 10 并发/掉电/收官</strong>。每步六段：目的/前置条件/操作步骤/产出物/完成判据/常见错误。判据不过不进下一步。</p>
+
+<h3 id="步骤-1契约确认与规格落笔">步骤 1：契约确认与规格落笔</h3>
+
+<strong>目的</strong>：固化 INV-A/B/C 契约、哈希函数精确定义与容量参数——布谷鸟哈希的正确性完全建立在"每条目恰在 2 个候选槽"这条不变式上，先立契约后写码。
+
+<strong>前置条件</strong>：模式 0 已收官（必须）；模式 1 已收官（建议，参数化 tb 直接复用）。
+
+<strong>操作步骤</strong>：
+
+<strong>1.1</strong> 通读 1.1~1.5，确认理解：哈希在 RTL / eviction 在 C 的划分（1.1）、INV-A/B/C（1.2）、2 拍时序（1.3）、五个细节坑（1.4）、三个特例（1.5）。
+
+<strong>1.2</strong> 参数落笔（写进将新建模块的头注释）：
+
+<pre><code>
+BUCKET_NUM = 64（每 bank 槽数），ADDR_WIDTH = $clog2(64) = 6
+物理槽 = 2 bank × 64 = 128，槽位号 slot[6:0] = {bank, row[5:0]}
+设计容量 CAP = 96（负载 75% 上限，1.4 细节 4）
+MAX_EVICTION_HOPS = 8（插入踢人上限，超过走全量重建）
+查找周期 = 2 拍 = 16ns（图 1），与条数无关
+
+</code></pre>
+
+<strong>1.3</strong> 哈希函数定义（1.3 节的 fold6/h0/h1）抄录进头注释，标注"C 侧必须逐位复刻（模式2-步骤8.1）"。
+
+<strong>1.4</strong> 时序预算验算：2 拍 = 16ns ≪ 672ns 最小帧间隔，且与容量无关——即使未来扩到 512 条也线速安全（顺序查找 514 拍早已不可行）。
+
+<strong>产出物</strong>：契约要点记录（INV 原文 + 参数表 + 哈希定义）。
+
+<strong>完成判据</strong>：能不看文档复述：为什么查找是 2 拍、负载为什么限 75%、INV-C 与模式 1 INV3 的区别、槽位号怎么编码。
+
+<strong>常见错误</strong>：带着"模式 1 的保序直觉"来做哈希——两者并发契约不同（INV-C 弱于 INV3），步骤 10.1 的板测期望也不同。
+
+<h3 id="步骤-2复制与骨架改造双-bank-存储">步骤 2：复制与骨架改造（双 bank 存储）</h3>
+
+<strong>目的</strong>：以 seq 为起点建立 <code>mac_whitelist_cuckoo.v</code>——配置通路译码、幂等写结构、读 mux 风格全部继承（已由模式 0 验证），把存储扩为双 bank 并保持双副本同步写纪律。
+
+<strong>前置条件</strong>：模式2-步骤1 完成。
+
+<strong>操作步骤</strong>：
+
+<strong>2.1</strong> 复制文件并改名：
+
+<pre><code class="language-bash">
+cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cp rtl/mac_whitelist_seq.v rtl/mac_whitelist_cuckoo.v
+# 模块名 mac_whitelist_seq → mac_whitelist_cuckoo；头注释按步骤 1.2/1.3 重写
+
+</code></pre>
+
+<strong>改造对照清单</strong>（seq.v 的每个部件怎么处置，逐项过、防漏改；后文 2.2~2.5 与步骤 3/4 即按此展开）：
+
+<table class="md-table">
+<thead><tr>
+<th>seq.v 部件</th>
+<th>处置</th>
+<th>cuckoo.v 对应</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>参数 ENTRY_NUM/ADDR_WIDTH</td>
+<td><strong>替换</strong></td>
+<td>BUCKET_NUM=64 / ADDR_WIDTH=6 / CAPACITY=96（2.2）</td>
+</tr>
+<tr>
+<td><code>cfg_idx</code> [3:0]</td>
+<td><strong>扩位</strong></td>
+<td>[6:0]（槽位号 {bank,row}，细节 2）</td>
+</tr>
+<tr>
+<td><code>valid_bits</code> [15:0]</td>
+<td><strong>扩位</strong></td>
+<td>[127:0]（SLOTS=128）</td>
+</tr>
+<tr>
+<td><code>shadow_rf</code> [0:15]</td>
+<td><strong>扩位</strong></td>
+<td>[0:127]</td>
+</tr>
+<tr>
+<td><code>clear_cnt</code> [3:0]</td>
+<td><strong>扩位</strong></td>
+<td>[6:0]（CLEAR 扫 128 拍）</td>
+</tr>
+<tr>
+<td>单 BRAM <code>u_bram</code></td>
+<td><strong>替换</strong></td>
+<td>双 bank <code>u_bank0</code>/<code>u_bank1</code>（2.3）</td>
+</tr>
+<tr>
+<td>BRAM/shadow 写口 OR-mux</td>
+<td><strong>改造</strong></td>
+<td>按 <code>sel_bank1</code> 分配两 bank（2.4）</td>
+</tr>
+<tr>
+<td><code>free_idx</code> 生成链</td>
+<td><strong>整段删除</strong></td>
+<td>哈希模式无线性空闲；读 mux 0x09 改常量 0x7F（4.1/4.2）</td>
+</tr>
+<tr>
+<td><code>used_cnt</code> popcount 链</td>
+<td><strong>扩链长</strong></td>
+<td>SLOTS=128 级（4.1）</td>
+</tr>
+<tr>
+<td>三态查找 FSM</td>
+<td><strong>替换</strong></td>
+<td>两态 FSM + 组合哈希直驱（步骤 3）</td>
+</tr>
+<tr>
+<td>配置译码 always 块</td>
+<td><strong>保留+扩位</strong></td>
+<td>结构不动；INDEX 取 7bit（4.3）</td>
+</tr>
+<tr>
+<td>读 mux</td>
+<td><strong>保留+两常量</strong></td>
+<td>0x09→0x7F、0x0A→CAPACITY（4.2）</td>
+</tr>
+</tbody></table>
+
+<strong>2.2</strong> 参数与信号改造：
+
+<pre><code class="language-verilog">
+module mac_whitelist_cuckoo #(
+    parameter int BUCKET_NUM  = 64,
+    parameter int ADDR_WIDTH  = 6,    // $clog2(BUCKET_NUM)
+    parameter int CAPACITY    = 96    // 设计容量（负载 75%）
+) ( /* 端口四组与模式 0 完全一致（模式0-步骤2.1），照抄不改 */ );
+
+<p>// 存储信号（替换 seq 的 16 深版本）<br>
+localparam int SLOTS = BUCKET_NUM * 2;              // 128 物理槽<br>
+wire  [6:0]            slot      = cfg_idx;         // {bank, row[5:0]}——cfg_idx 已扩为 7bit<br>
+wire                   sel_bank1 = slot[6];         // ★ 细节 2<br>
+wire  [ADDR_WIDTH-1:0] row       = slot[ADDR_WIDTH-1:0];<br>
+reg   [SLOTS-1:0]      valid_bits;                  // 128 位<br>
+reg   [48:0]           shadow_rf [0:SLOTS-1];       // 128 深<br>
+reg   [6:0]            clear_cnt;                   // CLEAR 计数扩为 7bit（seq 为 4bit）</p>
+
+</code></pre>
+
+<p>（<code>cfg_idx</code> 位宽从 4bit 扩为 7bit；<code>valid_bits</code>/<code>shadow_rf</code>/<code>clear_cnt</code> 同步扩位——这是从 seq 复制后<strong>必须逐个改到</strong>的位宽清单。）</p>
+
+<strong>2.3</strong> 双 BRAM 实例（bank0/bank1 各一，写口 A=cfg_clk、读口 B=clk，与模式 0 同款 IP）：
+
+<pre><code class="language-verilog">
+dual_clock_simple_dual_port_ram #(
+    .data_width(49), .addr_width(ADDR_WIDTH), .depth(BUCKET_NUM),
+    .block_ram_size(32), .ram_type(`LARGER_RAM), .vendor(`DEVICE_VENDOR)
+) u_bank0 ( .clock_a(cfg_clk), .wren_a(bank0_wr_en), .data_a(bank0_wr_data),
+            .address_a(bank0_wr_addr), .clock_b(clk),
+            .address_b(bank0_rd_addr), .q_b(bank0_q) );
+// u_bank1 同款，信号换 bank1_*
+
+</code></pre>
+
+<strong>2.4</strong> 写路由（普通写 + CLEAR 序列器输出，按 sel_bank1 分配到两个 bank；<code>*_r</code> 暂存结构原样保留）：
+
+<pre><code class="language-verilog">
+wire clear_bank1 = clear_cnt[6];                    // CLEAR 扫描时的 bank 选择——来自计数器，不是 cfg_idx
+assign bank0_wr_en   = clear_active ? ~clear_bank1              : (bram_wr_en_r &amp; ~sel_bank1);
+assign bank1_wr_en   = clear_active ?  clear_bank1              : (bram_wr_en_r &amp;  sel_bank1);
+assign bank0_wr_addr = clear_active ? clear_cnt[ADDR_WIDTH-1:0] : row;
+assign bank1_wr_addr = bank0_wr_addr;               // row 对两 bank 位宽相同
+assign bank0_wr_data = clear_active ? 49'b0 : bram_wr_data_r;
+assign bank1_wr_data = bank0_wr_data;
+// shadow 写口仍单套：shadow_rf[slot]（7bit 索引天然区分 bank）
+
+</code></pre>
+
+<p>（CLEAR 期间 <code>clear_cnt[6]</code> 充当 bank 选择、低 6 位作行地址——序列器自然扫完整 128 槽。）</p>
+
+<strong>2.5</strong> shadow_rf 写读（同模式 0 结构，索引扩位）：
+
+<pre><code class="language-verilog">
+always @(posedge cfg_clk) if (sh_wr_en) shadow_rf[sh_wr_addr] &lt;= sh_wr_data;
+assign sh_rd_data = shadow_rf[sh_rd_addr];   // 组合读，零延迟
+
+</code></pre>
+
+<strong>2.6</strong> 编译检查（沿用仿真宏方案，模式0-步骤3.5 的 <code>sim/define.sv</code> 原样可用，注意 <code>-I sim</code>）：
+
+<pre><code class="language-bash">
+cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+iverilog -g2012 -o /dev/null -I sim \
+    sim/define.sv \
+    rtl/mac_whitelist_cuckoo.v \
+    ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
+
+</code></pre>
+
+<strong>产出物</strong>：<code>rtl/mac_whitelist_cuckoo.v</code> 骨架（双 bank 存储 + 扩位配置通路，可编译）。
+
+<strong>完成判据</strong>：2.6 命令 0 error、无 implicit wire 警告；grep 确认模块名唯一、无残留 <code>mac_whitelist_seq</code> 字样。
+
+<strong>常见错误</strong>：<code>valid_bits</code>/<code>shadow_rf</code>/<code>clear_cnt</code> 忘扩位（seq 残留 4bit）→ 高位槽全丢；CLEAR 计数只扫 bank0（clear_cnt 位宽不够或 bank 路由漏了 clear 分支）；两 bank 的写数据没接同一源（复制粘贴出 <code>bank1_wr_data_r</code> 幽灵信号）。
+
+<h3 id="步骤-3哈希函数与-2-拍查找逻辑模式-2-核心">步骤 3：哈希函数与 2 拍查找逻辑（模式 2 核心）</h3>
+
+<strong>目的</strong>：实现双哈希组合逻辑与两态查找 FSM。技术核心：哈希组合直驱读地址（req 拍即上端口，1.4 细节 3），下一拍并行比较两候选槽——49bit 全等把 valid 判断并入比较（1.4 细节 5）。
+
+<strong>前置条件</strong>：模式2-步骤2 完成。
+
+<strong>操作步骤</strong>：
+
+<strong>3.1</strong> 哈希函数（组合，XOR 折叠，精确按 1.3 定义）：
+
+<pre><code class="language-verilog">
+// fold6：48bit 按 6bit×8 段全异或（与 C 侧 wl_fold() 逐位一致，模式2-步骤8.1）
+function [ADDR_WIDTH-1:0] wl_fold(input [47:0] x);
+    wl_fold = x[5:0] ^ x[11:6] ^ x[17:12] ^ x[23:18]
+            ^ x[29:24] ^ x[35:30] ^ x[41:36] ^ x[47:42];
+endfunction
+function [ADDR_WIDTH-1:0] wl_hash0(input [47:0] mac);
+    wl_hash0 = wl_fold(mac);
+endfunction
+function [ADDR_WIDTH-1:0] wl_hash1(input [47:0] mac);
+    wl_hash1 = wl_fold({mac[7:0], mac[15:8], mac[23:16],   // 字节序反转后同折叠
+                        mac[31:24], mac[39:32], mac[47:40]});
+endfunction
+
+</code></pre>
+
+<strong>3.2</strong> 读地址组合直驱（★ 细节 3——学模式 1 加 ISSUE 拍就变 3 拍）：
+
+<pre><code class="language-verilog">
+assign bank0_rd_addr = (state == S_IDLE &amp;&amp; lookup_req) ? wl_hash0(lookup_mac) : {ADDR_WIDTH{1'b0}};
+assign bank1_rd_addr = (state == S_IDLE &amp;&amp; lookup_req) ? wl_hash1(lookup_mac) : {ADDR_WIDTH{1'b0}};
+// 命中比较：49bit 全等，valid 位并入（无效条目 49'b0 永不命中——全零 MAC 禁入契约兜底）
+wire hit_comb = (bank0_q == {1'b1, lookup_mac}) || (bank1_q == {1'b1, lookup_mac});
+
+</code></pre>
+
+<strong>3.3</strong> 两态 FSM 本体（替换 seq 的三态 FSM）：
+
+<pre><code class="language-verilog">
+// ============================================================
+// Cuckoo-hash lookup FSM (125MHz) — 信任 INV-A（每条目恰在 2 候选槽之一）
+//   IDLE(req 拍，哈希地址已上端口) → DONE(数据有效，并行比较，锁存)
+//   req→done = 2 拍，与条数无关；无迭代（图 1）
+// ============================================================
+localparam S_IDLE=2'd0, S_DONE=2'd1;
+
+<p>always @(posedge clk or negedge reset_l) begin<br>
+    if (!reset_l) begin<br>
+        state&lt;=S_IDLE; lookup_match&lt;=0; lookup_done&lt;=0;<br>
+    end else begin<br>
+        lookup_done &lt;= 1'b0;<br>
+        case (state)<br>
+        S_IDLE: if (lookup_req) state &lt;= S_DONE;      // 地址本拍已在端口上<br>
+        S_DONE: begin<br>
+            lookup_match &lt;= whitelist_en ? hit_comb : default_pass;  // 兜底语义同模式 0/1<br>
+            lookup_done  &lt;= 1'b1;<br>
+            state        &lt;= S_IDLE;<br>
+        end<br>
+        default: state &lt;= S_IDLE;<br>
+        endcase<br>
+    end<br>
+end<br>
+assign lookup_busy = (state != S_IDLE);</p>
+
+</code></pre>
+
+<strong>3.4</strong> 逐拍自查——对照图 1 走查：拍 0（IDLE，req=1）哈希地址已上两 bank 读口 → 拍 1（DONE）<code>bank*_q</code> 有效、<code>hit_comb</code> 并行比较、锁存 match、拉 done。<strong>周期数验算：req 拍 0、done 拍 1 → 2 拍</strong> ✓（与 1.4 预算闭环）。
+
+<strong>产出物</strong>：哈希 + 查找逻辑。<strong>RTL 查找路径全部完成。</strong>
+
+<strong>完成判据</strong>：模块编译 0 error；对照图 1 能逐拍指出代码动作；能解释为什么这里<strong>不需要</strong>模式 1 的 ISSUE 态（地址是组合产生，不是上一拍算出来的寄存器值）。
+
+<strong>常见错误</strong>：照抄模式 1 的 <code>mid</code> 直驱结构反而不适配（二分地址依赖比较结果必须寄存，哈希地址组合可得必须当拍直驱——两模式的"直驱"含义不同）；<code>hit_comb</code> 用 48bit 比较（丢 valid 位）→ 全零槽误命中；done 拍地址仍保持哈希值（本设计在 DONE 拍回 0，无影响——数据是寄存器输出，但别把它当"地址仍在读"的依据）。
+
+<h3 id="步骤-4辅助逻辑改造与集成freeused读-muxtop-分支filelist">步骤 4：辅助逻辑改造与集成（free/used、读 mux、top 分支、filelist）</h3>
+
+<strong>目的</strong>：完成辅助组合逻辑的扩位与模式 2 语义适配，接通 top 的 MODE=2 分支（替换预留 placeholder），让 MODE=2 可被编译。
+
+<strong>前置条件</strong>：模式2-步骤3 完成。
+
+<strong>操作步骤</strong>：
+
+<strong>4.1</strong> used_cnt 扩位（popcount 链结构不变，128 级；free_idx 整段<strong>删除</strong>——哈希模式无线性空闲概念）：
+
+<pre><code class="language-verilog">
+// used_cnt：generate 加法器链 popcount（结构与模式0-步骤5.2 相同，SLOTS=128）
+wire [7:0] used_cnt_partial [SLOTS:0];
+assign used_cnt_partial[0] = 8'd0;
+generate for (gi = 0; gi &lt; SLOTS; gi = gi+1) begin : g_pop
+    assign used_cnt_partial[gi+1] = used_cnt_partial[gi] + {7'b0, valid_bits[gi]};
+end endgenerate
+wire [7:0] used_cnt_comb = used_cnt_partial[SLOTS];
+
+</code></pre>
+
+<strong>4.2</strong> 读 mux 适配（结构同模式0-步骤5.3，两处常量差异）：
+
+<pre><code class="language-verilog">
+    (!cfg_rlwh &amp;&amp; rd_reg==4'h0) ? {25'b0, cfg_idx} :     // 7bit 槽位号
+    ...
+    (!cfg_rlwh &amp;&amp; rd_reg==4'h9) ? 32'h0000_007F :        // FREE_IDX：哈希模式占位 0x7F
+    (!cfg_rlwh &amp;&amp; rd_reg==4'hA) ? CAPACITY :             // MAX_ENTRIES：96
+    (!cfg_rlwh &amp;&amp; rd_reg==4'hB) ? {24'b0, used_cnt_comb} :
+
+</code></pre>
+
+<strong>4.3</strong> INDEX 译码扩位（配置 always 块内）：<code>cfg_idx &lt;= cfg_wdata[6:0];</code>（原 [3:0]）；bit31 附带删除分支同步取 7 位；WR/DEL 分支的 <code>cfg_idx</code> 天然已是 7bit 槽位号。
+
+<strong>4.4</strong> <code>rtl/mac_whitelist_top.v</code>：把模式 1 收窄后的 <code>g_mode_placeholder</code>（60~66 行）替换为真实分支（连线照抄 <code>g_mode_seq</code> 分支 39~59 行，模块名换 <code>mac_whitelist_cuckoo</code>；<strong>参数表不同</strong>——BUCKET_NUM/CAPACITY 替代 ENTRY_NUM/ADDR_WIDTH，对照 2.2 节传参）：
+
+<pre><code class="language-verilog">
+    end else if (LOOKUP_MODE == 2) begin : g_mode_cuckoo
+        mac_whitelist_cuckoo #(...) u_lookup (...);  // 替换 placeholder
+    end else begin : g_mode_placeholder              // 保留给未来模式
+
+</code></pre>
+
+<strong>4.5</strong> <code>build_xilinx_xc7a35tfgg484/filelist.cfg</code> 加一行：<code>../rtl/mac_whitelist_cuckoo.v</code>。
+
+<strong>4.6</strong> <code>wl_status</code> 未驱动修复（本模式职责）。现状：<code>webserver_wrapper.v</code> 168 行声明 <code>wl_status</code>（[7:0]=lookup_mode，[15:8]=used_cnt），480 行连进 reg_webserver（0x301，Web <code>/api/wl/status</code> 的 lookup_mode 字段），但全工程无驱动、读回恒 0——不修则 G5 第 1 项无法验收。二选一：
+
+<pre><code class="language-verilog">
+// 方案 a（最小改动）：wrapper 里直接 assign 常量模式号
+assign wl_status = {8'b0, 8'd2};            // LOOKUP_MODE=2
+
+<p>// 方案 b（完整，推荐）：模式号 + 实时条目数一并上报，Web 状态栏两字段都有值。<br>
+// ① 两个查找引擎各加一根输出口（8bit 足够 128 槽）：<br>
+//    mac_whitelist_cuckoo.v / mac_whitelist_seq.v 端口表末尾加：<br>
+output [7:0] used_cnt_o<br>
+//    模块体内：<br>
+assign used_cnt_o = used_cnt_comb;<br>
+// ② mac_whitelist_top.v：端口表加 output [7:0] wl_used_cnt_o，<br>
+//    g_mode_seq / g_mode_cuckoo 两个分支各加一行透传：<br>
+//      .used_cnt_o(wl_used_cnt_o)<br>
+//    （placeholder 分支给常量 8'h0 兜底：assign wl_used_cnt_o = 8'h0;）<br>
+// ③ webserver_wrapper.v：u_mac_wl 例化连上 .wl_used_cnt_o(wl_used_cnt)，然后：<br>
+wire [7:0] wl_used_cnt;                     // 168 行 wl_status 声明附近<br>
+assign wl_status = {wl_used_cnt, 8'd2};     // [15:8]=used_cnt，[7:0]=lookup_mode<br>
+//   → tcp.c 的 status 接口已在读 wl_status，无需改 C</p>
+
+</code></pre>
+
+<p>（若模式 1 路线已实施过方案 b，本步只需把模式号字节改为 2。）本步 wrapper 模式号<strong>不改</strong>（保持 1139 行 <code>.LOOKUP_MODE(0)</code>，上板才切）。</p>
+
+<strong>产出物</strong>：改造后的 <code>mac_whitelist_cuckoo.v</code>、<code>mac_whitelist_top.v</code>、<code>filelist.cfg</code>。
+
+<strong>完成判据</strong>：top 级 <code>iverilog -g2012 -o /dev/null</code> 语法自查无新增 error（三模式分支都过 elaboration）；grep <code>wl_status</code> 有驱动源。
+
+<strong>常见错误</strong>：mode2 分支连线漏根（对照 mode0 分支逐根抄）；删 free_idx 时把读 mux 里 0x09 分支一起删了（要改成常量 0x7F，不是消失）；<code>CAPACITY</code> 参数忘进读 mux（0x0A 仍读 16 → C 判满逻辑错位）。
+
+<h3 id="步骤-5参数化单元-tb-搭建MODE2-接入">步骤 5：参数化单元 tb 搭建（MODE=2 接入）</h3>
+
+<strong>目的</strong>：把模式 1 建立的参数化 tb 框架扩展到 MODE=2，并增加布谷鸟特有部件：C 侧哈希副本（金模型内复算 h0/h1）、槽一致性检查器（INV-B 的机器裁判）。
+
+<strong>前置条件</strong>：模式2-步骤4 完成；<code>sim/tb_mac_whitelist_seq.sv</code> 存在（模式0-步骤7 产物）。
+
+<strong>操作步骤</strong>：
+
+<strong>5.1</strong> 新建 <code>sim/tb_mac_whitelist_cuckoo.sv</code>，两条路线二选一：
+
+<ul>
+<li><strong>主线（从模式 0 派生）</strong>：以 <code>sim/tb_mac_whitelist_seq.sv</code>（模式0-步骤7 产物）为模板，DUT 例化用 <strong><code>-D CUCKOO</code> 编译期宏开关</strong>双模（R03 起，替代早期 <code>-P</code> 参数方案——宏分支允许两个模式各自连不同的 DUT 模块文件，回归时只换文件清单不改动 tb）；</li>
+<li><strong>省事路线（仅当模式 1 已实现）</strong>：在 <code>sim/tb_mac_whitelist_bin.sv</code>（模式1-步骤5 产物）上加 <code>CUCKOO → mac_whitelist_cuckoo</code> 分支，机制相同。</li>
+</ul>
+
+<p>时钟/复位/SubBus 写任务/查找任务全部照抄模式 0 tb（模式0-步骤7.1 骨架、7.2 的 <code>subbus_wr</code> 与 <code>do_lookup</code>——<code>do_lookup</code> 的周期计数约定三模式统一）。DUT 双模例化与公共常量：</p>
+
+<pre><code>
+`ifdef CUCKOO
+localparam integer EXP_CYC = 2;        // 模式 2 分水岭断言：==2（5.4）
+`else
+localparam integer EXP_CYC = 18;       // MODE=0 回归：==18（并入模式 1 路线时为 ≤10）
+`endif
+
+<p>`ifdef CUCKOO<br>
+mac_whitelist_cuckoo #(<br>
+    .BUCKET_NUM(64), .ADDR_WIDTH(6), .CAPACITY(96)<br>
+) dut (<br>
+    /* 端口四组与模式 0 tb 完全一致（模式0-步骤7.1 骨架），模块名与参数替换 */<br>
+);<br>
+`else<br>
+mac_whitelist_seq dut (<br>
+    /* 与模式 0 tb 原样 */<br>
+);<br>
+`endif</p>
+
+</code></pre>
+
+<strong>5.2</strong> 金模型（<strong>无序集合</strong>，哈希表无序，比模式 1 的有序模型更简单）+ tb 哈希副本 + tb 侧插入/删除驱动。三段职责：<code>model_*</code> 是独立对照基准；<code>tb_fold/tb_h0/tb_h1</code> 是 RTL 哈希副本；<code>tb_cuckoo_add/tb_cuckoo_del</code> 按 8.3 算法经 <code>subbus_wr</code> 落笔（<strong>tb 无 C 固件，插入驱动就是它</strong>——L1 全部用例与 L2 用例 7 共用，同时是 8.3 C 实现的行为参照）：
+
+<pre><code>
+// ── 金模型：无序集合（定长数组+计数；iverilog 对 SV 队列 model[$] 支持不全，不用队列）──
+longint unsigned model_mac [0:127];    // ★ 48bit MAC 必须 64bit 容器（int unsigned 是 32bit，会截断）
+integer          model_cnt;
+
+<p>function automatic integer model_lookup(input longint unsigned mac);<br>
+    integer i;<br>
+    begin<br>
+        model_lookup = 0;<br>
+        for (i = 0; i &lt; model_cnt &amp;&amp; model_lookup == 0; i = i + 1)<br>
+            if (model_mac[i] == mac) model_lookup = 1;<br>
+    end<br>
+endfunction<br>
+task automatic model_add(input longint unsigned mac);<br>
+    begin<br>
+        if (!model_lookup(mac)) begin model_mac[model_cnt] = mac; model_cnt = model_cnt + 1; end<br>
+    end<br>
+endtask<br>
+task automatic model_del(input longint unsigned mac);<br>
+    integer i, j;<br>
+    begin<br>
+        for (i = 0; i &lt; model_cnt; i = i + 1)<br>
+            if (model_mac[i] == mac) begin<br>
+                model_mac[i] = model_mac[model_cnt-1];     // 无序集合：与末位交换即删<br>
+                model_cnt = model_cnt - 1;<br>
+                i = model_cnt;                             // 结束循环（已删除，勿再扫）<br>
+            end<br>
+    end<br>
+endtask</p>
+
+</code></pre>
+
+<pre><code>
+// ── RTL 哈希副本（必须与 RTL wl_fold/wl_hash0/wl_hash1、C 侧 wl_fold 逐位一致，1.4 细节 1）
+// ★ 48bit 运算必须用 64bit 容器——R03 修正：初稿 int unsigned（32bit）正犯了本文常见错误表第 1 条
+function automatic integer tb_fold(input longint unsigned x);
+    integer i, r;
+    begin
+        r = 0;
+        for (i = 0; i &lt; 8; i = i + 1) r = r ^ ((x &gt;&gt; (6*i)) &amp; 64'h3F);
+        tb_fold = r;
+    end
+endfunction
+function automatic longint unsigned tb_bswap48(input longint unsigned x);  // 6 字节序反转
+    begin
+        tb_bswap48 = ((x &amp; 64'h0000000000FF) &lt;&lt; 40) | ((x &amp; 64'h00000000FF00) &lt;&lt; 24)
+                   | ((x &amp; 64'h000000FF0000) &lt;&lt; 8)  | ((x &amp; 64'h0000FF000000) &gt;&gt; 8)
+                   | ((x &amp; 64'h00FF00000000) &gt;&gt; 24) | ((x &amp; 64'hFF0000000000) &gt;&gt; 40);
+    end
+endfunction
+function automatic integer tb_h0(input longint unsigned mac);  tb_h0 = tb_fold(mac);          endfunction
+function automatic integer tb_h1(input longint unsigned mac);  tb_h1 = tb_fold(tb_bswap48(mac)); endfunction
+
+</code></pre>
+
+<pre><code>
+// ── tb 侧槽位镜像（与 C 侧 sw_wl_* 同构：条目下标即槽位号）──
+reg [47:0] tb_slot_mac   [0:127];
+reg        tb_slot_valid [0:127];
+integer    tb_add_hops, tb_add_ret;      // 最近一次 add 的跳数（含最终落位）与返回槽位
+reg        tb_cap_reject, tb_add_fail;
+// 回滚快照（模块级，供 tb_cuckoo_add 的失败路径用；快照数组不放 task 内——
+// iverilog 对 task 局部数组支持不全）
+reg        snap_valid [0:127];
+reg [47:0] snap_mac   [0:127];
+integer    snap_cnt, i_snap;
+
+<p>task automatic tb_hw_write_slot(input [6:0] slot, input [47:0] mac);   // 4 笔写，全过 subbus_wr<br>
+    begin<br>
+        subbus_wr(12'h500, {24'b0, slot});        // 0x00 INDEX（cfg_addr = 0x5000 段内 12bit）<br>
+        subbus_wr(12'h501, mac[47:16]);           // 0x01 MAC_H<br>
+        subbus_wr(12'h502, {16'b0, mac[15:0]});   // 0x02 MAC_L<br>
+        subbus_wr(12'h503, 32'h1);                // 0x03 WR 触发<br>
+    end<br>
+endtask</p>
+
+<p>task automatic tb_hw_clear_and_wait;               // CLEAR(0x05) + 等 128 拍序列器（配置域）<br>
+    integer w;<br>
+    begin<br>
+        subbus_wr(12'h505, 32'h1);<br>
+        for (w = 0; w &lt; 150; w = w + 1) @(posedge cfg_clk);   // 128 拍 + 裕量<br>
+    end<br>
+endtask</p>
+
+<p>task automatic tb_cuckoo_add(input longint unsigned mac);              // 行为等同 8.3<br>
+    reg [6:0] s0, s1, tgt, s_tmp;<br>
+    reg [47:0] cur, victim;<br>
+    integer bank, hop, placed;<br>
+    begin<br>
+        // ★ 槽位号只能用算术合成，禁止 {1'b?, tb_h*()} 位拼接——tb_h* 返回 32bit<br>
+        //   integer，33bit 拼接赋给 7bit 时截断会丢掉 bank 位（R03 实测抓出的坑）<br>
+        s0 = tb_h0(mac);            // bank0 槽号 = h0（0~63）<br>
+        s1 = 64 + tb_h1(mac);       // bank1 槽号 = 64 + h1（64~127）<br>
+        tb_add_hops = 0; tb_add_ret = 7'h7F; tb_cap_reject = 0; tb_add_fail = 0; placed = 0;<br>
+        if (model_cnt &gt;= 96) begin<br>
+            tb_cap_reject = 1;                                              // 步骤 2 判满（1.4 细节 4）<br>
+        end else if ((tb_slot_valid[s0] &amp;&amp; tb_slot_mac[s0] == mac)<br>
+                  || (tb_slot_valid[s1] &amp;&amp; tb_slot_mac[s1] == mac)) begin<br>
+            model_add(mac);                                                 // 步骤 1 查重幂等<br>
+        end else if (!tb_slot_valid[s0]) begin                              // 步骤 3 空位直达 h0<br>
+            tb_hw_write_slot(s0, mac[47:0]);<br>
+            tb_slot_valid[s0] = 1; tb_slot_mac[s0] = mac[47:0]; model_add(mac);<br>
+            tb_add_ret = s0; placed = 1;<br>
+        end else if (!tb_slot_valid[s1]) begin                              // 空位直达 h1（不踢人！）<br>
+            tb_hw_write_slot(s1, mac[47:0]);<br>
+            tb_slot_valid[s1] = 1; tb_slot_mac[s1] = mac[47:0]; model_add(mac);<br>
+            tb_add_ret = s1; placed = 1;<br>
+        end else begin                                                      // 步骤 4 双槽皆占 → eviction<br>
+            cur = mac[47:0]; bank = 0;<br>
+            tb_add_ret = s0;                                                // ★ x 恒落首跳的 bank0 槽 s0（同 8.3）<br>
+            for (i_snap = 0; i_snap &lt; 128; i_snap = i_snap + 1) begin       // 失败回滚快照（8.3 同构）<br>
+                snap_valid[i_snap] = tb_slot_valid[i_snap];<br>
+                snap_mac[i_snap]   = tb_slot_mac[i_snap];<br>
+            end<br>
+            snap_cnt = model_cnt;<br>
+            for (hop = 0; hop &lt; 8 &amp;&amp; !placed; hop = hop + 1) begin<br>
+                tgt = (bank == 0) ? tb_h0(cur) : 64 + tb_h1(cur);           // 本跳流浪者的目标槽<br>
+                if (!tb_slot_valid[tgt]) begin                              // 流浪者找到空位 → 完成<br>
+                    tb_hw_write_slot(tgt, cur);<br>
+                    tb_slot_valid[tgt] = 1; tb_slot_mac[tgt] = cur; model_add(cur);<br>
+                    tb_add_hops = hop + 1; placed = 1;                      // （tb_add_ret 已定为 s0）<br>
+                end else begin<br>
+                    victim = tb_slot_mac[tgt];                              // ★ 先存受害者再覆盖<br>
+                    tb_hw_write_slot(tgt, cur);<br>
+                    tb_slot_mac[tgt] = cur; model_add(cur);<br>
+                    cur  = victim;<br>
+                    bank = 1 - bank;                                        // ★ 交替 bank（防乒乓，8.3 核心）<br>
+                end<br>
+            end<br>
+            if (!placed) begin                                              // 步骤 5 回滚（与 8.3 C 一致）<br>
+                tb_hw_clear_and_wait;                                       // DUT 128 槽全清<br>
+                for (i_snap = 0; i_snap &lt; 128; i_snap = i_snap + 1) begin<br>
+                    tb_slot_valid[i_snap] = 0; tb_slot_mac[i_snap] = 48'b0; // 影子同步全清<br>
+                end<br>
+                for (i_snap = 0; i_snap &lt; 128; i_snap = i_snap + 1) begin<br>
+                    if (snap_valid[i_snap]) begin                           // 按快照原槽直接写回（无冲突）<br>
+                        s_tmp = i_snap[6:0];<br>
+                        tb_hw_write_slot(s_tmp, snap_mac[i_snap]);<br>
+                        tb_slot_valid[i_snap] = 1; tb_slot_mac[i_snap] = snap_mac[i_snap];<br>
+                    end<br>
+                end<br>
+                model_cnt = snap_cnt;                                       // 集合无序，截断计数即可<br>
+                tb_add_fail = 1;<br>
+            end<br>
+        end<br>
+    end<br>
+endtask</p>
+
+<p>task automatic tb_cuckoo_del(input [6:0] slot);<br>
+    reg [47:0] m;<br>
+    begin<br>
+        if (tb_slot_valid[slot]) begin<br>
+            m = tb_slot_mac[slot];<br>
+            subbus_wr(12'h500, {1'b1, 24'b0, slot});   // INDEX | bit31：一笔带删（2.2 语义）<br>
+            tb_slot_valid[slot] = 0; tb_slot_mac[slot] = 48'b0;<br>
+            model_del(m);<br>
+        end<br>
+    end<br>
+endtask</p>
+
+</code></pre>
+
+<strong>5.3</strong> 槽一致性检查器（INV-B 机器裁判，每次 add/del 事务后调用）+ 两级对表。辅助函数此前未给出定义（R03 补齐）：
+
+<pre><code>
+// DUT 槽内容读取（层次引用；双模下实例名同为 dut）
+function automatic integer dut_slot_valid(input integer s);
+    dut_slot_valid = dut.valid_bits[s];
+endfunction
+function automatic longint unsigned dut_slot_mac(input integer s);
+    dut_slot_mac = dut.shadow_rf[s][47:0];
+endfunction
+function automatic integer tb_h0_slot(input longint unsigned m);  tb_h0_slot = tb_h0(m);        endfunction
+function automatic integer tb_h1_slot(input longint unsigned m);  tb_h1_slot = 64 + tb_h1(m);   endfunction
+
+<p>// 裁判 1：INV-B——任意有效条目必住在它的哈希槽（遍历 128 槽，违例即停并报槽号）<br>
+task automatic check_slot_consistency;<br>
+    integer s, h0s, h1s;<br>
+    longint unsigned m;<br>
+    begin<br>
+        for (s = 0; s &lt; 128; s = s + 1) begin<br>
+            if (dut_slot_valid(s)) begin<br>
+                m   = dut_slot_mac(s);<br>
+                h0s = tb_h0_slot(m);<br>
+                h1s = tb_h1_slot(m);<br>
+                if (s != h0s &amp;&amp; s != h1s)<br>
+                    $fatal(1, "INV-B violated: slot=%0d mac=%h (its slots: %0d/%0d)", s, m, h0s, h1s);<br>
+            end<br>
+        end<br>
+    end<br>
+endtask</p>
+
+<p>// 裁判 2：tb 镜像 ↔ DUT 实际存储全量对表（抓"写丢/写错槽"）<br>
+task automatic check_dut_vs_mirror;<br>
+    integer s;<br>
+    begin<br>
+        for (s = 0; s &lt; 128; s = s + 1) begin<br>
+            if (dut_slot_valid(s) != tb_slot_valid[s]<br>
+                || (tb_slot_valid[s] &amp;&amp; dut_slot_mac(s) != tb_slot_mac[s]))<br>
+                $fatal(1, "DUT/mirror mismatch at slot %0d", s);<br>
+        end<br>
+    end<br>
+endtask</p>
+
+<p>// 裁判 3（随机对拍用）：金模型集合 ↔ tb 镜像逐条对表（抓"算法把条目弄丢"）<br>
+task automatic check_model_vs_mirror;<br>
+    integer i, s_loop, found;<br>
+    begin<br>
+        for (i = 0; i &lt; model_cnt; i = i + 1) begin<br>
+            found = 0;<br>
+            for (s_loop = 0; s_loop &lt; 128 &amp;&amp; !found; s_loop = s_loop + 1)<br>
+                if (tb_slot_valid[s_loop] &amp;&amp; tb_slot_mac[s_loop] == model_mac[i]) found = 1;<br>
+            if (!found) $fatal(1, "model entry %h lost in mirror", model_mac[i]);<br>
+        end<br>
+    end<br>
+endtask</p>
+
+</code></pre>
+
+<strong>5.4</strong> 周期数断言：每个查找用例统一 <code>do_lookup(mac, hit, cyc);</code> 后断言 <code>cyc == EXP_CYC</code>（<code>-D CUCKOO</code> 时 EXP_CYC=2，回归时 18——计数约定见模式0-步骤7.2；若并入模式 1 路线，其语义为 <code>cyc &lt;= 10</code>）。<strong>周期数断言是三模式共用的分水岭：18 / ≤10 / ==2。</strong>
+
+<strong>5.5</strong> 冲突构造搜索（布谷鸟用例 9/10 的定向 MAC 从哪来）。思路：仿真 0 时刻对固定前缀族 <code>SCAN_BASE + k</code> 做 (h0,h1) 直方图，64×64=4096 个类、65536 样本下平均每类 ~16 个成员——任意"取两个同类成员/取同 h0 异 h1 的邻居类"都绰绰有余：
+
+<pre><code>
+localparam longint unsigned SCAN_BASE = 48'hC0_00_00_00_00_00;  // 扫描族基址（避开全零即可）
+localparam integer SCAN_N = 65536;
+
+<p>integer         pair_cnt_a [0:63][0:63];     // (h0,h1) 类计数<br>
+longint unsigned pair_mac0 [0:63][0:63];     // 每类第 1 个成员<br>
+longint unsigned pair_mac1 [0:63][0:63];     // 每类第 2 个成员（用例 9 要同类两条）</p>
+
+<p>function automatic longint unsigned find_pair(input integer hh0, input integer hh1, input integer which);<br>
+    begin<br>
+        if (pair_cnt_a[hh0][hh1] &gt; which) find_pair = which ? pair_mac1[hh0][hh1] : pair_mac0[hh0][hh1];<br>
+        else find_pair = 64'b0;<br>
+    end<br>
+endfunction<br>
+function automatic integer find_h1_populated(input integer hh0, input integer skip1, input integer skip2);<br>
+    integer j;                                                  // hh0 行里第一个 ∉{skip1,skip2} 且类成员≥2 的 h1<br>
+    begin<br>
+        find_h1_populated = -1;<br>
+        for (j = 0; j &lt; 64 &amp;&amp; find_h1_populated &lt; 0; j = j + 1)<br>
+            if (pair_cnt_a[hh0][j] &gt;= 2 &amp;&amp; j != skip1 &amp;&amp; j != skip2) find_h1_populated = j;<br>
+    end<br>
+endfunction<br>
+function automatic integer find_h0_populated(input integer hh1, input integer skip1, input integer skip2);<br>
+    integer j;                                                  // hh1 列里第一个 ∉{skip1,skip2} 且类成员≥2 的 h0<br>
+    begin<br>
+        find_h0_populated = -1;<br>
+        for (j = 0; j &lt; 64 &amp;&amp; find_h0_populated &lt; 0; j = j + 1)<br>
+            if (pair_cnt_a[j][hh1] &gt;= 2 &amp;&amp; j != skip1 &amp;&amp; j != skip2) find_h0_populated = j;<br>
+    end<br>
+endfunction</p>
+
+<p>task automatic search_collision_macros;      // initial 块 0 时刻调用一次<br>
+    integer k, h0v, h1v;<br>
+    longint unsigned m;<br>
+    begin<br>
+        for (k = 0; k &lt; 64; k = k + 1)<br>
+            for (h1v = 0; h1v &lt; 64; h1v = h1v + 1) pair_cnt_a[k][h1v] = 0;<br>
+        for (k = 1; k &lt;= SCAN_N; k = k + 1) begin<br>
+            m = SCAN_BASE + k;<br>
+            h0v = tb_h0(m);  h1v = tb_h1(m);<br>
+            if (pair_cnt_a[h0v][h1v] == 0) pair_mac0[h0v][h1v] = m;<br>
+            else if (pair_cnt_a[h0v][h1v] == 1) pair_mac1[h0v][h1v] = m;<br>
+            pair_cnt_a[h0v][h1v] = pair_cnt_a[h0v][h1v] + 1;<br>
+        end<br>
+        $display("[TB] collision scan done (%0d samples / 4096 classes)", SCAN_N);<br>
+    end<br>
+endtask</p>
+
+</code></pre>
+
+<strong>用例 9/10 的取料配方</strong>（R03 实测修订：<strong>六类必须互异</strong>——若 (F,B) 与 (D,E) 撞成同一类，t/w 会取到同一个 MAC，第二次插入被查重分支吞掉、链就搭不起来。保证手段：A/D/F 两两不同即可推出六类互异）：
+
+<pre><code>
+A = 0;                                  // 任取
+B = find_h1_populated(A, -1, -1);       // A 行第一个成员≥2 的类
+C = find_h1_populated(A,  B, -1);       // C ≠ B
+D = find_h0_populated(C,  A, -1);       // D ≠ A
+E = find_h1_populated(D,  C,  B);       // E ∉ {C,B}：终端槽 {1,E} 必须空闲，否则链成环
+F = find_h0_populated(B,  A,  D);       // F ∉ {A, D}：保证六类互异（t/w 不取到同一 MAC）
+H = find_h1_populated(F,  B, -1);       // H ≠ B
+
+</code></pre>
+
+<table class="md-table">
+<thead><tr>
+<th>用例</th>
+<th>取料</th>
+<th>插入序</th>
+<th>期望</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>9 双槽皆占</td>
+<td><code>p=find_pair(A,C,0)</code>、<code>q=find_pair(A,B,0)</code>、<code>x=find_pair(A,B,1)</code></td>
+<td>p→q→x</td>
+<td>x 插入时 {0,A}=p、{1,B}=q 双占 → 踢 p（1 次），p 落 {1,C}；<strong>tb_add_hops==2</strong>；p/q/x 全命中</td>
+</tr>
+<tr>
+<td>10 链式 3 踢</td>
+<td><code>g=find_pair(F,H,0)</code>、<code>t=find_pair(F,B,0)</code>、<code>w=find_pair(D,E,0)</code>、<code>v=find_pair(D,C,0)</code>、<code>s=find_pair(A,C,0)</code>、<code>x=find_pair(A,B,1)</code></td>
+<td>g→t→w→v→s→x</td>
+<td>x 插入双占 → 踢 s→踢 v→踢 w，w 落 {1,E}；<strong>tb_add_hops==4（3 踢+1 落）</strong>；6 条全命中</td>
+</tr>
+</tbody></table>
+
+<p>（原理：链式构造里每个"被踢者"的另一侧恰好被下一个类成员占住——(A,C) 的 bank1 被 (D,C) 占、(D,C) 的 bank0 被 (D,E) 占、(D,E) 的 bank1 空闲；A/D/F 互异保证 s/w/g 各自 h0 直达落位、t 被 g 顶进 bank1。任一返回值 <0 说明 65536 样本不够，增大 SCAN_N 或换 SCAN_BASE 重跑。）</p>
+
+<strong>产出物</strong>：<code>sim/tb_mac_whitelist_cuckoo.sv</code>（MODE=0/1/2 三模式可跑）。
+
+<strong>完成判据</strong>：<code>MODE=2</code> 编译运行通过（框架跑通即可）；人为注入一次槽违例确认 5.3 检查器能报错（裁判先验有效）。
+
+<strong>常见错误</strong>：tb 哈希副本用了 32bit 运算截断 48bit MAC → 与 RTL 不一致、对拍大面积 mismatch（先修副本再查 RTL）；槽位号用 <code>{1'b1, h1}</code> 位拼接——<code>tb_h*</code> 返回 32bit integer，33bit 拼接赋 7bit 时截断丢 bank 位、条目全落 bank0（用 <code>64 + h1</code> 算术，R03 实测踩过）；检查器只在插入后调用、删除后不调 → INV-B 违例漏检。
+
+<h3 id="步骤-6L1-仿真MODE2-全用例-三模式回归">步骤 6：L1 仿真——MODE=2 全用例 + 三模式回归</h3>
+
+<strong>目的</strong>：14 用例覆盖布谷鸟全路径（双槽皆占、eviction 链、负载上限）+ 500 次随机对拍（同时验证哈希一致性）；MODE=0/1 重跑证明共用代码没被改坏。Gate G2。<strong>通用纪律</strong>：每个 add/del 事务后依次调三裁判（check_slot_consistency / check_dut_vs_mirror / check_model_vs_mirror，5.3）。
+
+<strong>前置条件</strong>：模式2-步骤5 完成。
+
+<strong>操作步骤</strong>：
+
+<strong>6.1</strong> 实现用例矩阵（14 条）：
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>用例</th>
+<th>期望</th>
+<th>备注</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>写 3 条（分别落在 h0 槽 / h1 槽 / 触发 1 跳 eviction）→ 逐条查找</td>
+<td>全命中</td>
+<td>三条落位路径各覆盖一次</td>
+</tr>
+<tr>
+<td>2</td>
+<td>查未添加 MAC</td>
+<td>miss（2 拍）</td>
+<td>—</td>
+</tr>
+<tr>
+<td>3</td>
+<td>DEL 一条 → 再查它/其余</td>
+<td>该条 miss，其余仍 hit</td>
+<td>—</td>
+</tr>
+<tr>
+<td>4</td>
+<td>CLEAR → 查任意 + 读 USED_CNT</td>
+<td>miss，0x0B=0</td>
+<td>128 拍序列器</td>
+</tr>
+<tr>
+<td>5</td>
+<td>灌满至 CAP=96 → 全部命中；再拒第 97 条</td>
+<td>96 hit + 判满</td>
+<td>负载上限（1.4 细节 4）</td>
+</tr>
+<tr>
+<td>6</td>
+<td>en=0 + default_pass 两态</td>
+<td>match 恒=default_pass</td>
+<td>—</td>
+</tr>
+<tr>
+<td>7</td>
+<td><strong>周期数断言</strong></td>
+<td>==2</td>
+<td>三模式分水岭</td>
+</tr>
+<tr>
+<td>8</td>
+<td>busy 期间再发 req</td>
+<td>第二笔正常完成不丢</td>
+<td>—</td>
+</tr>
+<tr>
+<td>9</td>
+<td><strong>双槽皆占触发 eviction</strong>：按 5.5 配方取 p/q/x（p:(A,C)、q:(A,B)、x:(A,B)），按 p→q→x 插入</td>
+<td>x 触发 1 次踢人（<strong>tb_add_hops==2</strong>），p/q/x 全命中，三裁判通过</td>
+<td>1.5 特例；注意 p→q 阶段<strong>无</strong> eviction（q 落 h1 空槽）</td>
+</tr>
+<tr>
+<td>10</td>
+<td><strong>eviction 链</strong>：按 5.5 配方取 g/t/w/v/s/x 六条，按序插入</td>
+<td>x 触发 3 踢+1 落（<strong>tb_add_hops==4</strong>），6 条全命中，槽一致性检查器通过</td>
+<td>1.5 特例</td>
+</tr>
+<tr>
+<td>11</td>
+<td><strong>金模型随机对拍 500 次</strong>（add/del/lookup 随机混合，含 CAP 边界；tb_cuckoo_add 驱动，MAC 从 SCAN 族取）</td>
+<td>0 mismatch + INV-B 全程通过（三裁判每事务后调用）；允许个别 <code>tb_add_fail</code>（同 (h0,h1) 类第 3 个成员被拒），但拒绝后表内容必须与回滚前一致</td>
+<td>核心校验，顺带验证 C/RTL 哈希一致</td>
+</tr>
+<tr>
+<td>12</td>
+<td>空表 lookup</td>
+<td>done=1、match=0、2 拍</td>
+<td>1.5 特例</td>
+</tr>
+<tr>
+<td>13</td>
+<td>槽违例注入（tb 直接写错槽）→ 查该 MAC</td>
+<td>miss + 检查器报警</td>
+<td>INV-B 可诊断性</td>
+</tr>
+<tr>
+<td>14</td>
+<td>同一 MAC 加两次</td>
+<td>返回同一槽位，条目数不涨</td>
+<td>C 层查重（模式1-步骤9.3 同款语义）</td>
+</tr>
+</tbody></table>
+
+<strong>6.2</strong> 跑 CUCKOO 模（全部 14 条）：
+
+<pre><code class="language-bash">
+cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+iverilog -g2012 -s tb_mac_whitelist_cuckoo -o tb_ck.vvp -I sim -D CUCKOO \
+    sim/define.sv \
+    sim/tb_mac_whitelist_cuckoo.sv \
+    rtl/mac_whitelist_cuckoo.v \
+    ../ip_common/rtl/dual_clock_simple_dual_port_ram.v
+vvp tb_ck.vvp
+
+</code></pre>
+
+<p>（<code>-s</code> 指定根模块：BRAM 模型自带的自测 tb 会被一并 elaborate 并在 299ns <code>$finish</code> 掐死真 tb，见模式0-步骤3.5/第 3 章。MODE=0 回归时 <code>-s</code> 不变，去掉 <code>-D CUCKOO</code>、换 seq.v。）</p>
+
+<strong>6.3</strong> 跑 MODE=0 回归（用例 1~8，共用代码验证）：iverilog 命令行里去掉 <code>-D CUCKOO</code>、<code>rtl/mac_whitelist_cuckoo.v</code> 换 <code>rtl/mac_whitelist_seq.v</code>，其余不变。若模式 1 已实现，追加 MODE=1 回归。
+
+<strong>产出物</strong>：三份全 PASS 的仿真记录（对拍 mismatch=0、INV-B 违例=0）。
+
+<strong>完成判据</strong>：MODE=2 14 用例全过 + 500 对拍 0 mismatch（G2）；MODE=0/1 回归全过（G2b）。
+
+<strong>常见错误</strong>：随机 MAC 生成空间太小 → 冲突对/eviction 链路径覆盖不到（构造用例 9/10 的定向 MAC 段补覆盖）；用例 5 只验证"能加到 96"没验证"第 97 条被拒"→ 判满逻辑漏测；对拍只在命中侧比对（同模式 1 教训，miss 样本占一半）。
+
+<h3 id="步骤-7L2-集成仿真cuckoo-cpu_channel_tri">步骤 7：L2 集成仿真——cuckoo × cpu_channel_tri</h3>
+
+<strong>目的</strong>：沿用集成 tb（<code>sim/tb_wl_integration.sv</code>，模式0-步骤8）验证链路在哈希引擎下成立，并验证 INV-C 窗口的实际影响可接受。Gate G3。
+
+<strong>前置条件</strong>：模式2-步骤6 全过（G2/G2b）。
+
+<strong>操作步骤</strong>：
+
+<strong>7.1</strong> tb 双模扩展：给 <code>sim/tb_wl_integration.sv</code>（模式0-步骤8 产物）加与 5.1 相同的 <code>-D CUCKOO</code> 宏开关，DUT1 例化按宏选择 seq/cuckoo（端口连线两边完全一致，只换模块名与参数）；iverilog 文件清单里 <code>rtl/mac_whitelist_seq.v</code> 换 <code>rtl/mac_whitelist_cuckoo.v</code> 并加 <code>-s tb_wl_integration -I sim -D CUCKOO</code>（其余 <code>../ip_common/rtl/</code> 文件不变，完整清单见模式0-步骤8.3）。<strong>tb 无 C 固件，白名单的增删由 tb 自驱</strong>：直接复用 5.2 的 <code>tb_cuckoo_add/tb_cuckoo_del</code> 任务（它们经 subbus_wr 写 DUT1 的 cfg 口，行为等同 8.3 的 C 实现）。
+
+<strong>7.2</strong> 回归双跑：MODE=0/2 各 6 用例过（哈希模式周期断言改 <code>==2</code>，沿用 EXP_CYC 机制）；模式 1 已实现时追加 MODE=1。
+
+<strong>7.3</strong> 模式 2 特有加测一条：
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>用例</th>
+<th>期望</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>7</td>
+<td>cpu_channel_tri 侧持续喂帧（已入表 MAC），tb 同时驱动 DUT1 连续 add 触发 eviction 链</td>
+<td>evicted 条目在被搬走窗口内允许 ≤2 帧 miss（INV-C 窗口），eviction 完成后恢复命中；无死等 done、无挂死</td>
+</tr>
+</tbody></table>
+
+<p>用例 7 的驱动结构（fork 两路并发；add 侧按 5.5 配方连续插同 (h0,h1) 类成员制造连环踢）：</p>
+
+<pre><code>
+fork
+    begin : frame_storm                    // 路 1：持续喂已入表 MAC 的帧
+        repeat (200) send_frame(MAC_ALREADY_IN_TABLE);
+    end
+    begin : eviction_storm                 // 路 2：eviction 高发插入
+        repeat (10) tb_cuckoo_add(next_trio_member());   // 5.5 配方连取同类/邻类成员
+    end
+join
+check_slot_consistency;                    // 收官三裁判：INV-A/B 未破、无条目丢失
+check_dut_vs_mirror;  check_model_vs_mirror;
+
+</code></pre>
+（<code>next_trio_member()</code> = 按配方顺序从 5.5 直方图取下一成员的取料函数；断言要点：<strong>喂帧路不得因 cfg 口写入而挂死</strong>——SubBus 写事务与包流在不同时钟域各自独立，这正是 L2 要验证的并发面。）
+
+<strong>产出物</strong>：三模式 L2 全 PASS 的仿真记录。
+
+<strong>完成判据</strong>：三模式各 6 用例 + 特有用例 7 全过 → G3 绿。<strong>G1~G3 全绿后才允许步骤 9 上板。</strong>
+
+<strong>常见错误</strong>：特有用例 7 把"eviction 窗口内 miss"写成断言失败 → 期望值写错（INV-C 允许瞬时 miss，断言应为"窗口结束后恢复"）；三跑只跑了 MODE=2（共用代码回归缺失）。
+
+<h3 id="步骤-8C-驱动哈希化INLINE_144">步骤 8：C 驱动哈希化（<code>c/whitelist.c</code>）</h3>
+
+<strong>目的</strong>：C 侧实现哈希副本、bounded eviction 插入、单槽删除、无序灌入快照——维护 INV-A/B 并保证 INV-C 的窗口上界。函数签名不变，上层零改动。
+
+<strong>前置条件</strong>：模式2-步骤7 全过（G3）。
+
+<strong>操作步骤</strong>：
+
+<strong>8.1</strong> 新增哈希副本与槽位工具（与 RTL <code>wl_fold/wl_hash0/wl_hash1</code> <strong>逐位一致</strong>，1.4 细节 1）：
+
+<pre><code class="language-c">
+// ★ 与 RTL wl_fold() 逐位一致：48bit 按 6bit×8 段全异或
+static uint8 wl_fold(uint64 x) {
+    return (uint8)((x &amp; 0x3FULL) ^ ((x &gt;&gt; 6)  &amp; 0x3FULL) ^ ((x &gt;&gt; 12) &amp; 0x3FULL)
+                 ^ ((x &gt;&gt; 18) &amp; 0x3FULL) ^ ((x &gt;&gt; 24) &amp; 0x3FULL) ^ ((x &gt;&gt; 30) &amp; 0x3FULL)
+                 ^ ((x &gt;&gt; 36) &amp; 0x3FULL) ^ ((x &gt;&gt; 42) &amp; 0x3FULL));
+}
+static uint64 wl_mac_u64(const uint8 mac[6]) {          // 6 字节拼 48bit（大端，高 16bit 为 0）
+    return ((uint64)mac[0] &lt;&lt; 40) | ((uint64)mac[1] &lt;&lt; 32) | ((uint64)mac[2] &lt;&lt; 24)
+         | ((uint64)mac[3] &lt;&lt; 16) | ((uint64)mac[4] &lt;&lt; 8)  |  (uint64)mac[5];
+}
+static uint64 wl_bswap48(uint64 x) {                    // 48bit 字节序反转（对应 RTL {mac[7:0],…,mac[47:40]}）
+    return ((x &amp; 0x0000000000FFULL) &lt;&lt; 40)              // b0 → b5
+         | ((x &amp; 0x00000000FF00ULL) &lt;&lt; 24)              // b1 → b4
+         | ((x &amp; 0x000000FF0000ULL) &lt;&lt; 8)               // b2 → b3
+         | ((x &amp; 0x0000FF000000ULL) &gt;&gt; 8)               // b3 → b2
+         | ((x &amp; 0x00FF00000000ULL) &gt;&gt; 24)              // b4 → b1
+         | ((x &amp; 0xFF0000000000ULL) &gt;&gt; 40);             // b5 → b0
+}
+static uint8  wl_hash0_of(const uint8 mac[6]) { return wl_fold(wl_mac_u64(mac)); }
+static uint8  wl_hash1_of(const uint8 mac[6]) { return wl_fold(wl_bswap48(wl_mac_u64(mac))); }
+static int    wl_is_zero_mac(const uint8 mac[6]) {
+    return (mac[0]|mac[1]|mac[2]|mac[3]|mac[4]|mac[5]) == 0;    // 全零 MAC 禁入（1.4 细节 5）
+}
+#define WL_SLOT(bank, row)  ((uint8)(((bank) &lt;&lt; 6) | (row)))    // 槽位号 {bank,row[5:0]}
+#define WL_CAP              96                                  // 设计容量 = 负载 75%（1.4 细节 4）
+#define MAX_EVICTION_HOPS   8
+
+<p>// HW 写/删一条（结构继承模式 0 的 subbus_write 纪律，INDEX 参数为 7bit 槽位号）<br>
+static void wl_hw_write_entry(uint8 slot, const uint8 mac[6]) {<br>
+    uint32 mac_h = ((uint32)mac[0]&lt;&lt;24)|((uint32)mac[1]&lt;&lt;16)|((uint32)mac[2]&lt;&lt;8)|mac[3];<br>
+    uint32 mac_l = ((uint32)mac[4]&lt;&lt;8)|mac[5];<br>
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32)slot);<br>
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_H, mac_h);<br>
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_MAC_L, mac_l);<br>
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_WR, 1);<br>
+}<br>
+static void wl_hw_delete_entry(uint8 slot) {<br>
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, 0x80000000u | (uint32)slot);<br>
+}</p>
+
+</code></pre>
+
+<strong>8.2</strong> 影子表扩容改造（<strong>条目下标即槽位号</strong>——128 个下标天然区分 bank， eviction 的受害者读取只查这里的镜像、不上总线，这是 1.1 节 32µs 窗口估算的前提）：
+
+<pre><code class="language-c">
+/* C 侧影子表 = 双重身份：Web 显示/持久化的权威数据源 + 槽位内容镜像（ victim 查询免总线）。
+ * 下标 0~63 = bank0 槽，64~127 = bank1 槽；sw_wl_valid[slot]=1 即该槽住着 sw_wl_mac[slot] */
+static uint8 sw_wl_valid[128];      // 扩展自模式 0 的 [16]
+static uint8 sw_wl_mac[128][6];
+static uint8 sw_wl_count;           // 有效条目数（≤ WL_CAP）
+
+</code></pre>
+
+<p>判满改用 <code>MAX_ENTRIES(0x0A)</code> 读回值（=96）与 <code>WL_CAP</code> 宏双保险，<strong>不得硬编码 16</strong>（2.4 节）。原模式 0 的"找空闲槽"语义整体废弃（FREE_IDX 已是占位 0x7F，6.3 问题 15）。</p>
+
+<strong>8.3</strong> 有界 eviction 插入（替换 <code>whitelist_add</code> 主体）。算法骨架（R03 定稿，<strong>交替 bank 是防乒乓的关键</strong>）：
+
+<div class="mermaid">
+flowchart TD
+    A["add(mac)"] --> B{"全零 MAC?"} -->|是| R1["return -1"]
+    B -->|否| C{"count >= WL_CAP(96)?"} -->|是| R2["return -1 判满"]
+    C -->|否| D["s0={0,h0}, s1={1,h1}"]
+    D --> E{"s0/s1 已住同一 MAC?"} -->|是| R3["return 该槽（幂等查重）"]
+    E -->|否| F{"s0 空?"} -->|是| P0["直落 s0, count++, return s0"]
+    F -->|否| G{"s1 空?"} -->|是| P1["直落 s1, count++, return s1"]
+    G -->|否| H["保存全表快照 saved[]（≤96 条）<br/>cur=mac, bank=0"]
+    H --> I{"hop < 8 ?"}
+    I -->|否| RB["回滚：CLEAR + 按 saved 逐槽直接写回<br/>（不走 eviction，必然无冲突）<br/>return -1"]
+    I -->|是| J["tgt = WL_SLOT(bank, h_bank(cur))"]
+    J --> K{"tgt 空?"} -->|是| OK["cur 入住 tgt<br/>影子同步, count++, return tgt"]
+    K -->|否| KICK["victim = 镜像[tgt]（先存后覆）<br/>cur 写入 tgt（HW+影子）<br/>cur = victim, bank = 1-bank"] --> I
+
+</div>
+> <strong>图 3</strong> 布谷鸟插入（含 bounded eviction 与失败回滚）流程。自设计。
+
+<p>完整 C 实现（<strong>每笔 HW 写都过 <code>wl_hw_write_entry</code>，内含 flush</strong>；受害者读取只查 8.2 镜像、不上总线）：</p>
+
+<pre><code class="language-c">
+/* 返回值：成功 = 落位槽位号（0~127）；失败 = -1。
+ * 不变式：本函数每一跳落位都满足 INV-B（cur 永远被放进它自己的哈希槽）；
+ *         任意退出路径（成功/判满/回滚）都保证 INV-A/INV-B 对全表成立。 */
+int whitelist_add(uint8 mac[6])
+{
+    uint8  s0 = WL_SLOT(0, wl_hash0_of(mac));
+    uint8  s1 = WL_SLOT(1, wl_hash1_of(mac));
+    uint8  cur[6], victim[6], tgt;
+    uint8  saved_mac[WL_CAP][6], saved_slot[WL_CAP];    // 进入 eviction 前的快照
+    uint8  saved_cnt, i;
+    int    bank, hop, placed;
+
+<p>if (wl_is_zero_mac(mac)) return -1;                 // 0. 全零拒绝（1.4 细节 5）<br>
+    if (sw_wl_count &gt;= WL_CAP)  return -1;              // 2. 判满（1.4 细节 4）<br>
+    if (sw_wl_valid[s0] &amp;&amp; !memcmp(sw_wl_mac[s0], mac, 6)) return s0;   // 1. 查重（幂等）<br>
+    if (sw_wl_valid[s1] &amp;&amp; !memcmp(sw_wl_mac[s1], mac, 6)) return s1;</p>
+
+<p>/* 3. 空位直达：任一候选槽空即落位（优先 h0）——不踢人 */<br>
+    if (!sw_wl_valid[s0] || !sw_wl_valid[s1]) {<br>
+        tgt = sw_wl_valid[s0] ? s1 : s0;<br>
+        wl_hw_write_entry(tgt, mac);<br>
+        sw_wl_valid[tgt] = 1;  memcpy(sw_wl_mac[tgt], mac, 6);<br>
+        sw_wl_count++;<br>
+        return tgt;<br>
+    }</p>
+
+<p>/* 4. 双槽皆占 → bounded eviction。<br>
+     * ★ 交替 bank：受害者刚被从 bank b 侧的槽踢出，按 INV-B 该槽恰是它 bank b 侧的<br>
+     *   候选槽——它唯一没试过的家就是 bank 1-b 侧的哈希槽。固定只试一侧 = 回到刚被<br>
+     *   踢出的槽 = 与踢它的人乒乓到 8 跳耗尽（R03 修正点，勿改回）。 */<br>
+    saved_cnt = 0;<br>
+    for (i = 0; i &lt; 128; i++)<br>
+        if (sw_wl_valid[i]) { saved_slot[saved_cnt] = i; memcpy(saved_mac[saved_cnt], sw_wl_mac[i], 6); saved_cnt++; }</p>
+
+<p>memcpy(cur, mac, 6);  bank = 0;  placed = 0;<br>
+    tgt = s0;                           /* ★ 新 MAC 恒在首跳写入自己的 bank0 槽 s0——<br>
+                                         *   返回值认它，而非循环里最后一个流浪者的落槽<br>
+                                         *   （R03 实测修正：原写法 return 会张冠李戴） */<br>
+    for (hop = 0; hop &lt; MAX_EVICTION_HOPS &amp;&amp; !placed; hop++) {<br>
+        uint8 cur_tgt = (bank == 0) ? WL_SLOT(0, wl_hash0_of(cur))<br>
+                                    : WL_SLOT(1, wl_hash1_of(cur));<br>
+        if (!sw_wl_valid[cur_tgt]) {                    // 流浪者找到空位 → 完成<br>
+            wl_hw_write_entry(cur_tgt, cur);<br>
+            sw_wl_valid[cur_tgt] = 1;  memcpy(sw_wl_mac[cur_tgt], cur, 6);<br>
+            sw_wl_count++;  placed = 1;<br>
+        } else {<br>
+            memcpy(victim, sw_wl_mac[cur_tgt], 6);      // ★ 先存受害者，再覆盖<br>
+            wl_hw_write_entry(cur_tgt, cur);            // cur 入住自己的哈希槽<br>
+            memcpy(sw_wl_mac[cur_tgt], cur, 6);         // 影子同拍同步（valid 不变）<br>
+            memcpy(cur, victim, 6);                     // 受害者成为新流浪者<br>
+            bank = 1 - bank;                            // ★ 只能去另一侧（INV-B 推论）<br>
+        }<br>
+    }</p>
+
+<p>/* 5. 8 跳失败 → 回滚：CLEAR 后按快照逐槽直接写回（原布局本就满足 INV-A/B，<br>
+     *    直接落位无冲突，必然恢复一致），新 MAC 拒绝。R03 修正：初稿"重建重试 1 次"<br>
+     *    在 walk 中途改写过 HW/影子，语义不确定；快照回滚才是严格一致的退出。 */<br>
+    if (!placed) {<br>
+        wl_hw_clear_all_and_wait();                         // CLEAR(0x05) + 等待 128 拍序列器（同 whitelist_clear_all）<br>
+        memset(sw_wl_valid, 0, sizeof(sw_wl_valid));  sw_wl_count = 0;<br>
+        for (i = 0; i &lt; saved_cnt; i++) {<br>
+            wl_hw_write_entry(saved_slot[i], saved_mac[i]);<br>
+            sw_wl_valid[saved_slot[i]] = 1;  memcpy(sw_wl_mac[saved_slot[i]], saved_mac[i], 6);<br>
+            sw_wl_count++;<br>
+        }<br>
+        return -1;<br>
+    }<br>
+    return tgt;                                             // 6. 影子已同步、count 已增<br>
+}</p>
+
+</code></pre>
+
+<p>（每轮 <code>wl_hw_write_entry(cur_tgt, cur)</code> 都把 cur 放在它自己的哈希槽 → INV-B 逐步成立；被踢者至多流浪 1 轮 → INV-C 窗口 ≤8 跳 × 每跳 4 笔写 ≈ 32µs。踢人次数 ≤ MAX_EVICTION_HOPS−1，循环总写入 ≤ 8×4=32 笔。）</p>
+
+<strong>8.4</strong> 删除（替换 <code>whitelist_delete</code> 主体；<strong>保持 <code>inc/whitelist.h</code> 原函数签名不变</strong>，Web 层传来的 index 即槽位号——<code>/api/wl/list</code> 按槽位顺序枚举，添加返回值即槽位号，三者自洽）：
+
+<pre><code class="language-c">
+int whitelist_delete(uint8 slot)                    /* 以头文件实际形参为准 */
+{
+    if (slot &gt;= 128 || !sw_wl_valid[slot]) return -1;
+    wl_hw_delete_entry(slot);                       /* INDEX|bit31 一笔带删（8.1，含 flush） */
+    sw_wl_valid[slot] = 0;
+    memset(sw_wl_mac[slot], 0, 6);
+    sw_wl_count--;
+    return 0;
+}
+
+</code></pre>
+
+<strong>不再需要模式 1 的保序搬移</strong>（哈希表无顺序）。
+
+<strong>8.5</strong> 并发窗口注释（写进 add 注释，INV-C 落实）：插入含 eviction 时，被踢条目在安家前查不到（≤32µs）；本设计接受该窗口，理由见模式2-§1.1 代价段。若上游将来要求零窗口，方案是"插入前临时 en=0"——与模式 1 文档 3.3 节取舍同款二选一，注释里写清所选。
+
+<strong>8.6</strong> 快照灌入（<code>whitelist_apply_snapshot</code>）：Flash 格式零改动；读回后<strong>逐条走 8.3 插入路径</strong>灌入——哈希表落位由哈希决定、与顺序无关，<strong>无需排序</strong>（比模式 1 简单）：
+
+<pre><code class="language-c">
+for (i = 0; i &lt; snap_cnt; i++)
+    whitelist_add(snap_mac[i]);        /* 返回值忽略不可取：需检查 &lt;0 并计数，失败超限则中止灌入 */
+
+</code></pre>
+
+<code>whitelist_clear_all</code> 不变（CLEAR 序列器 128 拍 RTL 原样；C 侧等待方式与模式 0 相同）。8.3 回滚路径复用它的等待逻辑（<code>wl_hw_clear_all_and_wait</code> 即"写 CLEAR + 等 128 拍"的封装）。
+
+<strong>8.7</strong> 重编固件：
+
+<pre><code class="language-bash">
+cd c_build &amp;&amp; make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000
+
+</code></pre>
+
+<strong>产出物</strong>：哈希化后的 <code>c/whitelist.c</code> + 新固件。
+
+<strong>完成判据</strong>：编译 0 warning；C 的 <code>wl_fold</code> 与 tb 副本对同一组 100 个随机 MAC 输出逐一相同（可写个临时对拍小脚本，或在 tb 用例 11 已覆盖）；代码走查 8.3 的 0~6 步序号无遗漏（<strong>含快照回滚路径</strong>）；注释含 INV-C 窗口声明。
+
+<strong>常见错误</strong>：C 侧槽位号传 4bit 截断（bank 位丢失 → 全写进 bank0）；eviction 循环里先读后写顺序颠倒（受害者先被覆盖再读 → 条目凭空消失，对拍必抓）；8 跳失败直接返回 -1 而不按快照回滚 → HW/影子停在 walk 中间态（INV-A 破坏，后续全部错乱）；回滚写回没走 <code>wl_hw_write_entry</code>（绕过 flush → 中间条目丢失）；每跳固定只试同一侧 → 乒乓（见第 4 章首行）。
+
+<h3 id="步骤-9模式切换烧录与功能回归">步骤 9：模式切换、烧录与功能回归</h3>
+
+<strong>目的</strong>：切 MODE=2 出 bit 上板，5 项功能回归全过。Gate G4/G5 主体。
+
+<strong>前置条件</strong>：模式2-步骤8 完成（G1~G3 已绿）。
+
+<strong>操作步骤</strong>：
+
+<strong>9.1</strong> 模式切换与构建：<code>webserver_wrapper.v:1139</code> <code>.LOOKUP_MODE(0)</code> → <code>(2)</code>，然后：
+
+<pre><code class="language-bash">
+cd build_xilinx_xc7a35tfgg484 &amp;&amp; ./build_fpga.sh 0003 &amp;&amp; cd ..
+# timing report：u_ila_ 前缀的已知违例忽略（模式0 文档 5.3 问题 1）
+# 留意 shadow_rf 128 深的大 mux 是否引入新违例——有则回查读 mux 层级（6.3 问题 14）
+
+</code></pre>
+
+<strong>9.2</strong> 烧录加载（同模式1-步骤9.2；固件含三模式逻辑，随 bit 一起生效）：
+
+<pre><code class="language-bash">
+openFPGALoader -c digilent_hs2 webserver_xilinx_xc7a35tfgg484_v0003_&lt;时间戳&gt;/webserver_xilinx_xc7a35tfgg484_v0003_&lt;时间戳&gt;.bit
+vivado -mode batch -source scripts/load_firmware_vivado.tcl
+ping 192.168.1.88 &amp;&amp; curl http://192.168.1.88/    # 基础连通，应 200
+
+</code></pre>
+
+<strong>9.3</strong> 功能回归 5 项：
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>项</th>
+<th>操作</th>
+<th>期望</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>1</td>
+<td>模式号上报</td>
+<td><code>curl /api/wl/status</code></td>
+<td><code>"lookup_mode":2</code>（wl_status 模式号）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>列表与过滤</td>
+<td>Web 加 3 条 → 过滤正/反测</td>
+<td>3 条过滤行为正确；<code>/api/wl/list</code> 显示为<strong>槽位号顺序</strong>（哈希表无排序语义——与模式 1 的升序不同，属预期）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>容量边界</td>
+<td>灌到 96 条后拒第 97 条</td>
+<td>Web 提示表满，<code>/api/wl/hwlist</code> 条目数 96</td>
+</tr>
+<tr>
+<td>4</td>
+<td>defpass 两态</td>
+<td>切换全断/全放</td>
+<td>同模式 0</td>
+</tr>
+<tr>
+<td>5</td>
+<td>幂等重复添加</td>
+<td>同一 MAC 加两次</td>
+<td>返回同一槽位，条目数不涨</td>
+</tr>
+</tbody></table>
+
+<strong>产出物</strong>：MODE=2 的 <code>.bit</code>、功能回归 5 项记录。
+
+<strong>完成判据</strong>：9.3 五项全过。
+
+<strong>常见错误</strong>：忘改 LOOKUP_MODE 或只重烧旧 bit（同模式 1 教训）；容量测试直接从 0 灌 96 条耗时较长属正常（每条 4 笔写 × flush）；列表显示顺序与模式 1 不同不是 bug（哈希表本无序）。
+
+<h3 id="步骤-10并发掉电与性能验证收官">步骤 10：并发、掉电与性能验证（收官）</h3>
+
+<strong>目的</strong>：验证 INV-C 窗口可接受、快照恢复正确、2 拍实测达标。全过 tag <code>mode2-verified</code>。
+
+<strong>前置条件</strong>：模式2-步骤9 全过。
+
+<strong>操作步骤</strong>：
+
+<strong>10.1</strong> eviction 窗口并发验证（本模式特有，<strong>必做</strong>——与模式 1 的 10.1 期望不同）：
+
+<ul>
+<li>白名单 enable=1，PC 持续 <code>ping &lt;对端&gt;</code>；</li>
+<li>Web 上灌表至 90 条左右（接近 CAP，制造 eviction 高发区），再<strong>连续快速增删 10 次</strong>；</li>
+<li>期望：增删瞬间允许 ping <strong>个别丢包</strong>（eviction 窗口 ≤32µs，实测通常 0~2 个包），但<strong>不允许持续不通、不允许增删后条目丢失</strong>；</li>
+<li>结束后 <code>/api/wl/hwlist</code> 条目数与影子表一致、逐条可查（INV-A/INV-B 未破坏）。</li>
+</ul>
+
+<strong>10.2</strong> 掉电恢复验证：加 5 条 → 断电 → 重启 → <code>/api/wl/list</code> 条目齐、过滤行为正确（逐条走插入路径重灌，槽位可能与掉电前不同——哈希表无布局持久性，属预期）。
+
+<strong>10.3</strong> 性能实测（选做，ILA）：Core0 换抓 <code>wl_lookup_req/lookup_done</code>（或 debug_wc_0 手动触发，公共问题 5），实测 req→done 恒 2 拍、与条数无关（96 条满表与空表同拍数——本模式的招牌卖点）。
+
+<strong>10.4</strong> 收尾：全过 → <code>git commit</code> + tag <code>mode2-verified</code>。
+
+<strong>产出物</strong>：并发/掉电验证记录（+ ILA 波形，若做）；tag <code>mode2-verified</code>。
+
+<strong>完成判据</strong>：10.1/10.2 全过（10.3 选做）→ Gate G5 绿，三模式全部收官。
+
+<strong>常见错误</strong>：10.1 期望照抄模式 1 的"完全无感"→ 把正常窗口丢包误判为 bug（先读 INV-C 再定判据）；10.2 发现槽位变了就报 bug（布局漂移是哈希表正常行为，判据是"条目齐 + 查得对"）。
+
+<hr>
+
+<h2 id="第-4-章-常见错误与排查速查">第 4 章 常见错误与排查速查</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>症状</th>
+<th>根因</th>
+<th>排查</th>
+<th>相关步骤</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>偶发 miss、比例与特定 MAC 相关</td>
+<td>C 与 RTL 哈希不一致（1.4 细节 1）</td>
+<td>对拍 100 随机 MAC 比对双方 h0/h1；逐位核对移位常数</td>
+<td>模式2-步骤8.1/5.2</td>
+</tr>
+<tr>
+<td>写入的条目查不到，回读正常</td>
+<td>槽位号 bank 位丢失 / INDEX 仍取 [3:0]</td>
+<td>核对 slot[6] 路由与 INDEX 译码位宽（1.4 细节 2）</td>
+<td>模式2-步骤2.4/4.3</td>
+</tr>
+<tr>
+<td>周期数 =3 而非 2</td>
+<td>读地址晚 1 拍上端口（学模式 1 加了 ISSUE/寄存器）</td>
+<td>核对 3.2 组合直驱；==2 断言兜底</td>
+<td>模式2-步骤3.2</td>
+</tr>
+<tr>
+<td>90+ 条后插入频繁失败/变慢</td>
+<td>负载超 75% 上限仍继续灌</td>
+<td>核对 WL_CAP=96 判满（1.4 细节 4）</td>
+<td>模式2-步骤8.3</td>
+</tr>
+<tr>
+<td>eviction 后某条目凭空消失</td>
+<td>覆盖前没先存受害者 / 失败分支没回滚</td>
+<td>核对 8.3 的"先 memcpy(victim) 再写"与快照回滚；对拍必抓</td>
+<td>模式2-步骤8.3</td>
+</tr>
+<tr>
+<td>两条 MAC 反复互踢、8 跳必败且回滚</td>
+<td>每跳只试同一侧——被踢者被写回刚被踢出的槽 → 乒乓（R03 修正的原始缺陷）</td>
+<td>核对 8.3 的 <code>bank = 1 - bank</code> 交替行；tb 用例 9 必抓</td>
+<td>模式2-步骤8.3</td>
+</tr>
+<tr>
+<td>双槽皆占时踢了"另一侧还有空位"的链条</td>
+<td>没做"空位直达"前置，空位判断混进了 eviction 循环</td>
+<td>核对 8.3：步骤 3（空位直达）在步骤 4（eviction）之前</td>
+<td>模式2-步骤8.3</td>
+</tr>
+<tr>
+<td>同 (h0,h1) 类第 3 个成员插入总失败</td>
+<td>该类只有 2 个物理槽，第 3 个成员本就不可插入</td>
+<td>属正常拒绝（回滚后 -1）；链式用例须跨类构造（5.5 配方）</td>
+<td>模式2-步骤8.3/5.5</td>
+</tr>
+<tr>
+<td>CLEAR 后 bank1 残留条目</td>
+<td>clear_cnt 位宽不够 / bank 路由漏 clear 分支</td>
+<td>核对 2.4 CLEAR 三行</td>
+<td>模式2-步骤2.4</td>
+</tr>
+<tr>
+<td>USED_CNT 上限 63</td>
+<td>popcount 链仍按 64 级 / valid_bits 没扩到 128</td>
+<td>核对 4.1 位宽清单</td>
+<td>模式2-步骤4.1</td>
+</tr>
+<tr>
+<td>全零槽被误判命中</td>
+<td>hit 比较丢 valid 位（48bit 比较）</td>
+<td>核对 3.2 的 49bit 全等</td>
+<td>模式2-步骤3.2</td>
+</tr>
+<tr>
+<td><code>/api/wl/status</code> lookup_mode 不对</td>
+<td>wrapper 模式号没切 / wl_status 驱动缺失</td>
+<td>先核模式2-步骤4.6 的驱动，再核 9.1 模式号</td>
+<td>模式2-步骤4.6/9.1</td>
+</tr>
+<tr>
+<td>Flash 重启后条目齐但槽位变了</td>
+<td>哈希表布局本就不持久</td>
+<td>属预期，判据是条目齐+查得对（10.2）</td>
+<td>模式2-步骤10.2</td>
+</tr>
+<tr>
+<td>vvp 一启动就打印 BRAM 自测并 299ns 结束</td>
+<td>BRAM 模型自带自测 tb 被当顶层</td>
+<td>iverilog 加 <code>-s &lt;tb 模块名&gt;</code></td>
+<td>模式0-步骤3.5/7.4</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="第-5-章-验收清单与里程碑">第 5 章 验收清单与里程碑</h2>
+
+<table class="md-table">
+<thead><tr>
+<th>里程碑</th>
+<th>完成判据</th>
+<th>对应步骤</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>M2-1 RTL 完成</td>
+<td>cuckoo.v 编译干净；MODE=2 仿真 14 用例 + 500 对拍 0 mismatch + INV-B 违例 0</td>
+<td>模式2-步骤1~6</td>
+</tr>
+<tr>
+<td>M2-1b 回归</td>
+<td>MODE=0 重跑用例 1~8 全过（模式 1 已实现时含 MODE=1）</td>
+<td>模式2-步骤6.3</td>
+</tr>
+<tr>
+<td>M2-2 上板</td>
+<td>9.3 功能回归 5 项过</td>
+<td>模式2-步骤9</td>
+</tr>
+<tr>
+<td>M2-3 并发与恢复</td>
+<td>10.1 eviction 窗口并发 + 10.2 掉电恢复过</td>
+<td>模式2-步骤10</td>
+</tr>
+<tr>
+<td>M2-4（选做）</td>
+<td>ILA 实测 req→done 恒 2 拍（空表/满表同拍数）</td>
+<td>模式2-步骤10.3</td>
+</tr>
+<tr>
+<td>收尾</td>
+<td>git tag <code>mode2-verified</code></td>
+<td>模式2-步骤10.4</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="第-6-章-仿真分层上板门禁与已知问题">第 6 章 仿真分层、上板门禁与已知问题</h2>
+
+<h3 id="61-整链路仿真分层">6.1 整链路仿真分层</h3>
+
+<p>分层定义（L0~L3）与"不单独仿真的模块"清单见模式 0 文档 5.1 节。模式 2 的差异：tb 双模（<code>-D CUCKOO</code> 编译期切换），<strong>主线双跑</strong>（CUCKOO 验证新算法，MODE=0 回归共用代码；模式 1 已实现时三跑）；新增 INV-B 槽一致性检查器作为 L1 常驻裁判。</p>
+
+<h3 id="62-上板门禁Gate不满足不许烧板">6.2 上板门禁（Gate）——不满足不许烧板</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>Gate</th>
+<th>内容</th>
+<th>通过标准</th>
+<th>达成于</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>G1</td>
+<td>L0 编译干净</td>
+<td>cuckoo.v + top + wrapper 0 error / 0 critical warning</td>
+<td>模式2-步骤2/4</td>
+</tr>
+<tr>
+<td>G2</td>
+<td>L1 单元 tb</td>
+<td>MODE=2 14 用例 + 500 对拍 0 mismatch + INV-B 违例 0</td>
+<td>模式2-步骤6.2</td>
+</tr>
+<tr>
+<td>G2b</td>
+<td>L1 回归</td>
+<td>MODE=0 重跑 8 用例全过（模式 1 已实现时加跑 MODE=1）</td>
+<td>模式2-步骤6.3</td>
+</tr>
+<tr>
+<td>G3</td>
+<td>L2 集成 tb</td>
+<td>MODE=0/2 各 6 用例 + 模式 2 特有用例 7 过（模式 1 已实现时含 MODE=1）</td>
+<td>模式2-步骤7</td>
+</tr>
+<tr>
+<td>G4</td>
+<td>产物齐套</td>
+<td>MODE=2 的 <code>.bit</code> + 固定名 <code>tcl/InstructRAM.tcl</code>（勿拿时间戳历史副本）</td>
+<td>模式2-步骤9.1/9.2</td>
+</tr>
+<tr>
+<td>G5</td>
+<td>板测</td>
+<td>9.3 + 10.1/10.2 全过 → tag <code>mode2-verified</code></td>
+<td>模式2-步骤9/10</td>
+</tr>
+</tbody></table>
+
+<p>> G1~G3 全绿才允许执行 <code>build_fpga.sh</code>。</p>
+
+<h3 id="63-已知问题干活前必读">6.3 已知问题（干活前必读）</h3>
+
+<strong>公共 8 条</strong>见《模式 0》文档 5.3 节（执行前先通读）。<code>wl_status</code> 修复由本模式<strong>步骤 4.6 直接落实</strong>（不再经由模式 1）；模式 1 的附加 3 条（其 6.3 节）为可选参考，其中问题 10 的 flush 纪律同样适用于本模式 eviction 的每一笔写。<strong>模式 2 额外注意</strong>：
+
+<table class="md-table">
+<thead><tr>
+<th>#</th>
+<th>问题</th>
+<th>处理</th>
+<th>相关步骤</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>12</td>
+<td><strong>C 与 RTL 双份哈希实现必须逐位一致</strong>，且无编译器替你把关</td>
+<td>任何一侧改动都同步另一侧 + 重跑 500 对拍；常数只允许出现在 wl_fold 一处定义</td>
+<td>模式2-步骤8.1</td>
+</tr>
+<tr>
+<td>13</td>
+<td><strong>eviction 窗口是模式 2 固有代价</strong>（≤32µs 瞬时 miss），模式 1 的"全程无感"在此不成立</td>
+<td>INV-C 写进 add 注释与板测判据；上游若要求零窗口 → 插入前临时 en=0（取舍注释写清）</td>
+<td>模式2-步骤8.5/10.1</td>
+</tr>
+<tr>
+<td>14</td>
+<td><strong>shadow_rf 128 深占 ~6.3K FF</strong> + 大读 mux，可能引入时序压力</td>
+<td>上板 build 后重点看 cfg_clk 域新违例；容量再翻倍前需改架构（BRAM 化 shadow + 读延迟协商）</td>
+<td>模式2-步骤9.1</td>
+</tr>
+<tr>
+<td>15</td>
+<td><strong>MAX_ENTRIES 变 96、FREE_IDX 变占位 0x7F</strong>——C 侧任何按 16 硬编码的判满/找空逻辑都失效</td>
+<td>判满走 0x0A 读回值；找空彻底废弃（哈希定位）</td>
+<td>模式2-步骤8.2</td>
+</tr>
+</tbody></table>
+
+<hr>
+
+<h2 id="附录">附录</h2>
+
+<h3 id="A-四模式选型对比背景知识">A. 四模式选型对比（背景知识）</h3>
+
+<table class="md-table">
+<thead><tr>
+<th></th>
+<th>模式 0 顺序</th>
+<th>模式 1 二分</th>
+<th>模式 2 布谷鸟（本文）</th>
+<th>（远期）模式 3 流水哈希</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>最坏周期（16 条）</td>
+<td>18 拍 144ns</td>
+<td>10 拍 80ns</td>
+<td><strong>2 拍 16ns</strong></td>
+<td>1~2 拍</td>
+</tr>
+<tr>
+<td>96 条</td>
+<td>98 拍（超帧间隔，不可行）</td>
+<td>~12 拍 96ns</td>
+<td><strong>2 拍</strong></td>
+<td>1~2 拍</td>
+</tr>
+<tr>
+<td>512 条</td>
+<td>不可行</td>
+<td>22 拍 176ns</td>
+<td><strong>2 拍</strong>（物理槽需按比例扩）</td>
+<td>必须</td>
+</tr>
+<tr>
+<td>容量上限</td>
+<td>—</td>
+<td>—</td>
+<td><strong>负载 75%</strong>（128 物理槽 → 96 条）</td>
+<td>—</td>
+</tr>
+<tr>
+<td>前置条件</td>
+<td>无</td>
+<td>表有序（软件维护）</td>
+<td>双哈希一致 + 负载控制（软件维护）</td>
+<td>哈希 + 流水化 eviction</td>
+</tr>
+<tr>
+<td>插入代价</td>
+<td>O(1)</td>
+<td>最坏重写全表</td>
+<td>均摊 O(1)，最坏 8 跳 + 全量重建</td>
+<td>常数</td>
+</tr>
+<tr>
+<td>插入期间查找</td>
+<td>无感</td>
+<td>无感（保序）</td>
+<td><strong>≤32µs 瞬时 miss 窗口</strong></td>
+<td>取决于实现</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>低</td>
+<td>中</td>
+<td>中高（双份哈希 + eviction）</td>
+<td>高</td>
+</tr>
+</tbody></table>
+
+<p>三模式的真正分工：模式 0 是地基与参照；模式 1 掌握"软件维护有序结构 + 硬件二分"；模式 2 掌握"软硬分工的哈希 + 有界随机化插入"——防火墙 L3/L4 规则表进入百条量级时直接取用本模式范式。</p>
+
+<h3 id="B-文件索引">B. 文件索引</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>文件</th>
+<th>角色</th>
+</tr></thead>
+<tbody>
+<tr>
+<td><code>rtl/mac_whitelist_cuckoo.v</code></td>
+<td>本模式待新建（设计稿=第 1、3 章）</td>
+</tr>
+<tr>
+<td><code>rtl/mac_whitelist_seq.v</code></td>
+<td>复制起点（配置通路/写仲裁结构继承）</td>
+</tr>
+<tr>
+<td><code>rtl/mac_whitelist_top.v</code></td>
+<td>MODE 分支（60~66 行 placeholder 替换为 g_mode_cuckoo）</td>
+</tr>
+<tr>
+<td><code>rtl/webserver_wrapper.v</code></td>
+<td>1139 行模式号；wl_status 驱动（本模式步骤 4.6 落实）</td>
+</tr>
+<tr>
+<td><code>c/whitelist.c</code></td>
+<td>模式2-步骤8：哈希副本 + bounded eviction + 无序快照灌入</td>
+</tr>
+<tr>
+<td><code>sim/define.sv</code></td>
+<td>仿真专用宏 + <code>include "define.sv"</code> 解析目标（模式0-步骤3.5 创建，三模式共用；命令行须带 <code>-I sim</code>）</td>
+</tr>
+<tr>
+<td><code>sim/tb_mac_whitelist_cuckoo.sv</code></td>
+<td>L1 双模 tb（<code>-D CUCKOO</code> 编译期切换；去宏并换 seq.v 即 MODE=0 回归）</td>
+</tr>
+<tr>
+<td><code>sim/tb_wl_integration.sv</code></td>
+<td>L2 集成 tb（模式0-步骤8 产物；本模式加同一宏开关复用）</td>
+</tr>
+<tr>
+<td><code>../ip_common/rtl/</code></td>
+<td>仓库外层共享库（仿真依赖路径前缀）</td>
+</tr>
+<tr>
+<td><code>doc/MAC白名单查找引擎实现指南_模式0_顺序查找.md</code></td>
+<td>前置文档（框架机制 + L1/L2 tb 模板）</td>
+</tr>
+<tr>
+<td><code>doc/MAC白名单查找引擎实现指南_模式1_二分查找.md</code></td>
+<td>备选路线文档（可选参考：参数化 tb 框架先例、INV3 保序先例）</td>
+</tr>
+</tbody></table>
+
+<h3 id="C-时序图来源索引">C. 时序图来源索引</h3>
+
+<table class="md-table">
+<thead><tr>
+<th>图</th>
+<th>内容</th>
+<th>来源</th>
+</tr></thead>
+<tbody>
+<tr>
+<td>图 1</td>
+<td>布谷鸟哈希查找逐拍时序（2 拍）</td>
+<td>自设计（本模式特有，共享库无对应文档）</td>
+</tr>
+<tr>
+<td>图 2</td>
+<td>cfg 口电平敏感写采样</td>
+<td>自设计，与模式 0 文档图 3 同源</td>
+</tr>
+<tr>
+<td>图 3</td>
+<td>布谷鸟插入（bounded eviction + 回滚）流程</td>
+<td>自设计（Mermaid，模式2-步骤8.3）</td>
+</tr>
+</tbody></table>
+
+<hr>
+<em>文档结束。实施顺序：第 1 章吃透 → 步骤 2~4 RTL → 步骤 5~7 仿真（先 MODE=2 后双回归）→ 步骤 8 C 哈希化 → 步骤 9~10 上板。每步验收不过不进下一步。</em>
+
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/wavedrom.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/wavedrom@3/skins/default.js"></script>
+<script>
+(function() {
+    // ── Mermaid ──
+    mermaid.initialize({
+        startOnLoad: false,
+        theme: 'default',
+        securityLevel: 'loose',
+        flowchart: { useMaxWidth: true, htmlLabels: true },
+        sequence: { useMaxWidth: true, boxMargin: 8, mirrorActors: false },
+        block: { useMaxWidth: true }
+    });
+    mermaid.run({
+        querySelector: '.mermaid'
+    }).then(function() {
+        console.log('Mermaid: ' + document.querySelectorAll('.mermaid').length + ' diagrams rendered');
+    }).catch(function(err) {
+        console.error('Mermaid render error:', err);
+    });
+
+    // ── Wavedrom ──
+    function renderWavedrom() {
+        WaveDrom.ProcessAll();
+        console.log('WaveDrom: timing diagrams rendered');
+    }
+    if (document.readyState === 'complete') {
+        renderWavedrom();
+    } else {
+        window.addEventListener('load', renderWavedrom);
+    }
+})();
+</script>
+</body>
+</html>
