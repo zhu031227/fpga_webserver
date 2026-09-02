@@ -4,7 +4,8 @@
 > 日期：2026-08-30
 > 适用工程：`fpga_webserver-whitelist_dev`（whitelist_dev 分支）
 > 平台：Xilinx XC7A35T-FGG484-2（ACX750 开发板）
-> 性质：**从零实现指南（作业指导书）**。模式 2 当前在工程中**不存在任何实现**（`mac_whitelist_top.v` 的 `g_mode_placeholder` 分支即为本模式预留位），本文即完整设计稿与实施步骤。
+> **仓库根**：本文 shell 命令以仓库根为基准；当前位 `/home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011`（clone/移动后全部 `cd` 随之替换）。参考实现在 `rtl/mac_whitelist_seq.v`（已含 `wl_used_cnt` 输出），见 0.4 执行须知第 7 条。
+> 性质：**从零实现指南（作业指导书）**。模式 2 当前在工程中**不存在任何实现**（`mac_whitelist_top.v` 的 `g_mode_placeholder` 分支即为本模式预留位，当前实际位于 67~74 行），本文即完整设计稿与实施步骤。
 > **前置条件**：《MAC白名单查找引擎实现指南_模式0_顺序查找.md》（ED003R02-A）已全部完成并上板（tag `mode0-verified`，**必须**——框架机制/配置通路/tb 模板全部继承它）。《…_模式1_二分查找.md》（ED003R02-B）**不是本模式的前置**——项目实施主线为 模式 0 → 模式 2（见 0.2 节主线说明），模式 1 为备选路线；若已实现模式 1，其参数化 tb 可选复用（模式2-步骤5.1 的省事路线）。本文程序性回引仅指向模式 0 文档编号（如"模式0-§1.2"），对模式 1 的引用均为可选参考。
 > 本文可直接交给 AI 模型或工程师逐步执行；执行前必读 0.4 节「执行须知」。
 
@@ -42,11 +43,11 @@
 | 文件 | 改动 |
 |------|------|
 | `rtl/mac_whitelist_cuckoo.v` | **新建**（从 seq 复制起步，替换查找逻辑 + 存储扩为双 bank） |
-| `rtl/mac_whitelist_top.v` | `LOOKUP_MODE==2` 分支**替换 placeholder**（`g_mode_placeholder`，60~66 行） |
-| `rtl/webserver_wrapper.v` | 模式号填 2 + `wl_status` 驱动沿用模式 1 修复 |
-| `c/whitelist.c` | add/delete/snapshot 改为**哈希定位 + bounded eviction** |
+| `rtl/mac_whitelist_top.v` | 新增 `LOOKUP_MODE==2` 分支替换 placeholder（当前 `g_mode_placeholder` 位于 67~74 行；另更新文件头注释 3~7 行里的模块名） |
+| `rtl/webserver_wrapper.v` | 模式号 1161 行 `.LOOKUP_MODE(0)` 切 2（上板才切，见 4.6/9.1）；`wl_status`(0x301) 已由 2026-08-31 P2 修复端到端驱动，**本模式不再负责驱动**，仅需在 cuckoo 分支透传 used_cnt（步骤 4.6） |
+| `c/whitelist.c` | add/delete/snapshot 改为**哈希定位 + bounded eviction**；另把 `whitelist_hw_read_entry/whitelist_delete/get_entry` 的 16 上界扩到 128（2.3/8.4） |
 | `c/inc/whitelist.h` | 不变（函数签名全保留） |
-| `c/tcp.c` / `c/http.c` / `c/flash_cfg.c` / `html/*` | **零改动** |
+| `c/tcp.c` / `c/http.c` / `html/*` | 常规路由零改动；**`/api/wl/status` 需加 `lookup_mode` 字段输出（读 0x301）**、`wlconfig.html` "查找模式"文案改动态——若 9.3 项 1 要在 Web 验收则这些文件必须列入改动集（见 4.6/9.3 取舍）；`c/flash_cfg.c/h` 持久化上限 16 与 96 容量的矛盾见 2.2/8.6 待决项 |
 | `build_xilinx.../filelist.cfg` | 加一行 `../rtl/mac_whitelist_cuckoo.v` |
 
 ### 0.2 三模式差异总览
@@ -79,8 +80,9 @@ eth1 RX ─► 提取SrcMAC ─► lookup_req ─► [mac_whitelist_top MODE=2 �
 2. **每步固定六段结构**：目的 / 前置条件 / 操作步骤 / 产出物 / 完成判据 / 常见错误。**判据不过，不得进入下一步**。
 3. **执行顺序强约束**：步骤 1→10 顺序执行。C 驱动改造（步骤 8）仍刻意排在仿真（步骤 5~7）之后——先用 tb 把 RTL 与哈希一致性验透，再动软件。
 4. **门禁规则**：第 6.2 节定义 G1~G5。**G1~G3 全绿之前，禁止执行 `build_fpga.sh`**。
-5. **与前置文档的关系**：配置通路三特性、tb 模板（L1 单元 + L2 集成）、公共已知问题 8 条全部指向**模式 0 文档**的步骤编号；**执行前先通读模式 0 文档 5.3 节**（公共避坑清单）。对模式 1 文档的引用均为可选参考，不构成执行依赖。
+5. **与前置文档的关系**：配置通路三特性、tb 模板（L1 单元 + L2 集成）、公共已知问题全部指向**模式 0 文档**的步骤编号（其 5.3 节现为 **9 条**公共已知问题，非早期引用的 8 条）；**执行前先通读模式 0 文档 5.3 节**（公共避坑清单）。对模式 1 文档的引用均为可选参考，不构成执行依赖。
 6. **图表规范**：时序图用 Wavedrom，结构图保留 ASCII；来源见附录 C。
+7. **仓库根与代码状态**：全文 shell 命令的 `cd` 以头部「仓库根」为准（当前 `/home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011`）。**参考基线 = 2026-08-31 P2 修复后的 `whitelist_dev` 代码**：`wl_status`(0x301) 已端到端驱动（`mac_whitelist_seq.v` 输出 `wl_used_cnt` 37/227 行、`mac_whitelist_top.v` 驱动 `wl_status` 66/73 行、`webserver_wrapper.v:1180` 接入 reg_webserver 0x301）——步骤 4.6 已按此现状改写；行号均以当前仓库为准。
 
 ---
 
@@ -153,7 +155,7 @@ h1(mac) = fold6(字节序反转(mac))               —— 反转后同折叠：
 
 | # | 细节 | 错误做法的后果 | 正确做法 |
 |---|------|--------------|---------|
-| 1 | **C 与 RTL 的哈希必须逐位一致** | C 按 h0 写槽、RTL 按 h0' 查槽，错位 → 偶发 miss；对拍样本覆盖不到就漏网到上板 | fold6 只用整字移位异或（无乘法/查表），C 与 RTL 各写一份 + tb 500 次随机对拍兜底（1.2）；改动任一侧必须同步另一侧并重跑对拍 |
+| 1 | **C 与 RTL 的哈希必须逐位一致** | C 按 h0 写槽、RTL 按 h0' 查槽，错位 → 偶发 miss；对拍样本覆盖不到就漏网到上板 | fold6 只用整字移位异或（无乘法/查表），C 与 RTL 各写一份 + tb 500 次随机对拍兜底（随机对拍见 6.1 用例 11，非 1.2）；改动任一侧必须同步另一侧并重跑对拍 |
 | 2 | **槽位号编码含 bank 位**：`slot[6:0] = {bank, row[5:0]}`（0~63=bank0，64~127=bank1） | INDEX 只取低 4 位（seq 残留）或漏 bank 位 → 写 bank0 用 bank1 地址，条目"查无此地" | RTL 译码 `bank = slot[6]`、`row = slot[5:0]`；C 侧槽位号统一用 7bit 全宽传递 |
 | 3 | **读地址必须在 req 拍就上端口** | 若学模式 1 加 ISSUE 拍装载 → 变 3 拍，"2 拍"断言失败 | 哈希组合直驱：`assign bank0_rd_addr = (state==S_IDLE && lookup_req) ? wl_hash0(lookup_mac) : 0;`（图 1，模式1-步骤3.2 教训的镜像） |
 | 4 | **负载上限 75%**：容量按 96 封顶，不是物理 128 | 灌到 110+ 条：eviction 链急剧变长、8 跳失败率飙升、插入抖动 | C 侧 `sw_wl_count >= WL_CAP(96)` 直接判满拒绝（步骤 8.3 第 2 条）；MAX_ENTRIES(0x0A) 返回 96 供 C 判读 |
@@ -211,6 +213,8 @@ C 固件经 LCPU 总线 → `reg_webserver`（SubBus 0x5000~0x5FFF 段译码）�
 
 除上述位宽/常量差异外，寄存器行为与模式 0 完全一致（写入幂等、双副本同步、读组合零延迟）。
 
+> **⚠️ 运行期容量 vs 持久化上限（待决，执行前先定）**：`MAX_ENTRIES(0x0A)` 运行期恒读 96，但 Flash 快照格式 `FLASH_CFG_WL_MAX=16`、`valid_mask` 是 uint16、`mac_h/mac_l[16]`（`c/inc/flash_cfg.h:24,53-55`）——**掉电只能持久化前 16 个槽**，而布谷鸟条目按哈希落槽最高到 127。两条路二选一：(a) 扩快照格式（`FLASH_CFG_WL_MAX→128`、valid_mask 加宽、`FLASH_CFG_VERSION` 升版、扇区字数 43→…）并把 `c/flash_cfg.c/h` 移出"零改动"集；(b) 明确持久上限仍 16，10.2 验收限定 ≤16 条。**推荐 (a)**（模式 2 的意义就是 >64 条）。相关步骤 8.6/10.2、9.3 项 3。
+
 ### 2.3 C 驱动现状（`c/whitelist.c`）
 
 | 函数 | 模式 2 改动 |
@@ -220,17 +224,20 @@ C 固件经 LCPU 总线 → `reg_webserver`（SubBus 0x5000~0x5FFF 段译码）�
 | `whitelist_add` | **替换主体**：哈希定位 + bounded eviction（模式2-步骤8.3） |
 | `whitelist_delete` | **替换主体**：查槽位号单槽删除（模式2-步骤8.4） |
 | `whitelist_apply_snapshot` | 逐条走插入路径灌入——哈希表灌入顺序无关，**无需排序**（比模式 1 还简单，模式2-步骤8.6） |
-| `whitelist_hw_read_entry / hw_diag / get` | 不变（读 shadow_rf，槽位号语义） |
+| `whitelist_hw_read_entry / hw_diag / get` | **必改**：现按 16 硬编码（`whitelist.c:27/164`，`WL_SW_CACHE_SIZE=16`）——扩到 128/槽位号全宽，否则 `/api/wl/list` 枚举到 96 时槽 16~127 全读回 -1（步骤 8.4 落实，9.3 项 2 依赖） |
 
 ### 2.4 构建与烧录链（同模式 0 §1.7 / 模式 1 §2.4）
 
 ```bash
-cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011                            # 仓库根（见头部/0.4）
 cd c_build && make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000 && cd ..   # 固件
 cd build_xilinx_xc7a35tfgg484 && ./build_fpga.sh <4位hex版本> && cd ..             # bitstream
-openFPGALoader -c digilent_hs2 <工程目录>/<同名>.bit                                # 烧录
+# 烧录：本板 ACX750 的 Digilent FT232H（E306A991ABCD）用 openFPGALoader 会误读 IDCODE
+# → 必须用 Vivado Hardware Manager（scripts/program_bit_vivado.tcl），同模式 0 实操路线
+vivado -mode batch -source scripts/program_bit_vivado.tcl \
+    webserver_xilinx_xc7a35tfgg484_v<版本>/webserver_xilinx_xc7a35tfgg484_v<版本>.bit
 vivado -mode batch -source scripts/load_firmware_vivado.tcl                        # 加载固件
-ping 192.168.1.88 && curl http://192.168.1.88/                                     # 验证（应 200）
+ping -c2 192.168.1.128 && curl http://192.168.1.128/                               # 验证（默认 IP .128；应 200）
 ```
 
 同一份 C 固件包含三模式逻辑（由 wl_status/编译期模式号区分行为）；切模式只重出 bitstream。**注意**：模式 2 的固件里 `WL_CAP=96` 与模式 0/1 的 16 并存——判满逻辑按 `MAX_ENTRIES(0x0A)` 读回值走，不要硬编码 16（模式2-步骤8.2）。
@@ -282,7 +289,7 @@ MAX_EVICTION_HOPS = 8（插入踢人上限，超过走全量重建）
 **2.1** 复制文件并改名：
 
 ```bash
-cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011
 cp rtl/mac_whitelist_seq.v rtl/mac_whitelist_cuckoo.v
 # 模块名 mac_whitelist_seq → mac_whitelist_cuckoo；头注释按步骤 1.2/1.3 重写
 ```
@@ -362,7 +369,7 @@ assign sh_rd_data = shadow_rf[sh_rd_addr];   // 组合读，零延迟
 **2.6** 编译检查（沿用仿真宏方案，模式0-步骤3.5 的 `sim/define.sv` 原样可用，注意 `-I sim`）：
 
 ```bash
-cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011
 iverilog -g2012 -o /dev/null -I sim \
     sim/define.sv \
     rtl/mac_whitelist_cuckoo.v \
@@ -478,7 +485,7 @@ wire [7:0] used_cnt_comb = used_cnt_partial[SLOTS];
 
 **4.3** INDEX 译码扩位（配置 always 块内）：`cfg_idx <= cfg_wdata[6:0];`（原 [3:0]）；bit31 附带删除分支同步取 7 位；WR/DEL 分支的 `cfg_idx` 天然已是 7bit 槽位号。
 
-**4.4** `rtl/mac_whitelist_top.v`：把模式 1 收窄后的 `g_mode_placeholder`（60~66 行）替换为真实分支（连线照抄 `g_mode_seq` 分支 39~59 行，模块名换 `mac_whitelist_cuckoo`；**参数表不同**——BUCKET_NUM/CAPACITY 替代 ENTRY_NUM/ADDR_WIDTH，对照 2.2 节传参）：
+**4.4** `rtl/mac_whitelist_top.v`：新增 `LOOKUP_MODE==2` 分支（当前文件只有 `==0` 与 `else` 两个 generate 分支，`g_mode_placeholder` 位于 **67~74 行**、`g_mode_seq` 44~66 行；连线照抄 `g_mode_seq` 分支，模块名换 `mac_whitelist_cuckoo`；**参数表不同**——BUCKET_NUM/CAPACITY 替代 ENTRY_NUM/ADDR_WIDTH，对照 2.2 节传参；同时透传 `wl_used_cnt` 见 4.6）：
 
 ```verilog
     end else if (LOOKUP_MODE == 2) begin : g_mode_cuckoo
@@ -488,29 +495,11 @@ wire [7:0] used_cnt_comb = used_cnt_partial[SLOTS];
 
 **4.5** `build_xilinx_xc7a35tfgg484/filelist.cfg` 加一行：`../rtl/mac_whitelist_cuckoo.v`。
 
-**4.6** `wl_status` 未驱动修复（本模式职责）。现状：`webserver_wrapper.v` 168 行声明 `wl_status`（[7:0]=lookup_mode，[15:8]=used_cnt），480 行连进 reg_webserver（0x301，Web `/api/wl/status` 的 lookup_mode 字段），但全工程无驱动、读回恒 0——不修则 G5 第 1 项无法验收。二选一：
+**4.6** `wl_status`(0x301) **驱动已存在——本步是核验 + cuckoo 分支透传，不是新驱动**。2026-08-31 P2 已端到端打通：`mac_whitelist_seq.v` 输出 `wl_used_cnt`（37 行声明 / 227 行赋值）→ `mac_whitelist_top.v` 经 `wl_used_cnt_w`（43 行）驱动 `wl_status = {wl_used_cnt_w, LOOKUP_MODE[7:0]}`（66/73 行）→ `webserver_wrapper.v:1180` `.wl_status` 接入 reg_webserver 0x301（`reg_webserver.v:1084`）。**本模式要做的只有一件事**：给新增的 `g_mode_cuckoo` 分支实例透传 used 计数——若 `mac_whitelist_cuckoo.v` 端口与 seq 同名 `wl_used_cnt`，在 top 分支里照抄 `.wl_used_cnt(wl_used_cnt_w)`（与 `g_mode_seq` 分支同款）；placeholder 分支给常量 `8'h0` 兜底（73 行已是）。**禁止**在 wrapper 层再 `assign wl_status`、给 seq.v 加 `used_cnt_o` 口、或改 reg_webserver 译码——那些已存在，重复即 elaboration 报错。
 
-```verilog
-// 方案 a（最小改动）：wrapper 里直接 assign 常量模式号
-assign wl_status = {8'b0, 8'd2};            // LOOKUP_MODE=2
+> **⚠️ Web 层暴露 lookup_mode 是独立改动（9.3 项 1 取舍）**：当前 `api_wl_status`（`c/tcp.c:703-737`）只输出 `{enabled,defpass,used,max}`，取自 SubBus 0x0B/0x0A，**不读 0x301、无 `lookup_mode` 字段**；`wlconfig.html` 的"查找模式: BRAM顺序"是静态文本。**二选一**：① 把 `c/tcp.c`、`html/*` 从"零改动"集挪出——给 `api_wl_status` 加字段（读 `lcpu_baseaddr->wl_status`）并改页面文案，9.3 项 1 按 Web 验收；② 保持 Web 零改动，9.3 项 1 改为**寄存器级验收**（JTAG `jr.tcl` 读 0x301，期望 `[7:0]=0x02`、`[15:8]=used_cnt`）。推荐 ② 起步（最小改动），要 Web 展示再走 ①。
 
-// 方案 b（完整，推荐）：模式号 + 实时条目数一并上报，Web 状态栏两字段都有值。
-// ① 两个查找引擎各加一根输出口（8bit 足够 128 槽）：
-//    mac_whitelist_cuckoo.v / mac_whitelist_seq.v 端口表末尾加：
-output [7:0] used_cnt_o
-//    模块体内：
-assign used_cnt_o = used_cnt_comb;
-// ② mac_whitelist_top.v：端口表加 output [7:0] wl_used_cnt_o，
-//    g_mode_seq / g_mode_cuckoo 两个分支各加一行透传：
-//      .used_cnt_o(wl_used_cnt_o)
-//    （placeholder 分支给常量 8'h0 兜底：assign wl_used_cnt_o = 8'h0;）
-// ③ webserver_wrapper.v：u_mac_wl 例化连上 .wl_used_cnt_o(wl_used_cnt)，然后：
-wire [7:0] wl_used_cnt;                     // 168 行 wl_status 声明附近
-assign wl_status = {wl_used_cnt, 8'd2};     // [15:8]=used_cnt，[7:0]=lookup_mode
-//   → tcp.c 的 status 接口已在读 wl_status，无需改 C
-```
-
-（若模式 1 路线已实施过方案 b，本步只需把模式号字节改为 2。）本步 wrapper 模式号**不改**（保持 1139 行 `.LOOKUP_MODE(0)`，上板才切）。
+本步 wrapper 模式号**不改**（保持 1161 行 `.LOOKUP_MODE(0)`，上板才切，见 9.1）。
 
 **产出物**：改造后的 `mac_whitelist_cuckoo.v`、`mac_whitelist_top.v`、`filelist.cfg`。
 
@@ -622,17 +611,18 @@ integer    snap_cnt, i_snap;
 
 task automatic tb_hw_write_slot(input [6:0] slot, input [47:0] mac);   // 4 笔写，全过 subbus_wr
     begin
-        subbus_wr(12'h500, {24'b0, slot});        // 0x00 INDEX（cfg_addr = 0x5000 段内 12bit）
-        subbus_wr(12'h501, mac[47:16]);           // 0x01 MAC_H
-        subbus_wr(12'h502, {16'b0, mac[15:0]});   // 0x02 MAC_L
-        subbus_wr(12'h503, 32'h1);                // 0x03 WR 触发
+        subbus_wr(12'h0, {25'b0, slot});          // 0x00 INDEX（cfg_addr 用段内低偏移，同模式 0 tb；
+                                                  // 基址 0x5000 只存在于 LCPU/reg_webserver 层，tb 直驱 DUT 不含它）
+        subbus_wr(12'h1, mac[47:16]);             // 0x01 MAC_H
+        subbus_wr(12'h2, {16'b0, mac[15:0]});     // 0x02 MAC_L
+        subbus_wr(12'h3, 32'h1);                  // 0x03 WR 触发
     end
 endtask
 
 task automatic tb_hw_clear_and_wait;               // CLEAR(0x05) + 等 128 拍序列器（配置域）
     integer w;
     begin
-        subbus_wr(12'h505, 32'h1);
+        subbus_wr(12'h5, 32'h1);
         for (w = 0; w < 150; w = w + 1) @(posedge cfg_clk);   // 128 拍 + 裕量
     end
 endtask
@@ -706,7 +696,7 @@ task automatic tb_cuckoo_del(input [6:0] slot);
     begin
         if (tb_slot_valid[slot]) begin
             m = tb_slot_mac[slot];
-            subbus_wr(12'h500, {1'b1, 24'b0, slot});   // INDEX | bit31：一笔带删（2.2 语义）
+            subbus_wr(12'h0, {1'b1, 24'b0, slot});      // INDEX | bit31：一笔带删（2.2 语义）
             tb_slot_valid[slot] = 0; tb_slot_mac[slot] = 48'b0;
             model_del(m);
         end
@@ -860,7 +850,7 @@ H = find_h1_populated(F,  B, -1);       // H ≠ B
 
 | # | 用例 | 期望 | 备注 |
 |---|------|------|------|
-| 1 | 写 3 条（分别落在 h0 槽 / h1 槽 / 触发 1 跳 eviction）→ 逐条查找 | 全命中 | 三条落位路径各覆盖一次 |
+| 1 | 写 3 条（分别落在 h0 槽 / h1 槽 / 触发 1 跳 eviction）→ 逐条查找 | 全命中 | 三条落位路径各覆盖一次。**注**：按 R03"双槽皆占才触发"规则，第 3 条必须取 **5.5 配方**的冲突构造（两个候选槽被前两条占住），任意 3 条随机 MAC 覆盖不到 eviction 路径 |
 | 2 | 查未添加 MAC | miss（2 拍） | — |
 | 3 | DEL 一条 → 再查它/其余 | 该条 miss，其余仍 hit | — |
 | 4 | CLEAR → 查任意 + 读 USED_CNT | miss，0x0B=0 | 128 拍序列器 |
@@ -878,7 +868,7 @@ H = find_h1_populated(F,  B, -1);       // H ≠ B
 **6.2** 跑 CUCKOO 模（全部 14 条）：
 
 ```bash
-cd /home/haitaoz/work/FPGA_Prj/fpga_webserver-wldev-v2
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011
 iverilog -g2012 -s tb_mac_whitelist_cuckoo -o tb_ck.vvp -I sim -D CUCKOO \
     sim/define.sv \
     sim/tb_mac_whitelist_cuckoo.sv \
@@ -889,7 +879,9 @@ vvp tb_ck.vvp
 
 （`-s` 指定根模块：BRAM 模型自带的自测 tb 会被一并 elaborate 并在 299ns `$finish` 掐死真 tb，见模式0-步骤3.5/第 3 章。MODE=0 回归时 `-s` 不变，去掉 `-D CUCKOO`、换 seq.v。）
 
-**6.3** 跑 MODE=0 回归（用例 1~8，共用代码验证）：iverilog 命令行里去掉 `-D CUCKOO`、`rtl/mac_whitelist_cuckoo.v` 换 `rtl/mac_whitelist_seq.v`，其余不变。若模式 1 已实现，追加 MODE=1 回归。
+**6.3** 跑 MODE=0 回归（共用代码验证）：iverilog 命令行里去掉 `-D CUCKOO`、`rtl/mac_whitelist_cuckoo.v` 换 `rtl/mac_whitelist_seq.v`，其余不变。若模式 1 已实现，追加 MODE=1 回归。
+
+> **⚠️ 14 用例的 MODE 归属须显式**（双模 tb 同文件）：**cuckoo 专属用例必须在 `ifdef CUCKOO` 内**，否则 MODE=0 回归会大面积误失败——用例 1（含 1 跳 eviction）、5（CAP=96）、9/10（eviction 构造）、13（槽违例注入 + INV-B 检查器，seq 无槽位语义）、14 的 7bit 槽语义；**模式无关用例**（2 空表 miss、3 DEL、4 CLEAR、6 en/defpass、7 周期断言取 `EXP_CYC`、8 busy、11 随机对拍——但容量按模式取 16 还是 96）供回归。建议在 tb 里给每用例加 `ifdef CUCKOO` 门，并给出归属表：CUCKOO 跑 1~14、MODE=0 跑 {2,3,4,6,7(=18),8,11(容量16 版)}。
 
 **产出物**：三份全 PASS 的仿真记录（对拍 mismatch=0、INV-B 违例=0）。
 
@@ -945,20 +937,20 @@ check_dut_vs_mirror;  check_model_vs_mirror;
 
 **操作步骤**：
 
-**8.1** 新增哈希副本与槽位工具（与 RTL `wl_fold/wl_hash0/wl_hash1` **逐位一致**，1.4 细节 1）：
+**8.1** 新增哈希副本与槽位工具（与 RTL `wl_fold/wl_hash0/wl_hash1` **逐位一致**，1.4 细节 1）。类型用 `uint64_t`（工程只 typedef 了 `uint8/uint32`，无裸 `uint64`，需 `#include <stdint.h>`；`memcpy/memcmp/memset` 需 `<string.h>`）：
 
 ```c
 // ★ 与 RTL wl_fold() 逐位一致：48bit 按 6bit×8 段全异或
-static uint8 wl_fold(uint64 x) {
+static uint8 wl_fold(uint64_t x) {
     return (uint8)((x & 0x3FULL) ^ ((x >> 6)  & 0x3FULL) ^ ((x >> 12) & 0x3FULL)
                  ^ ((x >> 18) & 0x3FULL) ^ ((x >> 24) & 0x3FULL) ^ ((x >> 30) & 0x3FULL)
                  ^ ((x >> 36) & 0x3FULL) ^ ((x >> 42) & 0x3FULL));
 }
-static uint64 wl_mac_u64(const uint8 mac[6]) {          // 6 字节拼 48bit（大端，高 16bit 为 0）
-    return ((uint64)mac[0] << 40) | ((uint64)mac[1] << 32) | ((uint64)mac[2] << 24)
-         | ((uint64)mac[3] << 16) | ((uint64)mac[4] << 8)  |  (uint64)mac[5];
+static uint64_t wl_mac_u64(const uint8 mac[6]) {        // 6 字节拼 48bit（大端，高 16bit 为 0）
+    return ((uint64_t)mac[0] << 40) | ((uint64_t)mac[1] << 32) | ((uint64_t)mac[2] << 24)
+         | ((uint64_t)mac[3] << 16) | ((uint64_t)mac[4] << 8)  |  (uint64_t)mac[5];
 }
-static uint64 wl_bswap48(uint64 x) {                    // 48bit 字节序反转（对应 RTL {mac[7:0],…,mac[47:40]}）
+static uint64_t wl_bswap48(uint64_t x) {                // 48bit 字节序反转（对应 RTL {mac[7:0],…,mac[47:40]}）
     return ((x & 0x0000000000FFULL) << 40)              // b0 → b5
          | ((x & 0x00000000FF00ULL) << 24)              // b1 → b4
          | ((x & 0x000000FF0000ULL) << 8)               // b2 → b3
@@ -1096,6 +1088,19 @@ int whitelist_add(uint8 mac[6])
 
 （每轮 `wl_hw_write_entry(cur_tgt, cur)` 都把 cur 放在它自己的哈希槽 → INV-B 逐步成立；被踢者至多流浪 1 轮 → INV-C 窗口 ≤8 跳 × 每跳 4 笔写 ≈ 32µs。踢人次数 ≤ MAX_EVICTION_HOPS−1，循环总写入 ≤ 8×4=32 笔。）
 
+**`wl_hw_clear_all_and_wait()` 定义**（上文回滚调用，须补全——原稿漏定义）——写 CLEAR(0x05) 后**必须等待 128 拍序列器扫完**才能逐槽写回，否则 CLEAR 与写回并发、刚写回的条目被二次清空：
+
+```c
+// 写 CLEAR(0x05) + 忙等序列器结束（128 拍 cfg 域 + 裕量）。回滚正确性前提，勿省。
+static void wl_hw_clear_all_and_wait(void) {
+    int w;
+    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_CLEAR, 1);   // 0x05 CLEAR 触发序列器
+    for (w = 0; w < 20000; w++) __asm__ volatile("");       // 空汇编防优化掉忙等（≈128+ cfg 拍）
+}
+```
+
+> ⚠️ **勿直接复用 `whitelist_clear_all()`**：模式 0 现版只写 CLEAR **不等**序列器（`c/whitelist.c`），回滚若照搬会撞上仍在跑的 128 拍 CLEAR → INV-A 破坏（审查补注）。
+
 **8.4** 删除（替换 `whitelist_delete` 主体；**保持 `inc/whitelist.h` 原函数签名不变**，Web 层传来的 index 即槽位号——`/api/wl/list` 按槽位顺序枚举，添加返回值即槽位号，三者自洽）：
 
 ```c
@@ -1112,7 +1117,7 @@ int whitelist_delete(uint8 slot)                    /* 以头文件实际形参�
 
 **不再需要模式 1 的保序搬移**（哈希表无顺序）。
 
-**8.5** 并发窗口注释（写进 add 注释，INV-C 落实）：插入含 eviction 时，被踢条目在安家前查不到（≤32µs）；本设计接受该窗口，理由见模式2-§1.1 代价段。若上游将来要求零窗口，方案是"插入前临时 en=0"——与模式 1 文档 3.3 节取舍同款二选一，注释里写清所选。
+**8.5** 并发窗口注释（写进 add 注释，INV-C 落实）：插入含 eviction 时，被踢条目在安家前查不到（≤32µs）；本设计接受该窗口，理由见模式2-§1.1 代价段。若上游将来要求零窗口，方案是"插入前临时 en=0"——与 **模式1-步骤8.5** 取舍同款二选一（注：取舍声明在模式 1 文档 8.5 节，不在其 3.3 节——3.3 只是二分 FSM），注释里写清所选。
 
 **8.6** 快照灌入（`whitelist_apply_snapshot`）：Flash 格式零改动；读回后**逐条走 8.3 插入路径**灌入——哈希表落位由哈希决定、与顺序无关，**无需排序**（比模式 1 简单）：
 
@@ -1133,7 +1138,9 @@ cd c_build && make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000
 
 **完成判据**：编译 0 warning；C 的 `wl_fold` 与 tb 副本对同一组 100 个随机 MAC 输出逐一相同（可写个临时对拍小脚本，或在 tb 用例 11 已覆盖）；代码走查 8.3 的 0~6 步序号无遗漏（**含快照回滚路径**）；注释含 INV-C 窗口声明。
 
-**常见错误**：C 侧槽位号传 4bit 截断（bank 位丢失 → 全写进 bank0）；eviction 循环里先读后写顺序颠倒（受害者先被覆盖再读 → 条目凭空消失，对拍必抓）；8 跳失败直接返回 -1 而不按快照回滚 → HW/影子停在 walk 中间态（INV-A 破坏，后续全部错乱）；回滚写回没走 `wl_hw_write_entry`（绕过 flush → 中间条目丢失）；每跳固定只试同一侧 → 乒乓（见第 4 章首行）。
+**常见错误**：C 侧槽位号传 4bit 截断（bank 位丢失 → 全写进 bank0）；eviction 循环里先读后写顺序颠倒（受害者先被覆盖再读 → 条目凭空消失，对拍必抓）；8 跳失败直接返回 -1 而不按快照回滚 → HW/影子停在 walk 中间态（INV-A 破坏，后续全部错乱）；回滚写回没走 `wl_hw_write_entry`（绕过 flush → 中间条目丢失）；每跳固定只试同一侧 → 乒乓（见第 4 章表格第 6 行）。
+
+> 步骤 8.3 代码内注释按"0.全零 → 2.判满 → 1.查重 → 3/4/5/6"编号是**规格阶梯非执行顺序**（判满在查重之前执行——表满时重复 MAC 也返回 -1 而非查重幂等，与 6.1 用例 14 语义只在未满时一致）。执行时以代码流为准。
 
 ### 步骤 9：模式切换、烧录与功能回归
 
@@ -1143,20 +1150,23 @@ cd c_build && make PLATFORM=xilinx riscv_reset_addr=0xf TCL_BASE=0x8000
 
 **操作步骤**：
 
-**9.1** 模式切换与构建：`webserver_wrapper.v:1139` `.LOOKUP_MODE(0)` → `(2)`，然后：
+**9.1** 模式切换与构建：`webserver_wrapper.v:1161` `.LOOKUP_MODE(0)` → `(2)`（用结构化定位：`u_mac_wl` 实例的 `.LOOKUP_MODE` 参数），然后：
 
 ```bash
-cd build_xilinx_xc7a35tfgg484 && ./build_fpga.sh 0003 && cd ..
-# timing report：u_ila_ 前缀的已知违例忽略（模式0 文档 5.3 问题 1）
-# 留意 shadow_rf 128 深的大 mux 是否引入新违例——有则回查读 mux 层级（6.3 问题 14）
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011/build_xilinx_xc7a35tfgg484 && ./build_fpga.sh 0003 && cd ..
+# timing report：v0011 起口径为**零违例**——出现任何违例都当新问题查（不再沿用
+# 早期"u_ila_ 前缀忽略"口径，见跑版本手册）；留意 shadow_rf 128 深的大 mux 是否
+# 引入新违例——有则回查读 mux 层级（6.3 问题 14）
 ```
 
-**9.2** 烧录加载（同模式1-步骤9.2；固件含三模式逻辑，随 bit 一起生效）：
+**9.2** 烧录加载（同模式1-步骤9.2；固件含三模式逻辑，随 bit 一起生效）。**烧录用 Vivado Hardware Manager**（本板 ACX750 的 Digilent FT232H `E306A991ABCD` 用 openFPGALoader 误读 IDCODE）：
 
 ```bash
-openFPGALoader -c digilent_hs2 webserver_xilinx_xc7a35tfgg484_v0003_<时间戳>/webserver_xilinx_xc7a35tfgg484_v0003_<时间戳>.bit
+cd /home/zhihuiw/fpga_work/Prj/fpga_webserver-bit-v0011
+vivado -mode batch -source scripts/program_bit_vivado.tcl \
+    webserver_xilinx_xc7a35tfgg484_v0003_<时间戳>/webserver_xilinx_xc7a35tfgg484_v0003_<时间戳>.bit
 vivado -mode batch -source scripts/load_firmware_vivado.tcl
-ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
+ping -c2 192.168.1.128 && curl http://192.168.1.128/   # 基础连通（默认 IP .128），应 200
 ```
 
 **9.3** 功能回归 5 项：
@@ -1259,7 +1269,7 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 
 ### 6.3 已知问题（干活前必读）
 
-**公共 8 条**见《模式 0》文档 5.3 节（执行前先通读）。`wl_status` 修复由本模式**步骤 4.6 直接落实**（不再经由模式 1）；模式 1 的附加 3 条（其 6.3 节）为可选参考，其中问题 10 的 flush 纪律同样适用于本模式 eviction 的每一笔写。**模式 2 额外注意**：
+**公共已知问题**见《模式 0》文档 5.3 节（执行前先通读；现为 **9 条**，非早期引用的 8 条，编号也随模式 1/2 的附加条目注意错位）。`wl_status`(0x301) **驱动已由 2026-08-31 P2 端到端落实**——本模式步骤 4.6 只做核验 + cuckoo 分支透传，不再"修复"（见 4.6 改写）；模式 1 的附加 3 条（其 6.3 节）为可选参考，其中问题 10 的 flush 纪律同样适用于本模式 eviction 的每一笔写。**模式 2 额外注意**：
 
 | # | 问题 | 处理 | 相关步骤 |
 |---|------|------|---------|
@@ -1293,9 +1303,9 @@ ping 192.168.1.88 && curl http://192.168.1.88/    # 基础连通，应 200
 |------|------|
 | `rtl/mac_whitelist_cuckoo.v` | 本模式待新建（设计稿=第 1、3 章） |
 | `rtl/mac_whitelist_seq.v` | 复制起点（配置通路/写仲裁结构继承） |
-| `rtl/mac_whitelist_top.v` | MODE 分支（60~66 行 placeholder 替换为 g_mode_cuckoo） |
-| `rtl/webserver_wrapper.v` | 1139 行模式号；wl_status 驱动（本模式步骤 4.6 落实） |
-| `c/whitelist.c` | 模式2-步骤8：哈希副本 + bounded eviction + 无序快照灌入 |
+| `rtl/mac_whitelist_top.v` | MODE 分支（当前 placeholder 位于 **67~74 行**，新增 `LOOKUP_MODE==2` 分支替换；文件头注释 3~7 行的 MODE 2 模块名 `mac_whitelist_hash` 需同步改为 `mac_whitelist_cuckoo`） |
+| `rtl/webserver_wrapper.v` | 1161 行 `.LOOKUP_MODE(0)` 上板切 2；`wl_status` 已在 174/486/1180 行端到端驱动（P2 修复），本模式只透传（步骤 4.6） |
+| `c/whitelist.c` | 模式2-步骤8：哈希副本 + bounded eviction + 无序快照灌入；读条目类函数 16 上界扩 128 |
 | `sim/define.sv` | 仿真专用宏 + `include "define.sv"` 解析目标（模式0-步骤3.5 创建，三模式共用；命令行须带 `-I sim`） |
 | `sim/tb_mac_whitelist_cuckoo.sv` | L1 双模 tb（`-D CUCKOO` 编译期切换；去宏并换 seq.v 即 MODE=0 回归） |
 | `sim/tb_wl_integration.sv` | L2 集成 tb（模式0-步骤8 产物；本模式加同一宏开关复用） |
