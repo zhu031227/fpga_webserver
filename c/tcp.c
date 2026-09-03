@@ -886,6 +886,12 @@ static void api_wl_dbg(int conn_idx) {
     s = "\"used\":";
     while (*s) buf[pos++] = *s++;
     pos += write_u16_dec(buf + pos, whitelist_get_used_count());
+    // 2026-09-02: 一并输出 HW 精确 popcount(0x500B, 不经 cfg_idx 读口), 供下板单次
+    // curl 定谳"幽灵计数是读回假象还是真写丢": hwused==used 且 vpop==used → 三处一致
+    // (真值 96); hwused<used 才是 HW 写丢, 需另查。见 memory fpga-webserver-v0011。
+    s = ",\"hwused\":";
+    while (*s) buf[pos++] = *s++;
+    pos += write_u16_dec(buf + pos, whitelist_hw_get_used_count());
     {   // 诊断: 守卫 canary + valid popcount
         uint32_t gp0, gp1; uint16_t pp;
         char hx[11];
@@ -969,8 +975,13 @@ static void api_wl_add(int conn_idx, uint16_t tcp_data_len) {
         return;
     }
     int idx = whitelist_add(mac);
-    if (idx < 0) {
+    if (idx == -2) {
         api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"table full\"}");
+    } else if (idx == -1) {
+        // 8 跳 eviction 回滚（布谷鸟 d=2 高负载固有冲突），与判满分清
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"collision\"}");
+    } else if (idx == -3) {
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"invalid MAC\"}");
     } else {
         api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
     }

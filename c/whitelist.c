@@ -111,8 +111,16 @@ int whitelist_hw_read_entry(uint8_t index, uint8_t mac_out[6])
     if (index >= bound) return -1;
 
     // Set index, then read shadow BRAM via 0x06/0x07/0x08
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32_t)index);
-
+    // 2026-09-02: 读回前必须确认 cfg_idx 已锁存。板上快速逐槽扫描时, INDEX 写后
+    // cfg_idx 未及在 cfg_clk 锁存, 0x06/7/8 会读到上一个槽 → hwlist/list 误显示
+    // "错位条目"(JTAG 直读证明 HW 表正确)。subbus_write 的 flush 读 0x500A 不足,
+    // 需读回 0x5000 确认 cfg_idx==index 再读内容。
+    {   int _tr;
+        for (_tr = 0; _tr < 8; _tr++) {
+            subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX, (uint32_t)index);
+            if ((subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_INDEX) & 0x7Fu) == index) break;
+        }
+    }
     uint32_t mac_h = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_MAC_H);
     uint32_t mac_l = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_MAC_L);
     uint32_t valid = subbus_read(WL_SUBBUS_ADDR, WL_REG_ENTRY_RD_VALID);
@@ -261,10 +269,14 @@ static int wl_add_mode0(uint8_t mac[6])
 }
 
 // ---- mode2 (cuckoo hash): hash placement + bounded eviction ----
-// 返回：成功 = 落位槽位号（0~127）；失败 = -1。每跳都满足 INV-B（cur 永远放进
-// 自己的哈希槽）；任意退出路径（成功/判满/回滚）都保证全表 INV-A/B。
-// INV-C：插入含 eviction 时被踢条目在安家前查不到（≤8 跳×4 笔写 ≈ 数十 µs），
-//         本设计接受该瞬时 miss 窗口（模式2 §1.1/8.5）。
+// 返回：成功 = 落位槽位号（0~127）。失败码（2026-09-03 起区分，供 web 层报不同
+// msg、也供步骤 9.3-3 判据"灌到首次回滚"识别回滚点）：
+//   -1 = 8 跳 eviction 回滚（布谷鸟 d=2 负载阈值≈50% 决定的高负载固有冲突，非 bug）
+//   -2 = 判满（sw_wl_count >= WL_CAP，真容量满）
+//   -3 = 全零 MAC 拒绝
+// 每跳都满足 INV-B（cur 永远放进自己的哈希槽）；任意退出路径（成功/判满/回滚）
+// 都保证全表 INV-A/B。INV-C：插入含 eviction 时被踢条目在安家前查不到
+// （≤8 跳×4 笔写 ≈ 数十 µs），本设计接受该瞬时 miss 窗口（模式2 §1.1/8.5）。
 static int wl_add_mode2(uint8_t mac[6])
 {
     uint8_t  s0 = WL_SLOT(0, wl_h0(mac));
@@ -273,8 +285,8 @@ static int wl_add_mode2(uint8_t mac[6])
     uint8_t  saved_cnt = 0, i;
     int      bank, hop, placed;
 
-    if (wl_is_zero_mac(mac)) return -1;                  // 0. 全零拒绝
-    if (sw_wl_count >= WL_CAP) return -1;                // 2. 判满 (75% load)
+    if (wl_is_zero_mac(mac)) return -3;                  // 0. 全零拒绝
+    if (sw_wl_count >= WL_CAP) return -2;                // 2. 判满 (75% load)
     if (sw_wl_valid[s0] && !memcmp(sw_wl_mac[s0], mac, 6)) return s0;   // 1. 查重幂等
     if (sw_wl_valid[s1] && !memcmp(sw_wl_mac[s1], mac, 6)) return s1;
 
@@ -309,7 +321,7 @@ static int wl_add_mode2(uint8_t mac[6])
         }
     }
 
-    /* 5. 8 跳失败 → 快照回滚（CLEAR 后按原槽直接写回，必然无冲突） */
+    /* 5. 8 跳失败 → 快照回滚（CLEAR 后按原槽直接写回，必然无冲突）。返回 -1（回滚） */
     if (!placed) {
         wl_hw_clear_all_and_wait();
         memset(sw_wl_valid, 0, sizeof(sw_wl_valid)); sw_wl_count = 0;
@@ -351,7 +363,10 @@ int whitelist_delete(uint8_t index)
 void whitelist_clear_all(void)
 {
     int i;
-    subbus_write(WL_SUBBUS_ADDR, WL_REG_ENTRY_CLEAR, 1);
+    // 必须等 CLEAR 序列器扫完 128 槽（>128 cfg 拍 ≈2.56µs），否则 boot 快照恢复
+    // （whitelist_apply_snapshot：clear 后立刻重灌）头几条会被仍在跑的序列器抹掉。
+    // 2026-09-03 修复：原直接 subbus_write(CLEAR,1) 不等待，与回滚路径不一致。
+    wl_hw_clear_all_and_wait();
     for (i = 0; i < WL_SLOTS; i++) sw_wl_valid[i] = 0;
     sw_wl_count = 0;
 }
