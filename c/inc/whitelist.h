@@ -30,6 +30,10 @@ uint8_t whitelist_is_enabled(void);
 void    whitelist_set_default_pass(uint8_t pass);  // wl_ctrl[1]: 白名单禁用时策略 0=全断,1=全放
 uint8_t whitelist_get_default_pass(void);
 
+// 运行时查找模式切换（RTL 双引擎常驻）：0=顺序 seq, 2=布谷鸟 cuckoo
+uint8_t whitelist_get_mode(void);
+int     whitelist_set_mode(uint8_t mode);   // 清表 + 写 wl_ctrl[2]; 返回 0 成功 / -1 非法 mode
+
 // Entry operations (via SubBus 0x5000 → mac_whitelist BRAM)
 int  whitelist_add(uint8_t mac[6]);
 int  whitelist_delete(uint8_t index);

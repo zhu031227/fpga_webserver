@@ -1028,6 +1028,33 @@ static void api_wl_defpass(int conn_idx) {
     api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
 }
 
+// --- GET /api/wl/mode (读当前查找模式) ---
+static void api_wl_mode_get(int conn_idx) {
+    char body[24]; int p = 0; const char *s;
+    s = "{\"mode\":";
+    while (*s) body[p++] = *s++;
+    body[p++] = (whitelist_get_mode() == 2) ? '2' : '0';
+    body[p++] = '}';
+    body[p] = '\0';
+    api_send_json(conn_idx, body);
+}
+
+// --- POST /api/wl/mode (切换查找模式: {"mode":"2"} 布谷鸟 / {"mode":"0"} 顺序) ---
+static void api_wl_mode_set(int conn_idx, uint16_t tcp_data_len) {
+    char field[TCP_POST_FIELD_WIDTH + 1];
+    uint8_t mode;
+    if (!json_get_str(tcp_data_len, "mode", field, TCP_POST_FIELD_WIDTH)) {
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"no mode field\"}");
+        return;
+    }
+    mode = (field[0] == '2') ? 2 : 0;   // 简化：非 '2' 一律当 0
+    if (whitelist_set_mode(mode) != 0) {
+        api_send_json(conn_idx, "{\"code\":-1,\"msg\":\"bad mode\"}");
+        return;
+    }
+    api_send_json(conn_idx, "{\"code\":0,\"msg\":\"ok\"}");
+}
+
 // --- GET /api/local/status ---
 static void api_local_status(int conn_idx) {
     local_config_t cfg;
@@ -1199,6 +1226,13 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                                     handled = 1;
                                 }
                             }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/mode")) {
+                                    api_wl_mode_get(conn_idx);
+                                    handled = 1;
+                                }
+                            }
                         }
                     }
                 }
@@ -1266,6 +1300,13 @@ void http_request_handler(int conn_idx, uint16_t tcp_data_len) {
                                     api_send_json(conn_idx, save_rc == 0
                                         ? "{\"code\":0,\"msg\":\"saved\"}"
                                         : "{\"code\":-1,\"msg\":\"flash error\"}");
+                                    handled = 1;
+                                }
+                            }
+                            if (!handled) {
+                                lcpu_baseaddr->rd_pkt_fifo.raddr = rd_save;
+                                if (match_path("pi/wl/mode")) {
+                                    api_wl_mode_set(conn_idx, tcp_data_len);
                                     handled = 1;
                                 }
                             }

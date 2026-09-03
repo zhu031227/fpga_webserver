@@ -169,8 +169,8 @@ module webserver_wrapper #(
   wire                        local_config_valid;
 
   // Whitelist global control (50MHz → 125MHz CDC)
-  wire [                 1:0] wl_ctrl_50m;
-  wire [                 1:0] wl_ctrl_125m;
+  wire [                 2:0] wl_ctrl_50m;
+  wire [                 2:0] wl_ctrl_125m;
   wire [                15:0] wl_status;  // [7:0]=lookup_mode, [15:8]=used_cnt
   wire [                31:0] wl_lat_match_mac_h;
   wire [                15:0] wl_lat_match_mac_l;
@@ -976,7 +976,7 @@ module webserver_wrapper #(
   // CDC: wl_ctrl (50MHz → 125MHz, ReqAck)
   // ============================================================
   cdc_bus_sync #(
-      .DATA_WIDTH(2),
+      .DATA_WIDTH(3),
       .MODE(1)
   ) u_sync_wl_ctrl (
       .src_clk  (clk_50mhz),
@@ -1177,6 +1177,7 @@ module webserver_wrapper #(
       .cfg_rdata(wl_cfg_rdata),
       .whitelist_en(wl_ctrl_125m[0]),
       .default_pass(wl_ctrl_125m[1]),
+      .lookup_mode_sel(wl_ctrl_125m[2]),
       .wl_status(wl_status)
   );
 

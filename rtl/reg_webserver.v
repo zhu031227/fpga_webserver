@@ -111,7 +111,7 @@ module reg_webserver (
     output reg [0:0] local_config_load,
     output reg local_config_load_ind,
     input [0:0] local_config_valid,
-    output reg [1:0] wl_ctrl,
+    output reg [2:0] wl_ctrl,   // [1:0]=enable,default_pass; [2]=lookup_mode(1=布谷鸟,0=顺序)
     input [15:0] wl_status,
     input [31:0] wl_lat_match_mac_h,
     input [15:0] wl_lat_match_mac_l,
@@ -683,10 +683,10 @@ module reg_webserver (
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      wl_ctrl <= 2'h0;
+      wl_ctrl <= 3'b100;   // 复位默认 [2]=1(布谷鸟模式2), 与 LOOKUP_MODE=2 综合一致
     end else begin
       if (req == 1'b1 && rhwl == 1'b0 && address == 16'h300) begin
-        wl_ctrl <= wdata[1:0];
+        wl_ctrl <= wdata[2:0];
       end
     end
   end
@@ -1077,7 +1077,7 @@ module reg_webserver (
         reg_ack <= 1'b1;
       end
       if (req == 1'b1 && address == 16'h300) begin
-        reg_rdata[1:0] <= wl_ctrl;
+        reg_rdata[2:0] <= wl_ctrl;
         reg_ack <= 1'b1;
       end
       if (req == 1'b1 && address == 16'h301) begin

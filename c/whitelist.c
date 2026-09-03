@@ -238,6 +238,28 @@ uint8_t whitelist_get_default_pass(void)
     return (uint8_t)((lcpu_baseaddr->wl_ctrl >> 1) & 0x1);
 }
 
+// ---- 运行时查找模式切换（2026-09-03，RTL 双引擎常驻）----
+// 返回当前运行时模式（0=顺序 seq, 2=布谷鸟 cuckoo）。读 wl_status[7:0]。
+uint8_t whitelist_get_mode(void)
+{
+    return wl_mode();
+}
+
+// 设置运行时模式：清空两引擎表（cfg 写口广播，CLEAR 同时清 seq+cuckoo）+ 重置
+// sw 镜像，然后写 wl_ctrl[2]（1=布谷鸟, 0=顺序）。模式经 CDC 同步到 125MHz 域后
+// 生效，期间旧引擎已清空，无脏数据。mode 仅接受 0 或 2。
+int whitelist_set_mode(uint8_t mode)
+{
+    uint32_t ctrl;
+    if (mode != 0 && mode != 2) return -1;
+    whitelist_clear_all();                 // 清空两引擎 + 重置 sw_wl_valid/count
+    ctrl = lcpu_baseaddr->wl_ctrl;
+    if (mode == 2) ctrl |= 0x4u;           // wl_ctrl[2]=1 → 布谷鸟
+    else           ctrl &= ~0x4u;          // wl_ctrl[2]=0 → 顺序
+    lcpu_baseaddr->wl_ctrl = ctrl;
+    return 0;
+}
+
 // ---- mode0 (sequential): find free slot 0..15 ----
 static int wl_add_mode0(uint8_t mac[6])
 {
@@ -511,7 +533,9 @@ void whitelist_apply_snapshot(const flash_cfg_wl_t *wl)
     if (!wl) return;
 
     whitelist_clear_all();
-    lcpu_baseaddr->wl_ctrl = wl->ctrl & 0x3u;
+    // 只恢复 enable/default_pass(bit[1:0])，保留 wl_ctrl[2](查找模式)——模式是运行时
+    // 设置(复位默认布谷鸟 3'b100)，不进 flash 快照，boot 恢复不得清掉它。
+    lcpu_baseaddr->wl_ctrl = (lcpu_baseaddr->wl_ctrl & ~0x3u) | (wl->ctrl & 0x3u);
 
     for (i = 0; i < FLASH_CFG_WL_MAX; i++) {
         if (wl->valid_mask & (uint16_t)(1u << i)) {
