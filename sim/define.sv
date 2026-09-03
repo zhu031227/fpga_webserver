@@ -11,4 +11,8 @@
 `define DEVICE_VENDOR ""
 `define LARGER_RAM  "distributed"
 `define SMALL_RAM   "distributed"
+// 目的 4：WL_SIM —— 仿真侧标记。fpga_ila 调试核（soft_ila_top）不在仿真文件清单里，
+//         RTL 中相关例化用 `ifndef WL_SIM 隔离；板上构建走 ip_common/rtl/define.sv，
+//         无此宏，核正常参与综合（2026-09-03 布谷鸟核 #8 引入）
+`define WL_SIM
 `endif

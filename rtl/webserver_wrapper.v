@@ -91,11 +91,11 @@ module webserver_wrapper #(
     // fpga_ila 调试总线（透传到顶层 ila_hub_top）
     input  wire        ila_jtag_clk,
     input  wire        ila_jtag_rst,
-    input  wire [ 7:0] ila_core_we,      // [0]=cpu_intf, [1]=flash/bl, [6]=cpu_tx@50M, [7]=mac_tx@125M (P0取证)
+    input  wire [ 8:0] ila_core_we,      // [0]=cpu_intf, [1]=flash/bl, [6]=cpu_tx@50M, [7]=mac_tx@125M (P0取证), [8]=cuckoo@125M(模式2调试)
     input  wire        ila_core_re,
     input  wire [15:0] ila_core_addr,
     input  wire [31:0] ila_core_wdata,
-    output wire [8*32-1:0] ila_core_rdata,
+    output wire [9*32-1:0] ila_core_rdata,
 
     // SFP GT debug status（准静态电平，寄存器异步采样即可）
     input  wire [31:0] sfp_status_dbg,  // → debug_ro_2 (0x22): {sfp2_status_vector, sfp1_status_vector}
@@ -1156,7 +1156,7 @@ module webserver_wrapper #(
       .reg_rdata     (ila_core_rdata[63:32])
   );
 
-  // ── mac_whitelist_top（2核：写口/读口监控，CORE_EN 在内部控制）──
+  // ── mac_whitelist_top（双引擎常驻运行时切换；核#8 布谷鸟调试探针在引擎内部）──
   mac_whitelist_top #(
       .LOOKUP_MODE(2),   // MODE2 cuckoo (was 0); altera build would need same + cuckoo in filelist
       .ENTRY_NUM(16),
@@ -1178,7 +1178,13 @@ module webserver_wrapper #(
       .whitelist_en(wl_ctrl_125m[0]),
       .default_pass(wl_ctrl_125m[1]),
       .lookup_mode_sel(wl_ctrl_125m[2]),
-      .wl_status(wl_status)
+      .wl_status(wl_status),
+      .ila_jtag_clk(ila_jtag_clk),
+      .ila_core_we(ila_core_we[8]),
+      .ila_core_re(ila_core_re),
+      .ila_core_addr(ila_core_addr),
+      .ila_core_wdata(ila_core_wdata),
+      .ila_core_rdata(ila_core_rdata[8*32 +: 32])
   );
 
   // ============================================================

@@ -40,7 +40,15 @@ module mac_whitelist_top #(
 
     // wl_status 观测口 (P2修复 wl_status 驱动, 2026-08-31):
     // [7:0]=运行时 lookup_mode(0 或 2), [15:8]=活跃引擎 used_cnt(cfg域popcount)
-    output wire [15:0] wl_status
+    output wire [15:0] wl_status,
+
+    // fpga_ila 调试总线（核 #8 布谷鸟用，标量透传；debug-ila 2026-09-03 添加）
+    input  wire        ila_jtag_clk,
+    input  wire        ila_core_we,
+    input  wire        ila_core_re,
+    input  wire [15:0] ila_core_addr,
+    input  wire [31:0] ila_core_wdata,
+    output wire [31:0] ila_core_rdata
 );
 
   // ============================================================
@@ -102,7 +110,14 @@ module mac_whitelist_top #(
       .cfg_rdata     (ck_cfg_rdata),
       .whitelist_en  (whitelist_en),
       .default_pass  (default_pass),
-      .wl_used_cnt   (ck_used_cnt)
+      .wl_used_cnt   (ck_used_cnt),
+      // fpga_ila 核 #8 总线（仅布谷鸟携带；seq 不接）
+      .ila_jtag_clk  (ila_jtag_clk),
+      .ila_core_we   (ila_core_we),
+      .ila_core_re   (ila_core_re),
+      .ila_core_addr (ila_core_addr),
+      .ila_core_wdata(ila_core_wdata),
+      .ila_core_rdata(ila_core_rdata)
   );
 
   // ---- 运行时 mux ----

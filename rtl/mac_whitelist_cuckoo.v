@@ -61,7 +61,15 @@ module mac_whitelist_cuckoo #(
     input default_pass,
 
     // wl_status 观测口 (P2 已端到端驱动): cfg 域组合 popcount, 无需 CDC
-    output wire [7:0] wl_used_cnt
+    output wire [7:0] wl_used_cnt,
+
+    // fpga_ila 调试总线（核 #8，标量；debug-ila 2026-09-03 添加）
+    input  wire        ila_jtag_clk,
+    input  wire        ila_core_we,
+    input  wire        ila_core_re,
+    input  wire [15:0] ila_core_addr,
+    input  wire [31:0] ila_core_wdata,
+    output wire [31:0] ila_core_rdata
 );
 
   // ============================================================
@@ -380,5 +388,51 @@ module mac_whitelist_cuckoo #(
       .address_b(bank1_rd_addr),
       .q_b(bank1_q)
   );
+
+  // ============================================================
+  // fpga_ila 调试核 #8（debug-ila skill 添加 2026-09-03）
+  // 探针全在 clk(125MHz) 域 —— 采样时钟必须与探针同域（核 7 同款铁律）
+  // WL_SIM 仅在仿真侧定义（sim/define.sv）：仿真文件清单不含 fpga_ila，
+  // 例化随之隔离；板上综合无此宏，核正常参与。
+  // ============================================================
+`ifndef WL_SIM
+  soft_ila_top #(
+      .CORE_EN       (1),
+      .DATA_DEPTH    (2048),
+      .MAX_WINDOWS   (1),
+      .SAMPLE_HZ     (125_000_000),
+      .RST_ACTIVE_LOW(1),
+      .NUM_PROBES    (8),
+      .PROBE0_WIDTH  (1),          // lookup_req
+      .PROBE1_WIDTH  (1),          // lookup_match
+      .PROBE2_WIDTH  (1),          // lookup_done
+      .PROBE3_WIDTH  (1),          // lookup_busy
+      .PROBE4_WIDTH  (2),          // state
+      .PROBE5_WIDTH  (1),          // hit_comb
+      .PROBE6_WIDTH  (ADDR_WIDTH), // bank0_rd_addr
+      .PROBE7_WIDTH  (ADDR_WIDTH), // bank1_rd_addr
+      .EXT_TRIG_EN   (1)
+  ) u_ila_cuckoo (
+      .sample_clk    (clk),
+      .rst_in        (reset_l),
+      .jtag_clk      (ila_jtag_clk),
+      .probe0        (lookup_req),
+      .probe1        (lookup_match),
+      .probe2        (lookup_done),
+      .probe3        (lookup_busy),
+      .probe4        (state),
+      .probe5        (hit_comb),
+      .probe6        (bank0_rd_addr),
+      .probe7        (bank1_rd_addr),
+      .trigger_in    (1'b0),
+      .trigger_out   (),
+      .armed_out     (),
+      .reg_we        (ila_core_we),
+      .reg_re        (ila_core_re),
+      .reg_addr      (ila_core_addr),
+      .reg_wdata     (ila_core_wdata),
+      .reg_rdata     (ila_core_rdata)
+  );
+`endif
 
 endmodule
